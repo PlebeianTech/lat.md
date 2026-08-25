@@ -6,6 +6,7 @@ import {
   type SectionMatch,
 } from '../lattice.js';
 import type { CmdContext, CmdResult } from '../context.js';
+import { UNTRUSTED_NOTICE, quoteUntrusted } from '../untrusted.js';
 
 const WIKI_LINK_RE = /\[\[([^\]]+)\]\]/g;
 
@@ -61,6 +62,7 @@ export async function expandPrompt(
 
   // Append context block as nested outliner
   output += '\n\n<lat-context>\n';
+  output += UNTRUSTED_NOTICE + '\n';
   for (const ref of resolved.values()) {
     const isExact =
       ref.best.reason === 'exact match' ||
@@ -78,7 +80,7 @@ export async function expandPrompt(
       output += `  * [[${m.section.id}]]${reason}\n`;
       output += `    * ${formatLocation(m.section, ctx.projectRoot)}\n`;
       if (m.section.firstParagraph) {
-        output += `    * ${m.section.firstParagraph}\n`;
+        output += `    * ${quoteUntrusted(m.section.firstParagraph)}\n`;
       }
     }
   }

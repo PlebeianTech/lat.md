@@ -6,6 +6,7 @@ import {
   parseSections,
   buildFileIndex,
   resolveRef,
+  parseFrontmatter,
 } from '../src/lattice.js';
 import { toPosix } from '../src/walk.js';
 
@@ -88,5 +89,55 @@ describe('bare-name link resolution in a subdirectory (issue #69)', () => {
       expect(ambiguous).toBeNull();
       expect(sectionIds.has(resolved.toLowerCase())).toBe(true);
     }
+  });
+});
+
+describe('parseFrontmatter', () => {
+  it('sets requireCodeMention when lat.require-code-mention is true', () => {
+    const fm = parseFrontmatter('---\nlat:\n  require-code-mention: true\n---\n\n# Doc\n');
+    expect(fm.requireCodeMention).toBe(true);
+  });
+
+  it('leaves requireCodeMention undefined for a bare top-level require-code-mention (no lat: wrapper)', () => {
+    const fm = parseFrontmatter('---\nrequire-code-mention: true\n---\n\n# Doc\n');
+    expect(fm.requireCodeMention).toBeUndefined();
+  });
+
+  it('leaves requireCodeMention undefined when the value is not boolean true', () => {
+    const fm = parseFrontmatter('---\nlat:\n  require-code-mention: false\n---\n\n# Doc\n');
+    expect(fm.requireCodeMention).toBeUndefined();
+  });
+
+  it('keeps unknown keys under lat: in raw', () => {
+    const fm = parseFrontmatter('---\nlat:\n  mode: strict\n  owner: alice\n---\n\n# Doc\n');
+    expect(fm.raw).toEqual({ mode: 'strict', owner: 'alice' });
+  });
+
+  it('parses nested structured values under lat: into raw', () => {
+    const fm = parseFrontmatter(
+      '---\nlat:\n  tags:\n    - a\n    - b\n  meta:\n    count: 2\n---\n\n# Doc\n',
+    );
+    expect(fm.raw).toEqual({ tags: ['a', 'b'], meta: { count: 2 } });
+  });
+
+  it('returns { raw: {} } for malformed YAML without throwing', () => {
+    expect(() => parseFrontmatter('---\nfoo: [unterminated\n---\n\n# Doc\n')).not.toThrow();
+    const fm = parseFrontmatter('---\nfoo: [unterminated\n---\n\n# Doc\n');
+    expect(fm.raw).toEqual({});
+  });
+
+  it('returns { raw: {} } when there is no frontmatter block', () => {
+    const fm = parseFrontmatter('# Doc\n\nJust content.\n');
+    expect(fm.raw).toEqual({});
+  });
+
+  it('returns { raw: {} } when the block is a top-level scalar', () => {
+    const fm = parseFrontmatter('---\njust a string\n---\n\n# Doc\n');
+    expect(fm.raw).toEqual({});
+  });
+
+  it('returns { raw: {} } when the block is a top-level array', () => {
+    const fm = parseFrontmatter('---\n- one\n- two\n---\n\n# Doc\n');
+    expect(fm.raw).toEqual({});
   });
 });

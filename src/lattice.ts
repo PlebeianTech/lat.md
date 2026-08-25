@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join, basename, relative, resolve } from 'node:path';
 import { existsSync, statSync } from 'node:fs';
 import GithubSlugger from 'github-slugger';
+import { parse as parseYaml } from 'yaml';
 import { parse } from './parser.js';
 import { toPosix, walkEntries } from './walk.js';
 import { visit } from 'unist-util-visit';
@@ -54,15 +55,34 @@ export type MdLink =
     };
 
 export type LatFrontmatter = {
+  /** Every key under the `lat:` mapping, parsed but not mapped to a field. */
+  raw: Record<string, unknown>;
   requireCodeMention?: boolean;
 };
 
 export function parseFrontmatter(content: string): LatFrontmatter {
   const match = content.match(/^---\n([\s\S]*?)\n---/);
-  if (!match) return {};
-  const yaml = match[1];
-  const result: LatFrontmatter = {};
-  if (/require-code-mention:\s*true/i.test(yaml)) {
+  if (!match) return { raw: {} };
+
+  let raw: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = parseYaml(match[1]);
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed)
+    ) {
+      const lat = (parsed as Record<string, unknown>)['lat'];
+      if (lat !== null && typeof lat === 'object' && !Array.isArray(lat)) {
+        raw = lat as Record<string, unknown>;
+      }
+    }
+  } catch {
+    raw = {};
+  }
+
+  const result: LatFrontmatter = { raw };
+  if (raw['require-code-mention'] === true) {
     result.requireCodeMention = true;
   }
   return result;
