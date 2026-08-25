@@ -162,7 +162,20 @@ lat:
 ---
 ```
 
-Currently the only supported field is `require-code-mention` for test spec enforcement.
+Supported fields: `require-code-mention` for test spec enforcement, and `mode` for Diátaxis mode declaration.
+
+## Diátaxis modes
+
+Documents in `tutorials/`, `how-to/`, `reference/`, or `explanation/` under `lat.md/` are checked against their Diátaxis mode. Declare it with nested frontmatter:
+
+```yaml
+---
+lat:
+  mode: reference
+---
+```
+
+If the document is in one of the four mode directories, the declared mode must match that directory. Each mode enforces one shape rule: tutorials need an ordered list of steps and a stated outcome; how-to guides need an ordered list of steps; reference docs must not contain narrative prose (no second paragraph under a heading); explanations must not give imperative commands. `lat check mode` validates this.
 
 ## Validation
 

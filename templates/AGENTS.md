@@ -103,3 +103,16 @@ Details about this child topic.
 ```
 
 The second example is invalid because `Bad Section` has no leading paragraph. `lat check` validates this rule and reports errors for missing or overly long leading paragraphs.
+
+# Diátaxis modes
+
+Documents under `lat.md/tutorials/`, `lat.md/how-to/`, `lat.md/reference/`, and `lat.md/explanation/` are checked against their Diátaxis mode. Declare it explicitly with nested frontmatter, or rely on the directory:
+
+```markdown
+---
+lat:
+  mode: reference
+---
+```
+
+If a document is in one of the four mode directories, the declared mode must match that directory. Each mode enforces one shape rule: tutorials need an ordered list of steps and a stated outcome; how-to guides need an ordered list of steps; reference docs must not contain narrative prose (no second paragraph under a heading); explanations must not give imperative commands. Run `lat check mode` to validate.

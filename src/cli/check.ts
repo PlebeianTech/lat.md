@@ -15,6 +15,7 @@ import {
   type Section,
 } from '../lattice.js';
 import { scanCodeRefs } from '../code-refs.js';
+import { checkMode } from './check-mode.js';
 import { SOURCE_EXTENSIONS, clearSymbolCache } from '../source-parser.js';
 import { toPosix, walkEntries } from '../walk.js';
 import type { CmdContext, CmdResult, Styler } from '../context.js';
@@ -639,6 +640,7 @@ export async function checkAllCommand(ctx: CmdContext): Promise<CmdResult> {
   const code = await checkCodeRefs(ctx.latDir, ctx.projectRoot);
   const indexErrors = await checkIndex(ctx.latDir);
   const sectionErrors = await checkSections(ctx.latDir, ctx.projectRoot);
+  const modeErrors = await checkMode(ctx.latDir, ctx.projectRoot);
   const elapsed = Date.now() - startTime;
 
   const allErrors = [...md.errors, ...linkErrors, ...code.errors];
@@ -683,9 +685,13 @@ export async function checkAllCommand(ctx: CmdContext): Promise<CmdResult> {
   lines.push(...formatCheckErrors(allErrors, s));
   lines.push(...formatCheckIndexErrors(indexErrors, s));
   lines.push(...formatCheckErrors(sectionErrors, s));
+  lines.push(...formatCheckErrors(modeErrors, s));
 
   const totalErrors =
-    allErrors.length + indexErrors.length + sectionErrors.length;
+    allErrors.length +
+    indexErrors.length +
+    sectionErrors.length +
+    modeErrors.length;
   if (totalErrors > 0) {
     lines.push(formatErrorCount(totalErrors, s));
     return { output: lines.join('\n'), isError: true };
@@ -791,5 +797,21 @@ export async function checkSectionsCommand(
   }
 
   lines.push(s.green('sections: All sections have valid leading paragraphs'));
+  return { output: lines.join('\n') };
+}
+
+export async function checkModeCommand(ctx: CmdContext): Promise<CmdResult> {
+  const errors = await checkMode(ctx.latDir, ctx.projectRoot);
+  const s = ctx.styler;
+  const lines: string[] = [];
+
+  lines.push(...formatCheckErrors(errors, s));
+
+  if (errors.length > 0) {
+    lines.push(formatErrorCount(errors.length, s));
+    return { output: lines.join('\n'), isError: true };
+  }
+
+  lines.push(s.green('mode: All documents match their Diátaxis mode'));
   return { output: lines.join('\n') };
 }

@@ -186,6 +186,16 @@ check
     handleResult(await checkSectionsCommand(ctx));
   });
 
+check
+  .command('mode')
+  .usage('[-- <directory>]')
+  .description('Validate Diátaxis modes and document shape')
+  .action(async () => {
+    const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
+    const { checkModeCommand } = await import('./check.js');
+    handleResult(await checkModeCommand(ctx));
+  });
+
 async function runExpand(
   text: string | undefined,
   opts: { stdin?: boolean },
