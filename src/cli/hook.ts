@@ -1,13 +1,12 @@
 import { execSync } from 'node:child_process';
 import { dirname, extname } from 'node:path';
-import { findLatticeDir } from '../lattice.js';
+import { findLatticeDir, loadAllSections, findSections } from '../lattice.js';
 import { plainStyler, type CmdContext } from '../context.js';
 import { expandPrompt } from './expand.js';
 import { runSearch } from './search.js';
 import { getSection, formatSectionOutput } from './section.js';
 import { checkMd, checkCodeRefs, checkIndex, checkSections } from './check.js';
 import { SOURCE_EXTENSIONS } from '../source-parser.js';
-import { loadAllSections, findSections } from '../lattice.js';
 import { federateTags, taggedDocsForFiles } from '../knowledge/index.js';
 
 function outputPromptSubmit(context: string): void {
