@@ -7,6 +7,8 @@ import { runSearch } from './search.js';
 import { getSection, formatSectionOutput } from './section.js';
 import { checkMd, checkCodeRefs, checkIndex, checkSections } from './check.js';
 import { SOURCE_EXTENSIONS } from '../source-parser.js';
+import { loadAllSections, findSections } from '../lattice.js';
+import { federateTags, taggedDocsForFiles } from '../knowledge/index.js';
 
 function outputPromptSubmit(context: string): void {
   process.stdout.write(
@@ -57,10 +59,19 @@ function makeHookCtx(latDir: string): CmdContext {
   };
 }
 
+/**
+ * Semantic-search enrichment, plus the files it matched. The file list is
+ * returned rather than re-derived by a second `runSearch` call: the search is
+ * the expensive part of this hook, and a second call would also have to
+ * repeat the failure handling below — which, when it was missing, silently
+ * dropped the caller's [[ref]] federation whenever the index was unusable.
+ */
+type SearchEnrichment = { text: string | null; filePaths: string[] };
+
 async function searchAndExpand(
   ctx: CmdContext,
   userPrompt: string,
-): Promise<string | null> {
+): Promise<SearchEnrichment> {
   let result;
   try {
     // Read-only: search an existing index but never build/update it here. A fresh
@@ -72,9 +83,10 @@ async function searchAndExpand(
   } catch {
     // No usable backend (e.g. reindex required, key rejected) — skip semantic
     // enrichment silently rather than blocking the user's prompt.
-    return null;
+    return { text: null, filePaths: [] };
   }
-  if (result.matches.length === 0) return null;
+  const filePaths = result.matches.map((m) => m.section.filePath);
+  if (result.matches.length === 0) return { text: null, filePaths };
 
   const parts: string[] = [
     `Search results for the user prompt (${result.matches.length} matches):`,
@@ -89,7 +101,7 @@ async function searchAndExpand(
     }
   }
 
-  return parts.join('\n');
+  return { text: parts.join('\n'), filePaths };
 }
 
 async function handleUserPromptSubmit(): Promise<void> {
@@ -142,13 +154,55 @@ async function handleUserPromptSubmit(): Promise<void> {
     }
 
     // Search for relevant sections and include their full content
+    let searchFilePaths: string[] = [];
     try {
       const searchContext = await searchAndExpand(ctx, userPrompt);
-      if (searchContext) {
-        parts.push('', searchContext);
+      searchFilePaths = searchContext.filePaths;
+      if (searchContext.text) {
+        parts.push('', searchContext.text);
       }
     } catch {
       // Search failed (no key, index error, etc.) — agent can search manually
+    }
+
+    // Federate tagged-document knowledge: documents named by [[refs]] in the
+    // prompt, then documents behind the semantic search matches. Wrapped in
+    // one try/catch, like every other enrichment above — a failing store
+    // lookup must never fail the user's prompt.
+    try {
+      const filePaths: string[] = [];
+
+      // [[refs]] resolution must work with no embedding index built, so it
+      // reuses findSections (the same resolver expandPrompt uses) rather
+      // than any semantic search path.
+      const refTargets = [...userPrompt.matchAll(/\[\[([^\]]+)\]\]/g)].map(
+        (m) => m[1],
+      );
+      if (refTargets.length > 0) {
+        const allSections = await loadAllSections(latDir);
+        for (const target of refTargets) {
+          const matches = findSections(allSections, target);
+          if (matches.length > 0) {
+            filePaths.push(matches[0].section.filePath);
+          }
+        }
+      }
+
+      // Reuses what searchAndExpand already matched. Searching again here
+      // would double the cost of every prompt, and an unusable index makes
+      // runSearch throw — which abandoned the [[ref]] paths collected above,
+      // even though resolving those never touches the index at all.
+      filePaths.push(...searchFilePaths);
+
+      const docs = await taggedDocsForFiles(ctx.projectRoot, filePaths);
+      const federated = await federateTags(docs, {
+        projectRoot: ctx.projectRoot,
+      });
+      if (federated) {
+        parts.push('', federated);
+      }
+    } catch {
+      // No stores available, no tagged docs, etc. — skip federation silently.
     }
   }
 
