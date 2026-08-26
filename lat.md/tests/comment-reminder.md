@@ -80,7 +80,7 @@ The two halves once disagreed: the gate filtered the token before counting and t
 
 A `Write` that re-emits an existing file and appends two comment lines is reported as two lines, not as every comment in the file.
 
-The reminder shares [[src/cli/comment-reminder.ts#extractWrittenText]] with the gate, so the same whole-file diffing applies and the count it prints matches what the agent actually wrote.
+The reminder shares [[src/cli/comment-reminder.ts#extractWrittenText]] with the gate, so the same diffing applies to `content`, to an `Edit`'s `new_string`, and to each `MultiEdit` hunk, and the count it prints matches what the agent actually wrote.
 
 ## git timeout
 
