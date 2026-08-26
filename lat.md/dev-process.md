@@ -164,6 +164,14 @@ Cutting a release is a deliberate act, triggered by a tag rather than by a merge
 3. **Tag** — `git tag vX.Y.Z-fork.N` and push the tag. The tag must match `package.json` exactly; [[dev-process#Publishing#Release Workflow]] refuses the release otherwise
 4. **Install anywhere** — `npm i -g` against the release asset URL
 
+Each release carries the tarball twice: under its versioned name, and again as `lat.md-latest.tgz`. GitHub's `/releases/latest/` redirect resolves the release but not an asset name, so a version-free URL needs a version-free asset to point at:
+
+```
+npm i -g https://github.com/PlebeianTech/lat.md/releases/latest/download/lat.md-latest.tgz
+```
+
+The versioned URL stays available for pinning. `latest` follows whichever release GitHub considers current, which excludes any release marked as a prerelease — the `-fork.N` suffix in the version does not itself mark one.
+
 The two `@lat.md/*` packages are never bumped or published here. They are upstream's, unmodified, and already released.
 
 ### Release Workflow
@@ -174,7 +182,7 @@ GitHub Actions workflow at `.github/workflows/publish.yml`, triggered by a `v*` 
 2. **Build and test** — `pnpm install --frozen-lockfile`, `pnpm buildall`, then `pnpm vitest run`
 3. **Refuse a wrong release** — two guards, both failing the run rather than cutting a bad release: the version must carry a `-fork.` suffix, and a tag must equal `v$VERSION`
 4. **Pack** — `pnpm pack`, which rewrites the `workspace:*` deps to their published versions
-5. **Release** — creates the `vX.Y.Z-fork.N` release with the tarball attached, or uploads to an existing one with `--clobber`
+5. **Release** — creates the `vX.Y.Z-fork.N` release with both asset names attached, or uploads to an existing one with `--clobber`
 
 Nothing in the workflow contacts a registry, and it holds only `contents: write` — it cannot publish a package even by accident.
 

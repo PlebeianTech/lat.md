@@ -53,6 +53,11 @@ jobs:
         run: |
           mkdir -p release
           pnpm pack --pack-destination release
+          # A second copy under a version-free name, so
+          # /releases/latest/download/lat.md-latest.tgz is a URL that never
+          # needs editing. GitHub's `latest` redirect resolves the release but
+          # not the asset name, so a stable name has to exist as a real asset.
+          cp "release/lat.md-${VER}.tgz" release/lat.md-latest.tgz
           ls -l release
 
       - name: Write the release notes
@@ -61,6 +66,12 @@ jobs:
             echo "Fork build of lat.md."
             echo
             echo "Install the CLI:"
+            echo
+            echo '```'
+            echo "npm i -g https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/lat.md-latest.tgz"
+            echo '```'
+            echo
+            echo "Or pin this exact version:"
             echo
             echo '```'
             echo "npm i -g https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VER}/lat.md-${VER}.tgz"
