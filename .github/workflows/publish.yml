@@ -1,11 +1,11 @@
 name: Release
 
-# The fork publishes to no registry: it attaches a packed tarball to a GitHub
-# Release, then publishes @plebeiantech/lat.md to npm if an NPM_TOKEN secret
-# is set. The package name is scoped so a fork build can never be
-# confused with upstream's `lat.md`. Rationale, and why upstream's version of
-# this file was replaced wholesale, live in lat.md/dev-process.md under
-# "Publishing".
+# Attaches a packed tarball to a GitHub Release, then publishes
+# @plebeiantech/lat.md to npm when an NPM_TOKEN secret is set. It never
+# publishes under the name `lat.md`, which is upstream's; the scoped name makes
+# a fork build impossible to confuse with theirs. Rationale, and why upstream's
+# version of this file was replaced wholesale, live in lat.md/dev-process.md
+# under "Publishing".
 #
 # Deliberately not a `@lat:` pointer: .github/ is a dotfile directory and the
 # code-ref scanner never walks it, so the ref could rot without lat check ever
