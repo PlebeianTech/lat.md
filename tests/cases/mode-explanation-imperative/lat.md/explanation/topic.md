@@ -1,7 +1,8 @@
 ---
 lat:
   mode: explanation
-summary: Run the setup once before anything else.
+summary: >
+  Run the setup once before anything else.
 ---
 # Run This Heading Is Not Flagged
 

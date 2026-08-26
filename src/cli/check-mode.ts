@@ -24,9 +24,11 @@ export const MODE_DIRS: Record<DiataxisMode, string> = {
 };
 
 /** Reverse lookup: first path segment -> mode. Built once, not per file. */
-const DIR_TO_MODE: Record<string, DiataxisMode> = Object.fromEntries(
-  DIATAXIS_MODES.map((mode) => [MODE_DIRS[mode], mode]),
-);
+// Null-prototype: the key is a directory name read off disk.
+const DIR_TO_MODE: Record<string, DiataxisMode> = Object.create(null);
+for (const mode of DIATAXIS_MODES) {
+  DIR_TO_MODE[MODE_DIRS[mode]] = mode;
+}
 
 const OUTCOME_RE =
   /\b(outcome|by the end|you will (build|learn|have|create)|what you (will )?(build|learn|have|create))\b/i;
