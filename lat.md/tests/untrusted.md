@@ -59,3 +59,31 @@ An empty string input returns an empty string.
 ### Neutralizes a closing wiki-link delimiter so a heading cannot escape the rendered link
 
 A heading containing `]]` would otherwise close the generated `[[...]]` early, leaving the rest of the heading in the prompt with no untrusted framing. Square brackets are replaced so no id can break out.
+
+## Structural delimiters in body prose
+
+The delimiter pass covers quoted body prose, not only ids — see [[untrusted-content#Sanitization#Structural delimiters]]. These tests pin the escape it prevents and the two Markdown routes that deliver it.
+
+### Neutralizes angle brackets so quoted prose cannot forge a container close
+
+Quoted prose carrying `</lat-context>` followed by a fresh opening tag would close the container the untrusted notice bounds and present the rest as trusted. No angle bracket survives quoting.
+
+### Neutralizes a backslash-escaped close tag delivered through the markdown parser
+
+A backslash escape is one of two ways a close tag reaches a section's first paragraph as literal text rather than an inline HTML node the parser drops. The parsed paragraph really carries the tag, and quoting removes it.
+
+### Neutralizes a close tag delivered inside an inline code span
+
+An inline code span is the other route: its content is preserved verbatim through parsing. The parsed paragraph really carries the tag, and quoting removes it.
+
+### Neutralizes wiki-link brackets and the alias pipe in quoted prose
+
+Body prose cannot forge a `[[ref|alias]]` that reads as a resolved reference: brackets become parentheses and the alias pipe becomes a slash.
+
+### Replaces delimiters one for one so the length cap is unchanged
+
+Each delimiter maps to exactly one replacement character, so a string of delimiters truncates at the same offset as ordinary text and the cap needs no adjustment.
+
+### Leaves the raw cleaner alone for the Markdown index path
+
+`cleanUntrusted` returns brackets and pipes untouched. Its one raw caller is the generated Markdown index, which escapes its own labels, and pinning that boundary keeps the delimiter pass from drifting into a path that does not want it.

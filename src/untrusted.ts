@@ -55,12 +55,12 @@ const DELIMITER_REPLACEMENTS: Record<string, string> = {
   '|': '/',
 };
 
-/**
- * Strip control characters and invisible/reordering Unicode, collapse to one
- * line, trim, and cap length. Order matters: control/hidden characters must
- * be gone before whitespace collapsing, otherwise a stripped control
- * character could leave two words touching with no space between them.
- */
+// @lat: [[untrusted-content#Sanitization#Structural delimiters]]
+function replaceDelimiters(text: string): string {
+  return text.replace(DELIMITERS, (c) => DELIMITER_REPLACEMENTS[c]);
+}
+
+// @lat: [[untrusted-content#Sanitization]]
 export function cleanUntrusted(text: string, maxChars = 300): string {
   let cleaned = text
     .replace(CONTROL_CHARS, ' ')
@@ -80,7 +80,10 @@ export function cleanUntrusted(text: string, maxChars = 300): string {
 }
 
 export function quoteUntrusted(text: string, maxChars = 300): string {
-  const cleaned = cleanUntrusted(text, maxChars).replace(/"/g, "'");
+  const cleaned = replaceDelimiters(cleanUntrusted(text, maxChars)).replace(
+    /"/g,
+    "'",
+  );
   return `"${cleaned}"`;
 }
 
@@ -99,10 +102,9 @@ export function quoteUntrusted(text: string, maxChars = 300): string {
  * unframed. Square brackets are replaced with parens so no id can break out.
  */
 export function cleanUntrustedId(text: string): string {
-  return text
-    .replace(CONTROL_CHARS, ' ')
-    .replace(HIDDEN_UNICODE, '')
-    .replace(DELIMITERS, (c) => DELIMITER_REPLACEMENTS[c])
+  return replaceDelimiters(
+    text.replace(CONTROL_CHARS, ' ').replace(HIDDEN_UNICODE, ''),
+  )
     .replace(WHITESPACE_RUN, ' ')
     .trim();
 }
