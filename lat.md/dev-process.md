@@ -170,6 +170,8 @@ npm i -g --prefix ~/.local/lat https://github.com/PlebeianTech/lat.md/releases/l
 
 The second wants `~/.local/lat/bin` on `PATH`. A fixed prefix rather than the default global one keeps that install independent of the active Node version, which a version manager would otherwise change underneath it.
 
+The two routes must not both be live on one machine. `~/.local/lat/bin` is prepended to `PATH`, so a Release-route install shadows a mise-managed one, and `mise upgrade` then reports a version the shell never runs.
+
 ### Nothing is built at install time
 
 The published package carries a built `dist/` and `templates/`; there is no `postinstall` step and there must not be one.

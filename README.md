@@ -62,6 +62,8 @@ npm i -g --prefix ~/.local/lat https://github.com/PlebeianTech/lat.md/releases/l
 
 That last one wants `~/.local/lat/bin` on your `PATH`. A fixed prefix keeps the install independent of whichever Node version is active.
 
+Pick one route and stay on it. A Release-route install left on `PATH` shadows a mise-managed one — `mise upgrade` then reports a new version while the shell keeps running the old binary.
+
 Then run `lat init` in the repo you want to use lat in.
 
 ### As a Claude Code plugin
