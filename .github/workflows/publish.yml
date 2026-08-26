@@ -1,9 +1,11 @@
 name: Release
 
-# The fork publishes @plebeiantech/lat.md to npm and attaches the same tarball
-# to a GitHub Release. It never touches the `lat.md` package name, which is
-# upstream's. Rationale, and why upstream's version of this file was replaced
-# wholesale, live in lat.md/dev-process.md under "Publishing".
+# The fork publishes to no registry: it attaches a packed tarball to a GitHub
+# Release. The npm publish step below is dormant, running only if an NPM_TOKEN
+# secret is ever set. The package name is scoped so a fork build can never be
+# confused with upstream's `lat.md`. Rationale, and why upstream's version of
+# this file was replaced wholesale, live in lat.md/dev-process.md under
+# "Publishing".
 #
 # Deliberately not a `@lat:` pointer: .github/ is a dotfile directory and the
 # code-ref scanner never walks it, so the ref could rot without lat check ever
@@ -89,22 +91,16 @@ jobs:
           {
             echo "Fork build of lat.md."
             echo
-            echo "Install the CLI with mise:"
+            echo "Install the CLI:"
             echo
             echo '```'
-            echo "mise use -g npm:@plebeiantech/lat.md@latest"
+            echo "npm i -g --prefix ~/.local/lat https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/lat.md-latest.tgz"
             echo '```'
             echo
-            echo "Or straight from this release, no registry:"
+            echo "Then put ~/.local/lat/bin on PATH. To pin this exact version instead:"
             echo
             echo '```'
-            echo "npm i -g https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/lat.md-latest.tgz"
-            echo '```'
-            echo
-            echo "Or pin this exact version:"
-            echo
-            echo '```'
-            echo "npm i -g https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VER}/${TGZ}"
+            echo "npm i -g --prefix ~/.local/lat https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VER}/${TGZ}"
             echo '```'
             echo
             echo "Install the Claude Code plugin (no build needed):"

@@ -135,31 +135,39 @@ Prettier with no semicolons, single quotes, trailing commas. Run `pnpm format` b
 
 ## Publishing
 
-The fork publishes **`@plebeiantech/lat.md`** to public npm, and attaches the same tarball to a GitHub Release. It never publishes under the name `lat.md`, which is upstream's package.
+The fork publishes to **no registry**. The CLI ships as a packed tarball attached to a GitHub Release, and the Claude Code plugin ships from this repo as its own marketplace.
 
-Upstream's `publish.yml` was replaced wholesale rather than adapted. That file ran on every push to `main` and ended in `publish_if_new .`, targeting `lat.md` on npm — a package this fork does not own, so a fork version bump would have attempted a publish to someone else's package. The replacement refuses to run at all unless the package name is exactly `@plebeiantech/lat.md`.
+Upstream's `publish.yml` was replaced wholesale rather than adapted. That file ran on every push to `main` and ended in `publish_if_new .`, targeting `lat.md` on npm — a package this fork does not own, so a fork version bump would have attempted a publish to someone else's package.
 
-The two `@lat.md/*` workspace packages are unchanged from upstream and are already on public npm at the versions this fork pins. `pnpm pack` rewrites their `workspace:*` ranges to those real versions.
+The two `@lat.md/*` workspace packages are unchanged from upstream and are already on public npm at the versions this fork pins. `pnpm pack` rewrites their `workspace:*` ranges to those real versions, so a tarball built here resolves without any registry of our own.
 
-### Why a registry at all
+### Why the package name is scoped
 
-The scope exists so [mise](https://mise.jdx.dev/) can install the CLI, which it otherwise cannot.
+The root package is named `@plebeiantech/lat.md`, not `lat.md`, even though nothing is published to a registry.
 
-`mise use -g npm:lat.md` resolves against public npm and installs **upstream's** build — the one without any of this fork's checks — while the npm backend rejects a tarball URL as an invalid package name, and the `github`/`ubi` backends expect a runnable binary rather than a package needing its `node_modules`. A scope we own is the only path that leaves mise's own version resolution intact.
+The scope makes a collision impossible. A global install of this fork and a global install of upstream's `lat.md` are then two different packages that can coexist, and the release workflow refuses to run at all unless the name matches exactly — so no accident can put a fork build under upstream's name.
 
-### Two install routes
+The workflow carries a dormant `npm publish` step, skipped whenever the `NPM_TOKEN` secret is absent. It exists so the decision can be reversed without rewriting the pipeline, not because anything is published today.
 
-Both serve the same artifact, and the release carries it under both names.
+### Why not a registry
+
+A registry would buy `mise use -g npm:...`, and nothing else this project needs.
+
+That was weighed and declined. Public npm costs an account and a publish step for a project with one user. GitHub Packages avoids the account but requires a personal access token in `~/.npmrc` on **every machine that installs**, which is worse for the actual use case — a single person on two machines.
+
+A GitHub Release asset on a public repository is served with no authentication at all, which is the cheapest thing that works.
+
+### Installing
+
+The install is repo-independent: the tarball carries its own `dist/` and `templates/`, so nothing reaches back into a checkout.
 
 ```
-mise use -g npm:@plebeiantech/lat.md@latest
+npm i -g --prefix ~/.local/lat https://github.com/PlebeianTech/lat.md/releases/latest/download/lat.md-latest.tgz
 ```
 
-```
-npm i -g https://github.com/PlebeianTech/lat.md/releases/latest/download/lat.md-latest.tgz
-```
+`~/.local/lat/bin` goes on `PATH` ahead of any other `lat`. A fixed prefix rather than the default global one keeps the install independent of the active Node version, which a version manager would otherwise change underneath it.
 
-The GitHub Release route stays because a release asset on a public repository is served without authentication, which keeps a registry-free option open.
+Upgrading is the same command again — the `latest` URL always resolves to the newest release.
 
 ### Fork versioning
 
@@ -196,10 +204,10 @@ GitHub Actions workflow at `.github/workflows/publish.yml`, triggered by a `v*` 
 2. **Build and test** — `pnpm install --frozen-lockfile`, `pnpm buildall`, then `pnpm vitest run`
 3. **Refuse a wrong release** — three guards, each failing the run rather than cutting a bad release: the package name must be exactly `@plebeiantech/lat.md`, the version must carry a `-fork.` suffix, and a tag must equal `v$VERSION`
 4. **Pack** — `pnpm pack`, which rewrites the `workspace:*` deps to their published versions
-5. **Publish** — `npm publish --access public`, skipped when the `NPM_TOKEN` secret is absent or the version is already on npm, so a release still cuts without a token
+5. **Publish** — dormant. `npm publish --access public` runs only if an `NPM_TOKEN` secret exists; with none set it prints a skip line and the release proceeds
 6. **Release** — creates the `vX.Y.Z-fork.N` release with both asset names attached, or uploads to an existing one with `--clobber`
 
-Nothing in the workflow contacts a registry, and it holds only `contents: write` — it cannot publish a package even by accident.
+With no `NPM_TOKEN` set, nothing in the workflow contacts a registry, and it holds only `contents: write`.
 
 ### Plugin distribution
 
