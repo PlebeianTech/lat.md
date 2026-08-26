@@ -223,6 +223,12 @@ It is configured on npmjs.com against this repository and the `publish.yml` work
 
 A classic `NPM_TOKEN` secret still works as a fallback, and the step accepts either. One trap is worth knowing: a classic *Publish* token fails in CI with `EOTP`, because publishing under 2FA asks for a one-time password no workflow can supply. Only an *Automation* or granular token bypasses that — which is the problem Trusted Publishing removes entirely.
 
+### Provenance and `repository.url`
+
+The publish is signed with `--provenance`, and npm rejects the upload unless `package.json`'s `repository.url` names the repository the workflow ran in.
+
+A fork inherits upstream's URL, so this fails with a `422` naming both URLs until the field is repointed at the fork. Nothing else validates it, and a local `npm publish` without provenance accepts the stale value happily — the mismatch only surfaces in CI.
+
 ### Dist-tags
 
 Every fork version is a semver **prerelease** — the `-fork.N` suffix guarantees it — so npm refuses to publish it without an explicit `--tag` rather than silently moving `latest`.
