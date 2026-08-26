@@ -107,17 +107,42 @@ function unquote(value: string): string {
   return value;
 }
 
+/** The body of a leading `---` / `---` block, or undefined if there is none. */
+function frontmatterBlock(text: string): string | undefined {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text);
+  return match ? match[1] : undefined;
+}
+
 /** Pull a `key: value` line out of YAML-ish frontmatter, quotes stripped. */
 function frontmatterField(text: string, key: string): string | undefined {
-  const re = new RegExp(`^${key}:\\s*(.*)$`, 'm');
-  const match = re.exec(text);
+  const block = frontmatterBlock(text);
+  if (block === undefined) return undefined;
+  const re = new RegExp(`^${escapeRegExp(key)}:[ \\t]*(.*)$`, 'm');
+  const match = re.exec(block);
   return match ? unquote(match[1].trim()) : undefined;
 }
 
-function readFileCapped(path: string): string | undefined {
+function severedTailBytes(buf: Buffer): number {
+  for (let back = 1; back <= 3 && back <= buf.length; back++) {
+    const byte = buf[buf.length - back];
+    if ((byte & 0xc0) === 0x80) continue;
+    let width = 0;
+    if ((byte & 0xe0) === 0xc0) width = 2;
+    else if ((byte & 0xf0) === 0xe0) width = 3;
+    else if ((byte & 0xf8) === 0xf0) width = 4;
+    return width > back ? back : 0;
+  }
+  return 0;
+}
+
+export function readFileCapped(path: string): string | undefined {
   try {
     const buf = readFileSync(path);
-    return buf.subarray(0, MAX_FILE_BYTES).toString('utf-8');
+    if (buf.length <= MAX_FILE_BYTES) return buf.toString('utf-8');
+    const capped = buf.subarray(0, MAX_FILE_BYTES);
+    return capped
+      .subarray(0, capped.length - severedTailBytes(capped))
+      .toString('utf-8');
   } catch {
     return undefined;
   }

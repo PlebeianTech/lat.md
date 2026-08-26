@@ -58,13 +58,29 @@ jobs:
             *-fork.*) ;;
             *) echo "Refusing to release $VER: not a -fork version." >&2; exit 1 ;;
           esac
-          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v$VER" ]; then
-            echo "Tag ${GITHUB_REF_NAME} does not match package.json version v$VER." >&2
-            exit 1
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            if [ "${GITHUB_REF_NAME}" != "v$VER" ]; then
+              echo "Tag ${GITHUB_REF_NAME} does not match package.json version v$VER." >&2
+              exit 1
+            fi
+          else
+            # workflow_dispatch: no tag in the ref, so v$VER is fetched instead.
+            git fetch --depth=1 origin "refs/tags/v$VER:refs/tags/v$VER" 2>/dev/null || true
+            if TAGGED=$(git rev-parse -q --verify "refs/tags/v$VER^{commit}" 2>/dev/null); then
+              if [ "$TAGGED" != "$(git rev-parse HEAD)" ]; then
+                echo "Tag v$VER points at $TAGGED, but this run is building $(git rev-parse HEAD)." >&2
+                exit 1
+              fi
+            fi
           fi
-          # Per-release dist-tag: 0.12.3-fork.2 -> fork-2. The guard above has
-          # already proven the -fork. suffix exists, so this cannot come out empty.
-          FORKTAG="fork-${VER##*-fork.}"
+          # Per-release dist-tag: 0.12.3-fork.2 -> fork-2, tail digits only.
+          FORKN="${VER##*-fork.}"
+          case "$FORKN" in
+            ''|*[!0-9]*)
+              echo "Refusing to release $VER: the -fork. suffix must be a number, not '$FORKN'." >&2
+              exit 1 ;;
+          esac
+          FORKTAG="fork-$FORKN"
           echo "VER=$VER" >> "$GITHUB_ENV"
           echo "TGZ=plebeiantech-lat.md-$VER.tgz" >> "$GITHUB_ENV"
           echo "FORKTAG=$FORKTAG" >> "$GITHUB_ENV"

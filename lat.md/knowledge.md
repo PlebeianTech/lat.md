@@ -52,6 +52,18 @@ Claude Code keys its memory store on the **main** checkout's absolute path; a gi
 
 Without that resolution, every lookup made from inside a worktree session silently finds nothing — a failure invisible unless you know to check, because it never errors, it just never matches. Outside a git repository, or on any failure, it falls back to `projectRoot` itself.
 
+#### Frontmatter is read as a block, not as a pattern
+
+A hit's `title` and `detail` come from the `name:` and `description:` lines of the leading `---` block only. The block is sliced off first; the body is never searched for them.
+
+Matching the key pattern against the whole file instead lets a memory file's *body* decide what gets federated into an agent's prompt — a line beginning `description:` inside a fenced code block or a quoted example is indistinguishable from the real field, and the first such line anywhere in 64 KB wins. The body is content, not metadata, and content that reaches a prompt is [[untrusted-content|untrusted]].
+
+A file with no frontmatter block therefore has no `name` and no `description`, and falls back to its basename with an empty detail.
+
+#### The 64 KB cap falls on a character boundary
+
+The cap trims back to the last complete UTF-8 sequence rather than cutting mid-character, so a file that crosses 64 KB never ends in U+FFFD.
+
 ## Term Selection
 
 Turns a document's authored `tags:` into the search terms handed to each store. Implementation: [[src/knowledge/ranking.ts#tagsToTerms]]. The default budget is two terms.

@@ -172,66 +172,76 @@ describe('mode-tutorial', () => {
 });
 
 describe('mode-explanation-imperative', () => {
-  it('flags a line starting with an imperative verb, naming the verb', async () => {
+  // The fixture directory holds two documents. `topic.md` keeps its
+  // imperatives inside frontmatter and code blocks, where they are exempt;
+  // `prose-run.md` repeats the very same sentences as ordinary prose, where
+  // they must be flagged. Assertions are therefore scoped by target, and the
+  // pair is what proves an exemption is positional rather than an accident
+  // of which verbs `IMPERATIVE_VERBS` happens to list.
+  async function topicErrors() {
     const errors = await checkMode(
       latDir('mode-explanation-imperative'),
       caseDir('mode-explanation-imperative'),
     );
+    return errors.filter((e) => e.target.endsWith('topic'));
+  }
+
+  async function proseErrors() {
+    const errors = await checkMode(
+      latDir('mode-explanation-imperative'),
+      caseDir('mode-explanation-imperative'),
+    );
+    return errors.filter((e) => e.target.endsWith('prose-run'));
+  }
+
+  it('flags a line starting with an imperative verb, naming the verb', async () => {
+    const errors = await topicErrors();
     expect(errors).toHaveLength(1);
-    expect(errors[0].line).toBe(10);
+    expect(errors[0].line).toBe(11);
     expect(errors[0].message).toContain('"Set"');
   });
 
   it('does not flag an imperative inside a fenced code block', async () => {
-    const errors = await checkMode(
-      latDir('mode-explanation-imperative'),
-      caseDir('mode-explanation-imperative'),
-    );
-    expect(errors.some((e) => e.line === 13)).toBe(false);
+    const errors = await topicErrors();
+    expect(errors.some((e) => e.line === 14)).toBe(false);
   });
 
-  it('does not flag an imperative inside a frontmatter value', async () => {
-    const errors = await checkMode(
-      latDir('mode-explanation-imperative'),
-      caseDir('mode-explanation-imperative'),
-    );
-    expect(errors.some((e) => e.line === 4)).toBe(false);
+  // @lat: [[mode#Does not flag an imperative inside a frontmatter block scalar]]
+  it('does not flag an imperative inside a frontmatter block scalar', async () => {
+    const errors = await topicErrors();
+    expect(errors.some((e) => e.line === 5)).toBe(false);
   });
 
   it('does not flag a heading line', async () => {
-    const errors = await checkMode(
-      latDir('mode-explanation-imperative'),
-      caseDir('mode-explanation-imperative'),
-    );
-    expect(errors.some((e) => e.line === 6)).toBe(false);
+    const errors = await topicErrors();
+    expect(errors.some((e) => e.line === 7)).toBe(false);
   });
 
   // @lat: [[mode#Does not flag an imperative inside a nested fence with a longer marker]]
   it('does not flag an imperative inside a nested fence using a longer marker', async () => {
-    const errors = await checkMode(
-      latDir('mode-explanation-imperative'),
-      caseDir('mode-explanation-imperative'),
-    );
-    expect(errors.some((e) => e.line === 18)).toBe(false);
+    const errors = await topicErrors();
+    expect(errors.some((e) => e.line === 19)).toBe(false);
   });
 
   // @lat: [[mode#Does not flag an imperative inside a four-space-indented code block]]
   it('does not flag an imperative inside a four-space-indented code block', async () => {
-    const errors = await checkMode(
-      latDir('mode-explanation-imperative'),
-      caseDir('mode-explanation-imperative'),
-    );
-    expect(errors.some((e) => e.line === 22)).toBe(false);
+    const errors = await topicErrors();
+    expect(errors.some((e) => e.line === 23)).toBe(false);
   });
 
   // @lat: [[mode#Still flags only the single ordinary-prose imperative]]
   it('still flags only the single ordinary-prose imperative', async () => {
-    const errors = await checkMode(
-      latDir('mode-explanation-imperative'),
-      caseDir('mode-explanation-imperative'),
-    );
+    const errors = await topicErrors();
     expect(errors).toHaveLength(1);
-    expect(errors[0].line).toBe(10);
+    expect(errors[0].line).toBe(11);
+  });
+
+  // @lat: [[mode#Flags the exempted sentences when they appear as prose]]
+  it('flags the same two sentences when they appear as ordinary prose', async () => {
+    const errors = await proseErrors();
+    expect(errors.map((e) => e.line)).toEqual([10, 12]);
+    expect(errors[0].message).toContain('"Run"');
+    expect(errors[1].message).toContain('"Run"');
   });
 });
 
@@ -240,6 +250,18 @@ describe('mode-dir-implied', () => {
     const errors = await checkMode(
       latDir('mode-dir-implied'),
       caseDir('mode-dir-implied'),
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain('narrative prose');
+  });
+});
+
+describe('mode-proto-dir', () => {
+  // @lat: [[mode#Does not treat an Object.prototype key as a mode directory]]
+  it('does not treat a directory named after an Object.prototype key as a mode directory', async () => {
+    const errors = await checkMode(
+      latDir('mode-proto-dir'),
+      caseDir('mode-proto-dir'),
     );
     expect(errors).toHaveLength(1);
     expect(errors[0].message).toContain('narrative prose');

@@ -12,6 +12,7 @@ import { execFileSync, execFile } from 'node:child_process';
 import { rmDirBestEffort } from '../util.js';
 import {
   claudeMemoryStore,
+  readFileCapped,
   slugify,
 } from '../../src/knowledge/claude-memory.js';
 
@@ -363,5 +364,76 @@ describe('claudeMemoryStore', () => {
     expect(gitCallsAfterFirst).toBeGreaterThanOrEqual(1);
     expect(gitCallsAfterSecond).toBe(gitCallsAfterFirst);
     expect(readCallsAfterSecond).toBe(readCallsAfterFirst);
+  });
+  it('reads name and description only from the frontmatter block, not the body', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'lat-cm-home-'));
+    dirsToClean.push(home);
+    const projectPath = '/plain/project/body-frontmatter';
+    const memoryDir = setUpMemoryDir(home, projectPath);
+
+    writeFileSync(
+      join(memoryDir, 'a.md'),
+      [
+        '---',
+        'title: "Not a name"',
+        '---',
+        '# Sprocket notes',
+        '',
+        'An example of what the frontmatter of a memory file looks like:',
+        '',
+        '```yaml',
+        'name: "Injected title"',
+        'description: "Injected detail from the body"',
+        '```',
+      ].join('\n'),
+    );
+
+    const hits = await claudeMemoryStore.query({
+      terms: ['sprocket'],
+      projectRoot: projectPath,
+      limit: 10,
+    });
+
+    expect(hits).toHaveLength(1);
+    expect(hits[0].title).toBe('a');
+    expect(hits[0].detail).toBe('');
+  });
+
+  it('reads a frontmatter field that is not the first line of the block', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'lat-cm-home-'));
+    dirsToClean.push(home);
+    const projectPath = '/plain/project/second-field';
+    const memoryDir = setUpMemoryDir(home, projectPath);
+
+    writeMemo(memoryDir, 'a.md', {
+      name: 'Memo A',
+      description: 'about grommets',
+      body: 'Grommet notes.',
+    });
+
+    const hits = await claudeMemoryStore.query({
+      terms: ['grommet'],
+      projectRoot: projectPath,
+      limit: 10,
+    });
+
+    expect(hits).toHaveLength(1);
+    expect(hits[0].title).toBe('Memo A');
+    expect(hits[0].detail).toBe('about grommets');
+  });
+
+  it('does not sever a multi-byte character at the 64 KB read cap', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lat-cm-cap-'));
+    dirsToClean.push(dir);
+    const file = join(dir, 'big.md');
+
+    // 'x' * 65535 puts the 3-byte U+4E2D at bytes 65536-65538, so the cap
+    // falls one byte into it.
+    writeFileSync(file, 'x'.repeat(65535) + '\u4e2d' + 'tail');
+
+    const text = readFileCapped(file);
+    expect(text).toBeDefined();
+    expect(text).not.toContain('\uFFFD');
+    expect(text).toBe('x'.repeat(65535));
   });
 });
