@@ -1,21 +1,22 @@
 import { createClient } from '@libsql/client';
 import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
+import xdg from '@folder/xdg';
 import type { Store, StoreQuery, KnowledgeHit } from './types.js';
 
-/** Only alphanumerics and internal hyphens survive. Terms originate in
- * repository frontmatter, which is attacker-controlled the moment an agent
- * runs `lat` in a repo nobody here owns — a term containing a double quote
- * would break out of the quoted FTS5 MATCH string, so anything that doesn't
- * match this shape is dropped before it ever reaches SQL. */
-const SAFE_TERM = /^[A-Za-z0-9][A-Za-z0-9-]*$/;
+/** Only letters (any script), digits, and internal hyphens survive. Terms
+ * originate in repository frontmatter, which is attacker-controlled the
+ * moment an agent runs `lat` in a repo nobody here owns — a term containing
+ * a double quote would break out of the quoted FTS5 MATCH string, so
+ * anything that doesn't match this shape is dropped before it ever reaches
+ * SQL. Unicode letters/digits are allowed (not just ASCII) so a tag written
+ * in a non-Latin script still reaches the store instead of being silently
+ * dropped — sqlite's FTS5 tokenizer handles them fine, and they carry no
+ * special meaning to the MATCH syntax the way quotes or parens would. */
+const SAFE_TERM = /^[\p{L}\p{N}][\p{L}\p{N}-]*$/u;
 
 function dbPath(): string {
-  return (
-    process.env.CQ_LOCAL_DB_PATH ??
-    join(homedir(), '.local', 'share', 'cq', 'local.db')
-  );
+  return process.env.CQ_LOCAL_DB_PATH ?? join(xdg().data, 'cq', 'local.db');
 }
 
 export const cqStore: Store = {

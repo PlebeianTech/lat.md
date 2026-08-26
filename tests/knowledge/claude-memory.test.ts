@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { join } from 'node:path';
 import {
   mkdtempSync,
@@ -8,9 +8,33 @@ import {
   realpathSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execFile } from 'node:child_process';
 import { rmDirBestEffort } from '../util.js';
-import { claudeMemoryStore } from '../../src/knowledge/claude-memory.js';
+import {
+  claudeMemoryStore,
+  slugify,
+} from '../../src/knowledge/claude-memory.js';
+
+// Wrap two node builtins so the memoization test can count real
+// invocations. Both factories spread the actual module and replace only
+// the one export under test with a `vi.fn` that still calls through to the
+// real implementation — every other test in this file keeps unmocked
+// behavior. The source under test spawns git via the async `execFile`, not
+// `execFileSync`; `execFileSync` is still wrapped here because fixture setup
+// in this file (creating the main checkout, adding worktrees) calls it
+// directly.
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return {
+    ...actual,
+    execFileSync: vi.fn(actual.execFileSync),
+    execFile: vi.fn(actual.execFile),
+  };
+});
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return { ...actual, readFileSync: vi.fn(actual.readFileSync) };
+});
 
 const dirsToClean: string[] = [];
 const origHome = process.env.HOME;
@@ -23,10 +47,6 @@ afterEach(() => {
   if (origUserProfile === undefined) delete process.env.USERPROFILE;
   else process.env.USERPROFILE = origUserProfile;
 });
-
-function slugify(absPath: string): string {
-  return absPath.replace(/\//g, '-');
-}
 
 /** Create `<home>/.claude/projects/<slug(projectPath)>/memory/` and point HOME there. */
 function setUpMemoryDir(home: string, projectPath: string): string {
@@ -75,7 +95,10 @@ describe('claudeMemoryStore', () => {
   it('matches whole words only, case-insensitively, with frontmatter title/detail', async () => {
     const home = mkdtempSync(join(tmpdir(), 'lat-cm-home-'));
     dirsToClean.push(home);
-    const projectPath = '/plain/project/root';
+    // A dot in the project root (e.g. a checkout named "lat.md") must
+    // slugify like every other non-alphanumeric character. Regression test
+    // for a `slugify` that special-cased "/" and left dots untouched.
+    const projectPath = '/plain/project/root.app';
     const memoryDir = setUpMemoryDir(home, projectPath);
 
     writeMemo(memoryDir, 'a.md', {
@@ -285,5 +308,60 @@ describe('claudeMemoryStore', () => {
     });
 
     expect(hits).toHaveLength(2);
+  });
+
+  // @lat: [[knowledge-store#claude-memory store: slugify and memoization#Matches a non-ASCII term at a word boundary]]
+  it('matches a non-ASCII term at a word boundary', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'lat-cm-home-'));
+    dirsToClean.push(home);
+    const projectPath = '/plain/project/root6';
+    const memoryDir = setUpMemoryDir(home, projectPath);
+
+    writeMemo(memoryDir, 'cafe.md', {
+      body: 'Meet me at a café here tomorrow.',
+    });
+
+    const hits = await claudeMemoryStore.query({
+      terms: ['café'],
+      projectRoot: projectPath,
+      limit: 10,
+    });
+
+    expect(hits).toHaveLength(1);
+  });
+
+  // @lat: [[knowledge-store#claude-memory store: slugify and memoization#Spawns git and reads each file only once per process]]
+  it('spawns git and reads each file only once per process across repeated rank() calls', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'lat-cm-home-'));
+    dirsToClean.push(home);
+    const projectPath = mkdtempSync(join(tmpdir(), 'lat-cm-memo-proj-'));
+    dirsToClean.push(projectPath);
+    const memoryDir = setUpMemoryDir(home, projectPath);
+    writeMemo(memoryDir, 'a.md', { body: 'memoized term here' });
+
+    const execSpy = vi.mocked(execFile);
+    const { readFileSync: readSpyFn } = await import('node:fs');
+    const readSpy = vi.mocked(readSpyFn);
+    execSpy.mockClear();
+    readSpy.mockClear();
+
+    const q = { terms: ['memoized'], projectRoot: projectPath, limit: 10 };
+    const first = await claudeMemoryStore.query(q);
+    const gitCallsAfterFirst = execSpy.mock.calls.filter(
+      (c) => c[0] === 'git',
+    ).length;
+    const readCallsAfterFirst = readSpy.mock.calls.length;
+
+    const second = await claudeMemoryStore.query(q);
+    const gitCallsAfterSecond = execSpy.mock.calls.filter(
+      (c) => c[0] === 'git',
+    ).length;
+    const readCallsAfterSecond = readSpy.mock.calls.length;
+
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    expect(gitCallsAfterFirst).toBeGreaterThanOrEqual(1);
+    expect(gitCallsAfterSecond).toBe(gitCallsAfterFirst);
+    expect(readCallsAfterSecond).toBe(readCallsAfterFirst);
   });
 });

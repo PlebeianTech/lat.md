@@ -25,14 +25,20 @@ export function tagsToTerms(value: unknown, maxTerms = 2): string[] {
   const seenLower = new Set<string>();
   const terms: string[] = [];
 
+  // One term per tag, taken BEFORE the maxTerms cap is applied. A single
+  // hyphenated tag splits into several words; if the cap were applied to
+  // that per-word list, one tag could exhaust the whole budget and starve
+  // every other authored tag (see the worked example above the cap).
+  // Picking one representative word per tag first means the cap trims
+  // across tags instead of within one.
   for (const tag of tags) {
-    for (const word of tag.split(WORD_BREAK)) {
-      if (word.length < 3) continue;
-      const lower = word.toLowerCase();
-      if (seenLower.has(lower)) continue;
-      seenLower.add(lower);
-      terms.push(word);
-    }
+    const words = tag.split(WORD_BREAK).filter((w) => w.length >= 3);
+    if (words.length === 0) continue;
+    const word = words[0];
+    const lower = word.toLowerCase();
+    if (seenLower.has(lower)) continue;
+    seenLower.add(lower);
+    terms.push(word);
   }
 
   // NEVER sort. Tags are search terms the author chose and ordered; the shell

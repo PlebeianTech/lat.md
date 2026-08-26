@@ -63,3 +63,21 @@ Syncing `.codex/hooks.json` removes stale lat-owned entries, installs current pr
 ## Local JavaScript hook commands retain Node
 
 When init runs from a local compiled JavaScript entry point, generated hook commands invoke it through the same Node executable so non-executable `tsc` output works without changing file permissions.
+
+## Blocks on a Diátaxis mode error at stop time
+
+`checkAllCommand` counts Diátaxis mode errors in its total, so the Stop hook's status check has to count them too.
+
+Without this, `lat check` fails on the command line while the Stop hook calls the same tree clean and ends the session with the post-task checklist reported as complete.
+
+## Parses the lat.md tree once per prompt (lat-t1y.23)
+
+`UserPromptSubmit` handling needs the parsed tree for both [[cli#expand]] and [[cli#search]] federation lookups. Threading a preloaded-sections parameter through both call sites avoids walking and parsing the tree twice per prompt.
+
+### expandPrompt uses preloaded sections instead of re-parsing the tree
+
+Calling `expandPrompt` with a preloaded `loadAllSections()` result does not call `loadAllSections` again, and produces byte-identical output to the unpreloaded call.
+
+### runSearch resolves matches from preloaded sections without re-parsing the tree
+
+Calling `runSearch` with `preloadedSections` resolves the same matches without calling `loadAllSections`; omitting it still resolves correctly by walking the tree itself.

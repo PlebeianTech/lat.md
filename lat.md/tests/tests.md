@@ -33,3 +33,11 @@ Shared patterns for writing and organizing tests in this project.
 - [[init]] — Initialization defaults for local-first semantic search
 - [[config]] — User-level configuration and repository embedding preference persistence
 - [[ts-fallback]] — Pure-TypeScript code-ref scanner fallback without ripgrep
+- [[status]] — Provenance status, reviewed-hash staleness, and lat check status
+- [[graph]] — Knowledge graph export and git-history diffing
+- [[comment-reminder]] — Write-side @lat comment reminder and per-agent hook dispatch
+- [[knowledge-session]] — Per-session marker store and cross-process federation dedupe
+- [[mode]] — Diátaxis mode check exemptions for code samples
+- [[untrusted]] — Additional invisible-Unicode stripping and cleanUntrustedId
+- [[frontmatter-placement]] — Root-misplaced lat frontmatter fields and checkFrontmatter
+- [[knowledge-store]] — Store concurrency, encoding edge cases, and federation hardening

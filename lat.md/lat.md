@@ -4,7 +4,9 @@ This directory defines the high-level concepts, business logic, and architecture
 
 - [[cli]] — CLI commands, options, and output formats for the `lat` tool
 - [[dev-process]] — Development tooling, testing, formatting, and publishing conventions
+- [[knowledge]] — Federated lookup of related knowledge from external stores via section tags
 - [[markdown]] — Markdown extensions (wiki links, frontmatter) used in lat.md files
 - [[parser]] — Markdown parsing architecture, section tree construction, and ref extraction
 - [[tests]] — High-level test specifications mapped to code via require-code-mention
+- [[untrusted-content]] — Framing and sanitization for repository text placed in front of a model
 - [[website]] — Standalone Next.js marketing site deployed to Vercel

@@ -28,6 +28,7 @@ function makeFakeBdDir(behavior: {
   table?: Record<string, Record<string, string>>;
   raw?: string; // used verbatim instead of `table`, for bad-JSON cases
   exitCode?: number;
+  sleepMs?: number; // delay before responding, to test concurrency/timeout
 }): string {
   const dir = mkdtempSync(join(tmpdir(), 'lat-bd-'));
   const dispatcherPath = join(dir, 'dispatch.cjs');
@@ -37,13 +38,21 @@ function makeFakeBdDir(behavior: {
 const table = ${JSON.stringify(behavior.table ?? {})};
 const raw = ${JSON.stringify(behavior.raw ?? null)};
 const exitCode = ${behavior.exitCode ?? 0};
+const sleepMs = ${behavior.sleepMs ?? 0};
 const term = process.argv[process.argv.length - 1];
-if (raw !== null) {
-  process.stdout.write(raw);
-} else {
-  process.stdout.write(JSON.stringify(table[term] ?? {}));
+function respond() {
+  if (raw !== null) {
+    process.stdout.write(raw);
+  } else {
+    process.stdout.write(JSON.stringify(table[term] ?? {}));
+  }
+  process.exitCode = exitCode;
 }
-process.exitCode = exitCode;
+if (sleepMs > 0) {
+  setTimeout(respond, sleepMs);
+} else {
+  respond();
+}
 `,
   );
 
@@ -251,4 +260,84 @@ describe('bdStore: the never-throws contract', () => {
       bdStore.query({ terms: [withNul], projectRoot: process.cwd(), limit: 3 }),
     ).resolves.toEqual([]);
   });
+});
+
+// lat-t1y.22: bd.ts moved from spawnSync to async execFile specifically so
+// per-term subprocess calls (and, at the federateTags level, the three
+// stores) can overlap instead of serializing on the event loop.
+describe('bdStore: per-term concurrency', () => {
+  // @lat: [[knowledge-store#bd store concurrency#Answers three terms well under the time three serial calls would take]]
+  it('answers three terms well under the time three serial calls would take', async () => {
+    const delayMs = 500;
+    const dir = makeFakeBdDir({
+      table: { t1: { m1: 'c1' }, t2: { m2: 'c2' }, t3: { m3: 'c3' } },
+      sleepMs: delayMs,
+    });
+    dirsToClean.push(dir);
+    withFakeBdOnPath(dir);
+
+    // Calibrate against this machine's real cost for a single call. An
+    // absolute millisecond bound is not stable here: spawning three processes
+    // on a loaded box can cost more than the delay they overlap, which fails
+    // the test while the concurrency it checks is working perfectly. A
+    // baseline measured under the same load moves with it.
+    //
+    // Warm up first, and discard it. The very first spawn pays PATH lookup and
+    // interpreter start-up that later calls do not, and a baseline inflated by
+    // that one-off cost lifts the threshold above the serial floor — which
+    // makes this test pass even when the calls run one after another, proving
+    // nothing. Verified: without this warm-up, a deliberately serialized
+    // implementation still passed.
+    await bdStore.query({
+      terms: ['t1'],
+      projectRoot: '/irrelevant',
+      limit: 10,
+    });
+
+    const oneStart = Date.now();
+    await bdStore.query({
+      terms: ['t1'],
+      projectRoot: '/irrelevant',
+      limit: 10,
+    });
+    const oneCall = Date.now() - oneStart;
+
+    const start = Date.now();
+    const hits = await bdStore.query({
+      terms: ['t1', 't2', 't3'],
+      projectRoot: '/irrelevant',
+      limit: 10,
+    });
+    const elapsed = Date.now() - start;
+
+    expect(hits).toHaveLength(3);
+    // Serial calls would land near 3x the single-call cost. Concurrent ones
+    // stay near 1x plus the two extra spawns. The bound sits between the two
+    // so a regression to serial still fails loudly.
+    expect(elapsed).toBeLessThan(oneCall * 2.5);
+  });
+
+  // @lat: [[knowledge-store#bd store concurrency#Abandons a call that exceeds the per-call timeout]]
+  it('abandons a call that exceeds the per-call timeout rather than waiting for it', async () => {
+    // CALL_TIMEOUT_MS in bd.ts is 2000ms; sleep well past it so a hang would
+    // be obvious, but bound the assertion well under 2x so this test proves
+    // the timeout actually fires rather than merely being slow.
+    const dir = makeFakeBdDir({
+      table: { slow: { m1: 'c1' } },
+      sleepMs: 5000,
+    });
+    dirsToClean.push(dir);
+    withFakeBdOnPath(dir);
+
+    const start = Date.now();
+    const hits = await bdStore.query({
+      terms: ['slow'],
+      projectRoot: '/irrelevant',
+      limit: 10,
+    });
+    const elapsed = Date.now() - start;
+
+    expect(hits).toEqual([]);
+    expect(elapsed).toBeLessThan(3500);
+  }, 10000);
 });

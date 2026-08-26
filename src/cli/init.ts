@@ -211,6 +211,21 @@ export function syncLatHooks(
     });
   }
 
+  // PostToolUse fires the `// @lat:` comment reminder — only after Edit/Write,
+  // never on every tool call.
+  if (!Array.isArray(hooks.PostToolUse)) {
+    hooks.PostToolUse = [];
+  }
+  (hooks.PostToolUse as unknown[]).push({
+    matcher: 'Edit|Write|MultiEdit',
+    hooks: [
+      {
+        type: 'command',
+        command: latHookCommand(style, agent, 'PostToolUse'),
+      },
+    ],
+  });
+
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
 }
 
@@ -221,6 +236,15 @@ function cursorHooksTemplate(style: LatCommandStyle): string {
         version: 1,
         hooks: {
           stop: [{ command: latHookCommand(style, 'cursor', 'stop') }],
+          // postToolUse, not afterFileEdit. Both fire after a write, but
+          // afterFileEdit is purely observational — Cursor documents its
+          // output as having no supported fields and ignores it entirely, so
+          // a reminder sent from there would never reach the agent.
+          // postToolUse is the only post-write event that returns
+          // `additional_context`.
+          postToolUse: [
+            { command: latHookCommand(style, 'cursor', 'postToolUse') },
+          ],
         },
       },
       null,
@@ -684,7 +708,8 @@ async function setupClaudeCode(
   mkdirSync(claudeDir, { recursive: true });
   syncLatHooks(settingsPath, style);
   console.log(
-    styleText('green', '  Hooks') + ' synced (UserPromptSubmit + Stop)',
+    styleText('green', '  Hooks') +
+      ' synced (UserPromptSubmit + Stop + PostToolUse)',
   );
 
   // .claude/skills/lat-md/SKILL.md — skill for authoring lat.md files
@@ -1018,7 +1043,8 @@ async function setupCodex(
   mkdirSync(codexDir, { recursive: true });
   syncLatHooks(hooksPath, style, 'codex');
   console.log(
-    styleText('green', '  Hooks') + ' synced (UserPromptSubmit + Stop)',
+    styleText('green', '  Hooks') +
+      ' synced (UserPromptSubmit + Stop + PostToolUse)',
   );
 
   // .codex/config.toml — MCP server registration

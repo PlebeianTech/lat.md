@@ -54,10 +54,36 @@ export type MdLink =
       line: number;
     };
 
+/**
+ * Every field this build reads out of the `lat:` mapping. Kept in one place so
+ * a field added later is covered by the misplacement check without a second
+ * edit — the trap this list guards against is silent, so it must not depend on
+ * whoever adds the next field remembering to register it twice.
+ */
+export const LAT_FIELDS = [
+  'require-code-mention',
+  'mode',
+  'status',
+  'reviewed-hash',
+  'tags',
+] as const;
+
+/**
+ * Something wrong with the frontmatter itself, carried out of the parser for a
+ * caller to report. Both kinds fail OPEN if they stay quiet: a misplaced or
+ * unparseable `require-code-mention` turns a validation off and `lat check`
+ * then reports success on a file that is no longer being validated.
+ */
+export type FrontmatterProblem =
+  | { kind: 'root-level-field'; field: string }
+  | { kind: 'parse-error'; message: string };
+
 export type LatFrontmatter = {
   /** Every key under the `lat:` mapping, parsed but not mapped to a field. */
   raw: Record<string, unknown>;
   requireCodeMention?: boolean;
+  /** Populated only when something is wrong; absent on a healthy document. */
+  problems?: FrontmatterProblem[];
 };
 
 export function parseFrontmatter(content: string): LatFrontmatter {
@@ -65,6 +91,7 @@ export function parseFrontmatter(content: string): LatFrontmatter {
   if (!match) return { raw: {} };
 
   let raw: Record<string, unknown> = {};
+  const problems: FrontmatterProblem[] = [];
   try {
     const parsed: unknown = parseYaml(match[1]);
     if (
@@ -72,19 +99,39 @@ export function parseFrontmatter(content: string): LatFrontmatter {
       typeof parsed === 'object' &&
       !Array.isArray(parsed)
     ) {
-      const lat = (parsed as Record<string, unknown>)['lat'];
-      if (lat !== null && typeof lat === 'object' && !Array.isArray(lat)) {
+      const root = parsed as Record<string, unknown>;
+      const lat = root['lat'];
+      const hasLatMapping =
+        lat !== null && typeof lat === 'object' && !Array.isArray(lat);
+      if (hasLatMapping) {
         raw = lat as Record<string, unknown>;
       }
+      // A field written at the document root was accepted by the regex reader
+      // this parser replaced. Staying quiet about it is what makes the change
+      // dangerous: the field simply stops being read.
+      for (const field of LAT_FIELDS) {
+        if (Object.hasOwn(root, field) && !Object.hasOwn(raw, field)) {
+          problems.push({ kind: 'root-level-field', field });
+        }
+      }
     }
-  } catch {
+  } catch (err) {
+    // One malformed line anywhere in the block used to be harmless, because
+    // the old reader pattern-matched the raw text. A strict parse throws away
+    // every field instead, so the failure has to be reported rather than
+    // swallowed.
     raw = {};
+    problems.push({
+      kind: 'parse-error',
+      message: (err as Error).message.split('\n')[0],
+    });
   }
 
   const result: LatFrontmatter = { raw };
   if (raw['require-code-mention'] === true) {
     result.requireCodeMention = true;
   }
+  if (problems.length > 0) result.problems = problems;
   return result;
 }
 

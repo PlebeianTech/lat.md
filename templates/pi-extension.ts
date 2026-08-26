@@ -255,6 +255,14 @@ export default function (pi: ExtensionAPI) {
   });
 
   // ── Lifecycle hooks ────────────────────────────────────────────────
+  //
+  // Convention, not automated here: a code comment that explains WHY (a
+  // reason, trade-off, rejected alternative, or invariant) belongs in a
+  // lat.md/ section, with a `// @lat: [[section-id]]` pointer (comment-prefixed
+  // per language, naming the section in double brackets) left behind in the
+  // code. `lat hook claude PostToolUse` enforces this as a reminder after
+  // every Edit/Write in Claude Code and Codex; Pi has no per-edit hook wired
+  // up yet.
 
   // Guard to prevent agent_end from firing twice per prompt (infinite loop)
   let agentEndFired = false;

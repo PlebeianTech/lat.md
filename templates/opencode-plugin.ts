@@ -108,6 +108,13 @@ export const LatPlugin: Plugin = async (ctx) => {
     },
 
     hooks: {
+      // Convention, not automated here: a code comment that explains WHY
+      // (a reason, trade-off, rejected alternative, or invariant) belongs in
+      // a lat.md/ section, with an `@lat:` pointer (comment-prefixed per
+      // language, naming the section in double brackets) left behind in the
+      // code. `lat hook claude PostToolUse` enforces this as a reminder after
+      // every Edit/Write in Claude Code and Codex; OpenCode has no per-edit
+      // hook wired up yet.
       "session.idle": async () => {
         let checkFailed = false
         let checkOutput = ""

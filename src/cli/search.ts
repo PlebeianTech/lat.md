@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { CmdContext, CmdResult, Styler } from '../context.js';
 import {
   openDb,
@@ -21,9 +23,11 @@ import { searchSections } from '../search/search.js';
 import {
   loadAllSections,
   flattenSections,
+  type Section,
   type SectionMatch,
 } from '../lattice.js';
-import { formatResultList, formatNavHints } from '../format.js';
+import { formatSectionPreview, formatNavHints } from '../format.js';
+import { provenanceNote, formatProvenanceNote } from './check-status.js';
 
 export type SearchResult = {
   query: string;
@@ -111,10 +115,11 @@ async function withDb<T>(
 async function resolveMatches(
   latDir: string,
   results: { id: string }[],
+  preloadedSections?: Section[],
 ): Promise<SectionMatch[]> {
   if (results.length === 0) return [];
 
-  const allSections = await loadAllSections(latDir);
+  const allSections = preloadedSections ?? (await loadAllSections(latDir));
   const flat = flattenSections(allSections);
   const byId = new Map(flat.map((s) => [s.id, s]));
 
@@ -139,7 +144,7 @@ export async function runSearch(
   query: string,
   limit: number,
   progress?: IndexProgress,
-  opts?: { buildIndex?: boolean },
+  opts?: { buildIndex?: boolean; preloadedSections?: Section[] },
 ): Promise<SearchResult> {
   if (opts?.buildIndex === false) {
     const db = openDb(latDir);
@@ -152,7 +157,10 @@ export async function runSearch(
       const embedder = await embedderForIndex(stored, latDir);
       await ensureSectionsSchema(db, embedder.dimensions);
       const results = await searchSections(db, query, embedder, limit);
-      return { query, matches: await resolveMatches(latDir, results) };
+      return {
+        query,
+        matches: await resolveMatches(latDir, results, opts?.preloadedSections),
+      };
     } finally {
       await closeDb(db);
     }
@@ -160,7 +168,10 @@ export async function runSearch(
 
   return withDb(latDir, progress, async (db, embedder) => {
     const results = await searchSections(db, query, embedder, limit);
-    return { query, matches: await resolveMatches(latDir, results) };
+    return {
+      query,
+      matches: await resolveMatches(latDir, results, opts?.preloadedSections),
+    };
   });
 }
 
@@ -200,6 +211,47 @@ export function cliProgress(s: Styler): IndexProgress {
   };
 }
 
+/**
+ * Render search matches with each one's provenance.
+ *
+ * `formatResultList` in format.ts renders a bare list and is shared with
+ * `lat locate` and `lat refs`. Search is the surface where an agent picks a
+ * claim to act on without opening the document, so it is the one that has to
+ * say whether a person ever checked that claim. Frontmatter is read once per
+ * file rather than once per match, since several matches routinely share one.
+ */
+async function formatSearchMatches(
+  ctx: CmdContext,
+  query: string,
+  matches: SectionMatch[],
+): Promise<string> {
+  const notes = new Map<string, ReturnType<typeof provenanceNote>>();
+  for (const match of matches) {
+    const filePath = match.section.filePath;
+    if (notes.has(filePath)) continue;
+    try {
+      const content = await readFile(join(ctx.projectRoot, filePath), 'utf-8');
+      notes.set(filePath, provenanceNote(content));
+    } catch {
+      notes.set(filePath, null);
+    }
+  }
+
+  const lines: string[] = ['', `## Search results for "${query}":`, ''];
+  for (let i = 0; i < matches.length; i++) {
+    if (i > 0) lines.push('');
+    lines.push(
+      formatSectionPreview(ctx, matches[i].section, {
+        reason: matches[i].reason,
+      }),
+    );
+    const note = notes.get(matches[i].section.filePath);
+    if (note) lines.push(`  ${formatProvenanceNote(note, ctx.styler)}`);
+  }
+  lines.push('');
+  return lines.join('\n');
+}
+
 export async function searchCommand(
   ctx: CmdContext,
   query: string | undefined,
@@ -221,11 +273,8 @@ export async function searchCommand(
 
     return {
       output:
-        formatResultList(
-          ctx,
-          `Search results for "${query}":`,
-          result.matches,
-        ) + formatNavHints(ctx),
+        (await formatSearchMatches(ctx, query, result.matches)) +
+        formatNavHints(ctx),
     };
   } catch (err) {
     // The stored index can't be served in the current environment — never

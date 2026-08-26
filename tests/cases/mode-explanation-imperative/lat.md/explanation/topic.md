@@ -12,3 +12,11 @@ Set the flag and it goes away.
 ```
 Run this line is inside a fenced code block and must not be flagged.
 ```
+
+`````bash
+```bash
+Run the server before continuing.
+```
+`````
+
+    Run the server. This is a four-space-indented code block.

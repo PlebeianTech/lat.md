@@ -3,6 +3,7 @@ import { dirname, relative } from 'node:path';
 import type { Heading, List, Paragraph, Root, RootContent } from 'mdast';
 import { listLatticeFiles, parseFrontmatter } from '../lattice.js';
 import { parse } from '../parser.js';
+import { quoteUntrusted } from '../untrusted.js';
 import { toPosix } from '../walk.js';
 import type { CheckError } from './check.js';
 
@@ -137,37 +138,53 @@ function extraParagraphs(tree: Root): { line: number; heading: string }[] {
   return offenders;
 }
 
-function findImperativeHits(content: string): { line: number; verb: string }[] {
+/**
+ * Line numbers (1-indexed, inclusive of both ends) that belong to a `code`
+ * or `yaml` (frontmatter) node anywhere in the tree. Walking the parsed tree
+ * — rather than re-scanning raw text with a fence regex — means a fence of
+ * any marker length or an indented code block is recognized correctly, and
+ * frontmatter needs no special case: it simply isn't prose in the tree.
+ */
+function nonProseLines(tree: Root): Set<number> {
+  const lines = new Set<number>();
+  const markRange = (node: RootContent): void => {
+    if (!node.position) return;
+    for (
+      let line = node.position.start.line;
+      line <= node.position.end.line;
+      line++
+    ) {
+      lines.add(line);
+    }
+  };
+  const walk = (nodes: RootContent[]): void => {
+    for (const node of nodes) {
+      if (node.type === 'code' || (node.type as string) === 'yaml') {
+        markRange(node);
+        continue;
+      }
+      if ('children' in node) {
+        walk((node as { children: RootContent[] }).children);
+      }
+    }
+  };
+  walk(tree.children);
+  return lines;
+}
+
+function findImperativeHits(
+  tree: Root,
+  content: string,
+): { line: number; verb: string }[] {
   const hits: { line: number; verb: string }[] = [];
   const lines = content.split('\n');
-  let inFence = false;
-  let fenceMarker = '';
-  // Frontmatter is configuration, not prose. Without this the scan reads a
-  // `summary:` value into the imperative check and reports a command inside
-  // the `---` block, where no rewrite the message suggests is even possible.
-  let inFrontmatter = lines[0]?.trim() === '---';
+  const skipLines = nonProseLines(tree);
 
   for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i];
-    const trimmedStart = rawLine.trimStart();
+    const lineNumber = i + 1;
+    if (skipLines.has(lineNumber)) continue;
 
-    if (inFrontmatter) {
-      if (i > 0 && rawLine.trim() === '---') inFrontmatter = false;
-      continue;
-    }
-
-    const fenceMatch = trimmedStart.match(/^(```|~~~)/);
-    if (fenceMatch) {
-      if (!inFence) {
-        inFence = true;
-        fenceMarker = fenceMatch[1];
-      } else if (trimmedStart.startsWith(fenceMarker)) {
-        inFence = false;
-      }
-      continue;
-    }
-    if (inFence) continue;
-
+    const trimmedStart = lines[i].trimStart();
     if (trimmedStart.startsWith('#')) continue;
 
     let text = trimmedStart;
@@ -176,7 +193,7 @@ function findImperativeHits(content: string): { line: number; verb: string }[] {
 
     for (const verb of IMPERATIVE_VERBS) {
       if (text.startsWith(verb + ' ')) {
-        hits.push({ line: i + 1, verb });
+        hits.push({ line: lineNumber, verb });
         break;
       }
     }
@@ -198,7 +215,20 @@ export async function checkMode(
 
     const fm = parseFrontmatter(content);
     const declaredRaw = fm.raw['mode'];
-    const declared = typeof declaredRaw === 'string' ? declaredRaw : undefined;
+    // null (bare `mode:` key) is treated as absent; any other non-string is
+    // reported below via declaredNonString.
+    const declared =
+      declaredRaw === null || declaredRaw === undefined
+        ? undefined
+        : typeof declaredRaw === 'string'
+          ? declaredRaw
+          : undefined;
+    const declaredNonString =
+      declaredRaw !== null &&
+      declaredRaw !== undefined &&
+      typeof declaredRaw !== 'string'
+        ? declaredRaw
+        : undefined;
 
     const relFromLattice = toPosix(relative(latticeDir, file));
     const firstSegment = relFromLattice.split('/')[0];
@@ -206,6 +236,16 @@ export async function checkMode(
       firstSegment && firstSegment !== relFromLattice
         ? DIR_TO_MODE[firstSegment]
         : undefined;
+
+    if (declaredNonString !== undefined) {
+      errors.push({
+        file: relPath,
+        line: 1,
+        target,
+        message: `document declares unknown mode ${quoteUntrusted(JSON.stringify(declaredNonString), 40)} — use one of: tutorial, how-to, reference, explanation`,
+      });
+      continue;
+    }
 
     if (
       declared !== undefined &&
@@ -215,7 +255,7 @@ export async function checkMode(
         file: relPath,
         line: 1,
         target,
-        message: `document declares unknown mode "${declared}" — use one of: tutorial, how-to, reference, explanation`,
+        message: `document declares unknown mode ${quoteUntrusted(declared, 40)} — use one of: tutorial, how-to, reference, explanation`,
       });
       continue;
     }
@@ -284,7 +324,7 @@ export async function checkMode(
     }
 
     if (mode === 'explanation') {
-      const hits = findImperativeHits(content);
+      const hits = findImperativeHits(tree, content);
       const capped = hits.slice(0, MAX_IMPERATIVE_ERRORS);
       for (const hit of capped) {
         errors.push({

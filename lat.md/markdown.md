@@ -106,6 +106,74 @@ lat:
 ---
 ```
 
+Every field below nests under the top-level `lat:` mapping shown above. A field written at the document root instead (no `lat:` wrapper) is silently ignored by every check it would otherwise turn on, and `lat check` now reports it as an error naming the field and showing the fix.
+
 ### require-code-mention
 
 When set to `true`, [[cli#check#code-refs]] ensures every leaf section (sections with no children) in the file has a corresponding `// @lat: [[...]]` reference in source code. Useful for test specs and requirements that must be traceable to implementation.
+
+### mode
+
+Declares which of the four Diátaxis modes a document is: `tutorial`, `how-to`, `reference`, or `explanation`.
+
+```yaml
+---
+lat:
+  mode: how-to
+---
+```
+
+`mode` is optional — a document placed inside `lat.md/tutorials/`, `lat.md/how-to/`, `lat.md/reference/`, or `lat.md/explanation/` gets that directory's mode inferred automatically, even with no frontmatter at all. Declaring `mode` explicitly is only required for a document outside those four directories, and if a document is inside one of them, a declared mode must match the directory — a mismatch is an error, not an override.
+
+Once a mode applies (declared or inferred), [[cli#check#mode]] enforces content rules for it:
+
+- **`tutorial`** — must contain an ordered (numbered) list, and must state its outcome (a heading or sentence saying what the reader will have by the end).
+- **`how-to`** — must contain an ordered (numbered) list of steps.
+- **`reference`** — must not contain narrative prose: no section may have a second paragraph under its heading (use a list, table, or code block instead).
+- **`explanation`** — must not give commands: no line may open with an imperative verb (`Run`, `Install`, `Configure`, etc.) outside a heading or code block.
+
+An unknown `mode` value is always an error, regardless of directory.
+
+### status
+
+Records who last vouches for a document's prose: whether a person has read and checked it, or an agent produced it and no one has reviewed it since.
+
+```yaml
+---
+lat:
+  status: human-reviewed
+---
+```
+
+Permitted values are `human-reviewed` and `agent-extracted`; any other value is an error from [[cli#check#status]]. The status is surfaced as an inline annotation by `lat section` and `lat search` — for example `[unreviewed -- written by an agent, not checked by a person]` for `agent-extracted`, or `[stale review -- the text changed after a person checked it]` for a `human-reviewed` document whose text has since drifted (see `reviewed-hash` below). A document with no `status` field gets no annotation at all.
+
+### reviewed-hash
+
+Pairs with `status: human-reviewed` to make a stale review detectable — the hash pins the reviewed prose so a later edit can be caught rather than silently continuing to claim review.
+
+```yaml
+---
+lat:
+  status: human-reviewed
+  reviewed-hash: 3f1a9c2e
+---
+```
+
+Record it as at least 8 hex characters — a prefix of the full SHA-256 is enough. [[cli#check#status]] reports the current hash to record whenever one is missing or needs updating.
+
+A `human-reviewed` document with **no** `reviewed-hash` is accepted — it is not an error — but it buys no staleness detection at all: nothing will ever flag that document as stale, no matter how much its text changes. Only a document that has a hash and is `human-reviewed` gets that protection.
+
+The hash covers the document's prose only: headings and frontmatter are excluded. Retitling a section, reordering headings, or editing an unrelated frontmatter field never invalidates a review — only a change to the reviewed body text does. Setting `reviewed-hash` on an `agent-extracted` document is itself an error, since a hash records that a person checked the text.
+
+### tags
+
+A list of freeform keywords used to look up related knowledge from external stores (project memory, team knowledge bases) when a section is surfaced during search.
+
+```yaml
+---
+lat:
+  tags: [run-pin, carry, query-param]
+---
+```
+
+A single string is also accepted for one tag. Only the first two tags drive the actual lookup — list the most important ones first, since order is preserved and never resorted. Any result is prefixed with a notice that it is untrusted, auto-searched content to verify before relying on it.

@@ -130,10 +130,11 @@ const check = program
   .command('check')
   .usage('[subcommand] [-- <directory>]')
   .description('Validate markdown, links, code references, and structure')
-  .action(async () => {
+  .option('--fix', 'generate/update directory index files from frontmatter')
+  .action(async (opts: { fix?: boolean }) => {
     const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
     const { checkAllCommand } = await import('./check.js');
-    handleResult(await checkAllCommand(ctx));
+    handleResult(await checkAllCommand(ctx, { fix: opts.fix }));
   });
 
 check
@@ -170,10 +171,16 @@ check
   .command('index')
   .usage('[-- <directory>]')
   .description('Validate directory index files')
+  // No `.option('--fix', ...)` here: the parent `check` command already
+  // declares `--fix` (see line ~133 above), and commander resolves a flag
+  // shared by parent and child against the PARENT, leaving this action's
+  // own `opts.fix` permanently `undefined`. Re-adding a same-named option
+  // on this subcommand silently reintroduces that no-op bug (lat-t1y.31) —
+  // read it off `check.opts()` instead.
   .action(async () => {
     const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
     const { checkIndexCommand } = await import('./check.js');
-    handleResult(await checkIndexCommand(ctx));
+    handleResult(await checkIndexCommand(ctx, { fix: check.opts().fix }));
   });
 
 check
@@ -194,6 +201,16 @@ check
     const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
     const { checkModeCommand } = await import('./check.js');
     handleResult(await checkModeCommand(ctx));
+  });
+
+check
+  .command('status')
+  .usage('[-- <directory>]')
+  .description('Validate provenance status and detect stale reviews')
+  .action(async () => {
+    const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
+    const { checkStatusCommand } = await import('./check.js');
+    handleResult(await checkStatusCommand(ctx));
   });
 
 async function runExpand(
@@ -328,6 +345,20 @@ program
     const configPath = getConfigPath();
     const exists = existsSync(configPath);
     console.log(`Config file: ${configPath}${exists ? '' : ' (not found)'}`);
+  });
+
+program
+  .command('graph')
+  .description(
+    'Export the knowledge graph, or reconstruct it at a git revision',
+  )
+  .option('--format <format>', 'output format: json, mermaid, dot', 'json')
+  .option('--at <rev>', 'reconstruct the graph at a git revision')
+  .option('--since <rev>', 'diff the graph since a git revision')
+  .action(async (opts: { format?: string; at?: string; since?: string }) => {
+    const ctx = resolveContext(program.opts());
+    const { graphCommand } = await import('./graph.js');
+    handleResult(await graphCommand(ctx, opts));
   });
 
 await program.parseAsync(checkTargetArgs.args, { from: 'user' });

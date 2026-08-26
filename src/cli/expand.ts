@@ -6,13 +6,17 @@ import {
   type SectionMatch,
 } from '../lattice.js';
 import type { CmdContext, CmdResult } from '../context.js';
-import { UNTRUSTED_NOTICE, quoteUntrusted } from '../untrusted.js';
+import {
+  UNTRUSTED_NOTICE,
+  quoteUntrusted,
+  cleanUntrustedId,
+} from '../untrusted.js';
 
 const WIKI_LINK_RE = /\[\[([^\]]+)\]\]/g;
 
 function formatLocation(section: Section, projectRoot: string): string {
   const relPath = relative(process.cwd(), join(projectRoot, section.filePath));
-  return `${relPath}:${section.startLine}-${section.endLine}`;
+  return `${cleanUntrustedId(relPath)}:${section.startLine}-${section.endLine}`;
 }
 
 type ResolvedRef = {
@@ -28,11 +32,12 @@ type ResolvedRef = {
 export async function expandPrompt(
   ctx: CmdContext,
   text: string,
+  preloadedSections?: Section[],
 ): Promise<string | null> {
   const refs = [...text.matchAll(WIKI_LINK_RE)];
   if (refs.length === 0) return null;
 
-  const allSections = await loadAllSections(ctx.latDir);
+  const allSections = preloadedSections ?? (await loadAllSections(ctx.latDir));
   const resolved = new Map<string, ResolvedRef>();
   const errors: string[] = [];
 
@@ -57,7 +62,7 @@ export async function expandPrompt(
   // Replace [[refs]] inline
   let output = text.replace(WIKI_LINK_RE, (_match, target: string) => {
     const ref = resolved.get(target)!;
-    return `[[${ref.best.section.id}]]`;
+    return `[[${cleanUntrustedId(ref.best.section.id)}]]`;
   });
 
   // Append context block as nested outliner
@@ -76,8 +81,8 @@ export async function expandPrompt(
     }
 
     for (const m of all) {
-      const reason = isExact ? '' : ` (${m.reason})`;
-      output += `  * [[${m.section.id}]]${reason}\n`;
+      const reason = isExact ? '' : ` (${cleanUntrustedId(m.reason)})`;
+      output += `  * [[${cleanUntrustedId(m.section.id)}]]${reason}\n`;
       output += `    * ${formatLocation(m.section, ctx.projectRoot)}\n`;
       if (m.section.firstParagraph) {
         output += `    * ${quoteUntrusted(m.section.firstParagraph)}\n`;

@@ -1,13 +1,27 @@
 import { execSync } from 'node:child_process';
 import { dirname, extname } from 'node:path';
-import { findLatticeDir, loadAllSections, findSections } from '../lattice.js';
+import {
+  findLatticeDir,
+  loadAllSections,
+  findSections,
+  type Section,
+} from '../lattice.js';
 import { plainStyler, type CmdContext } from '../context.js';
 import { expandPrompt } from './expand.js';
 import { runSearch } from './search.js';
 import { getSection, formatSectionOutput } from './section.js';
 import { checkMd, checkCodeRefs, checkIndex, checkSections } from './check.js';
+import { checkMode } from './check-mode.js';
 import { SOURCE_EXTENSIONS } from '../source-parser.js';
 import { federateTags, taggedDocsForFiles } from '../knowledge/index.js';
+import {
+  loadSessionMarkers,
+  saveSessionMarkers,
+} from '../knowledge/session.js';
+import {
+  computeCommentReminder,
+  type PostToolUseInput,
+} from './comment-reminder.js';
 
 function outputPromptSubmit(context: string): void {
   process.stdout.write(
@@ -18,6 +32,25 @@ function outputPromptSubmit(context: string): void {
       },
     }),
   );
+}
+
+function outputPostToolUse(eventName: string, context: string): void {
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: eventName,
+        additionalContext: context,
+      },
+    }),
+  );
+}
+
+/**
+ * Cursor reads a flat `additional_context` field, where Claude and Codex read
+ * a nested `hookSpecificOutput`. Same reminder, different envelope.
+ */
+function outputCursorPostToolUse(context: string): void {
+  process.stdout.write(JSON.stringify({ additional_context: context }));
 }
 
 function outputStop(reason: string): void {
@@ -70,6 +103,7 @@ type SearchEnrichment = { text: string | null; filePaths: string[] };
 async function searchAndExpand(
   ctx: CmdContext,
   userPrompt: string,
+  preloadedSections?: Section[],
 ): Promise<SearchEnrichment> {
   let result;
   try {
@@ -78,6 +112,7 @@ async function searchAndExpand(
     // `lat search` / `lat reindex` are for. Returns no matches until then.
     result = await runSearch(ctx.latDir, userPrompt, 5, undefined, {
       buildIndex: false,
+      preloadedSections,
     });
   } catch {
     // No usable backend (e.g. reindex required, key rejected) — skip semantic
@@ -105,10 +140,12 @@ async function searchAndExpand(
 
 async function handleUserPromptSubmit(): Promise<void> {
   let userPrompt = '';
+  let sessionId: string | undefined;
   try {
     const raw = await readStdin();
     const input = JSON.parse(raw);
     userPrompt = input.user_prompt ?? input.prompt ?? '';
+    sessionId = input.session_id;
   } catch {
     // If we can't parse stdin, still emit the reminder
   }
@@ -127,11 +164,14 @@ async function handleUserPromptSubmit(): Promise<void> {
   const latDir = findLatticeDir();
   if (latDir && userPrompt) {
     const ctx = makeHookCtx(latDir);
+    // Loaded once and threaded through expansion, search, and federation
+    // below — each of those otherwise walks and parses the whole tree itself.
+    const allSections: Section[] = await loadAllSections(latDir);
 
     // If the user prompt contains [[refs]], resolve them inline
     if (hasWikiLinks(userPrompt)) {
       try {
-        const expanded = await expandPrompt(ctx, userPrompt);
+        const expanded = await expandPrompt(ctx, userPrompt, allSections);
         if (expanded) {
           parts.push(
             '',
@@ -155,7 +195,7 @@ async function handleUserPromptSubmit(): Promise<void> {
     // Search for relevant sections and include their full content
     let searchFilePaths: string[] = [];
     try {
-      const searchContext = await searchAndExpand(ctx, userPrompt);
+      const searchContext = await searchAndExpand(ctx, userPrompt, allSections);
       searchFilePaths = searchContext.filePaths;
       if (searchContext.text) {
         parts.push('', searchContext.text);
@@ -178,7 +218,6 @@ async function handleUserPromptSubmit(): Promise<void> {
         (m) => m[1],
       );
       if (refTargets.length > 0) {
-        const allSections = await loadAllSections(latDir);
         for (const target of refTargets) {
           const matches = findSections(allSections, target);
           if (matches.length > 0) {
@@ -194,9 +233,13 @@ async function handleUserPromptSubmit(): Promise<void> {
       filePaths.push(...searchFilePaths);
 
       const docs = await taggedDocsForFiles(ctx.projectRoot, filePaths);
+      const sessionMarkers = loadSessionMarkers(sessionId);
       const federated = await federateTags(docs, {
         projectRoot: ctx.projectRoot,
+        seen: sessionMarkers.markers.seen,
+        attemptedEmpty: sessionMarkers.markers.attemptedEmpty,
       });
+      saveSessionMarkers(sessionMarkers);
       if (federated) {
         parts.push('', federated);
       }
@@ -206,6 +249,74 @@ async function handleUserPromptSubmit(): Promise<void> {
   }
 
   outputPromptSubmit(parts.join('\n'));
+}
+
+/**
+ * Reminds the agent of the `// @lat:` convention when it writes a comment
+ * into code via Edit/Write. See `computeCommentReminder` for the rules.
+ * Deliberately a reminder, not a gate: any failure here (bad stdin, fs
+ * errors) is swallowed and simply produces no output — it must never fail
+ * the edit that triggered it.
+ */
+async function handlePostToolUse(): Promise<void> {
+  try {
+    const raw = await readStdin();
+    const input = JSON.parse(raw) as PostToolUseInput;
+    const eventName = input.hook_event_name ?? 'PostToolUse';
+    const toolName = input.tool_name ?? '';
+    if (!/^(Edit|Write|MultiEdit)$/.test(toolName)) return;
+
+    const context = computeCommentReminder(input);
+    if (context) outputPostToolUse(eventName, context);
+  } catch {
+    // Never fail the tool call over a malformed payload or an fs error.
+  }
+}
+
+/**
+ * Cursor's postToolUse payload names things differently from Claude's: the
+ * path and content sit at the top level of `tool_input` under keys Cursor
+ * chooses, and the tool is `Write` rather than `Edit`/`Write`/`MultiEdit`.
+ * Normalize onto the shape `computeCommentReminder` already understands
+ * rather than teaching that function a second dialect.
+ */
+async function handleCursorPostToolUse(): Promise<void> {
+  try {
+    const raw = await readStdin();
+    const input = JSON.parse(raw) as {
+      tool_name?: string;
+      conversation_id?: string;
+      cwd?: string;
+      tool_input?: Record<string, unknown>;
+    };
+    if (!/^(Write|Edit|MultiEdit)$/i.test(input.tool_name ?? '')) return;
+
+    const ti = input.tool_input ?? {};
+    const filePath = (ti['file_path'] ?? ti['path'] ?? ti['target_file']) as
+      | string
+      | undefined;
+    if (!filePath) return;
+    const content = (ti['content'] ?? ti['contents'] ?? ti['new_string']) as
+      | string
+      | undefined;
+
+    const context = computeCommentReminder({
+      hook_event_name: 'postToolUse',
+      session_id: input.conversation_id,
+      cwd: input.cwd,
+      tool_name: 'Write',
+      tool_input: {
+        file_path: filePath,
+        ...(content === undefined ? {} : { content }),
+        ...(Array.isArray(ti['edits'])
+          ? { edits: ti['edits'] as { new_string?: string }[] }
+          : {}),
+      },
+    });
+    if (context) outputCursorPostToolUse(context);
+  } catch {
+    // Never fail the tool call over a malformed payload or an fs error.
+  }
 }
 
 /** Minimum diff size (in lines) to consider "significant" code change. */
@@ -228,6 +339,7 @@ function analyzeDiff(projectRoot: string): {
     output = execSync('git diff HEAD --numstat', {
       cwd: projectRoot,
       encoding: 'utf-8',
+      timeout: 2000,
     });
   } catch {
     return { codeLines: 0, latMdLines: 0 };
@@ -267,11 +379,16 @@ async function getStopStatus(latDir: string): Promise<StopStatus> {
   const code = await checkCodeRefs(latDir);
   const indexErrors = await checkIndex(latDir);
   const sectionErrors = await checkSections(latDir);
+  // Must stay in step with `checkAllCommand` in check.ts. A check counted
+  // there but not here lets the Stop hook call a failing tree clean, which
+  // silently disables the very enforcement the check was added for.
+  const modeErrors = await checkMode(latDir);
   const totalErrors =
     md.errors.length +
     code.errors.length +
     indexErrors.length +
-    sectionErrors.length;
+    sectionErrors.length +
+    modeErrors.length;
   const checkFailed = totalErrors > 0;
 
   const projectRoot = dirname(latDir);
@@ -386,9 +503,12 @@ export async function hookCmd(agent: string, event: string): Promise<void> {
         case 'Stop':
           await handleStop();
           return;
+        case 'PostToolUse':
+          await handlePostToolUse();
+          return;
         default:
           console.error(
-            `Unknown hook event for claude: ${event}. Supported: UserPromptSubmit, Stop`,
+            `Unknown hook event for claude: ${event}. Supported: UserPromptSubmit, Stop, PostToolUse`,
           );
           process.exit(1);
       }
@@ -400,9 +520,12 @@ export async function hookCmd(agent: string, event: string): Promise<void> {
         case 'Stop':
           await handleStop();
           return;
+        case 'PostToolUse':
+          await handlePostToolUse();
+          return;
         default:
           console.error(
-            `Unknown hook event for codex: ${event}. Supported: UserPromptSubmit, Stop`,
+            `Unknown hook event for codex: ${event}. Supported: UserPromptSubmit, Stop, PostToolUse`,
           );
           process.exit(1);
       }
@@ -411,9 +534,12 @@ export async function hookCmd(agent: string, event: string): Promise<void> {
         case 'stop':
           await handleCursorStop();
           return;
+        case 'postToolUse':
+          await handleCursorPostToolUse();
+          return;
         default:
           console.error(
-            `Unknown hook event for cursor: ${event}. Supported: stop`,
+            `Unknown hook event for cursor: ${event}. Supported: stop, postToolUse`,
           );
           process.exit(1);
       }

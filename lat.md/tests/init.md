@@ -52,3 +52,7 @@ A current-version non-interactive init with a configured key neither displays a 
 ### Non-interactive mismatch prints command
 
 A non-interactive init with a configured backend that differs from the stored index prints the exact reindex command without starting an expensive rebuild.
+
+## Cursor init registers a postToolUse hook
+
+When Cursor is selected, `lat init` writes both a `stop` and a `postToolUse` entry to `.cursor/hooks.json`, deliberately not `afterFileEdit` — Cursor ignores that event's output, so a comment reminder sent from it could never reach the agent.

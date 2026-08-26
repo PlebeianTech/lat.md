@@ -65,7 +65,7 @@ Validation command group. Without a subcommand it runs every check against the
 discovered `lat.md/`; an explicit `-- <directory>` suffix validates any
 Markdown directory instead.
 
-Usage: `lat check [md|links|code-refs|index|sections] [-- <directory>]`
+Usage: `lat check [md|links|code-refs|index|sections|mode|status] [-- <directory>]`
 
 The separator is required. It keeps directory names distinct from subcommands:
 `lat check links` runs the relative-link subcommand against the discovered
@@ -122,6 +122,33 @@ Four checks:
 Only `.md` files participate in index validation — non-markdown files are reported separately and excluded from the directory listing.
 
 Directory walking uses [[dev-process#File Walking]] to respect `.gitignore` rules — hidden/ignored entries (`.cache`, `.obsidian`, etc.) are automatically excluded.
+
+`lat check index --fix` and the top-level `lat check --fix` regenerate index files from frontmatter instead of merely reporting them stale. `--fix` on the full `lat check` only ever touches index files — every other validator in the group has no mechanical fix. A subdirectory index is regenerated before its parent so a parent listing sees the subdirectory's final state. Special characters in a title (`]`, `(`, a literal percent-encoded sequence in a filename) are escaped in the generated link rather than left to break or duplicate it. The generated list lives between `<!-- lat:index:begin -->` / `<!-- lat:index:end -->` markers; `--fix` rewrites only that region, and refuses to touch the file if the markers are malformed, so hand-written content elsewhere in the index is never deleted. Implementation: [[src/cli/check.ts]].
+
+### Frontmatter placement
+
+Report frontmatter that parses to nothing useful, or that puts a `lat:` field somewhere the parser will never look.
+
+Runs as part of the full `lat check`. Unlike the other validators it has no subcommand of its own, because there is no useful way to opt out of it.
+
+Two problems are reported, both of which fail **open** and are therefore silent without this check:
+
+1. **Root-level field** — a known `lat:` field written at the document root instead of nested under `lat:`. The error text includes the corrected frontmatter block to paste.
+2. **Unparseable or unknown** — frontmatter that YAML cannot parse, or a key under `lat:` that nothing reads.
+
+Failing open is the whole reason this exists. A misplaced or unparseable `require-code-mention` turns a validation *off*, and `lat check` then reports success on a file whose leaf sections are no longer required to carry `@lat:` coverage. Nothing else in the output says the rule stopped applying. Implementation: [[src/cli/check-frontmatter.ts#checkFrontmatter]].
+
+### mode
+
+Validate the `mode` field under a document's `lat:` frontmatter against the Diátaxis mode content rules. See [[markdown#Frontmatter#mode]] for the field itself. Implementation: [[src/cli/check-mode.ts]].
+
+### status
+
+Validate the `status`/`reviewed-hash` provenance fields under a document's `lat:` frontmatter.
+
+A `human-reviewed` document may carry a `reviewed-hash` — a hash of its body text at review time, ignoring the heading and frontmatter. If the document's current hash no longer matches, the review is stale and `lat check status` reports it along with the current hash to record. An unrecognized `status` value is also an error. A document with no `status` field, or a `human-reviewed` one with no `reviewed-hash`, passes silently — older trees predate the field and must not turn red on upgrade. Implementation: [[src/cli/check-status.ts]].
+
+`lat check status` errors also count toward the total reported by a plain `lat check`, and the same provenance is surfaced inline above a quoted section's body by [[cli#section]] (e.g. `[unreviewed -- written by an agent, not checked by a person]`, `[stale review -- the text changed after a person checked it]`).
 
 ## expand
 
@@ -270,9 +297,9 @@ Usage: `lat hook <agent> <event>`
 
 Currently supports:
 
-- `claude` with `UserPromptSubmit` and `Stop`
-- `codex` with `UserPromptSubmit` and `Stop`
-- `cursor` with `stop`
+- `claude` with `UserPromptSubmit`, `Stop`, and `PostToolUse`
+- `codex` with `UserPromptSubmit`, `Stop`, and `PostToolUse`
+- `cursor` with `stop` and `postToolUse`
 
 ### UserPromptSubmit
 
@@ -292,6 +319,18 @@ Conditionally continues Claude or Codex — only when something is actually wron
 3. **Second pass** (`stop_hook_active` true) — if check still fails, print warning to stderr (no block, loop stops). If check passes, exit silently.
 4. **First pass** — run `git diff HEAD --numstat`. Count `codeLines` (files matching [[src/source-parser.ts#SOURCE_EXTENSIONS]]) and `latMdLines`. Skip ratio check if `codeLines < 5` or `latMdLines >= 50` (enough doc work was clearly done). Otherwise round `latMdLines` up to 1 (if nonzero) and flag `needsSync` when `latMdLines < codeLines * 5%`.
 5. **Decision** — both pass: exit silently, clean output. Check failed + needs sync: block ("update relevant current-state `lat.md/` sections if needed, then run `lat check` until it passes"). Check failed only: block ("run `lat check` until it passes"). Needs sync only: block with explicit context ("not updated" when 0 lat.md lines, "may not be fully in sync (N lines)" when some changes exist but below ratio) and a reminder not to add journal/changelog noise.
+
+### PostToolUse
+
+Fires after an Edit or Write and reminds the agent that a comment explaining **why** belongs in a `lat.md/` section, with a `// @lat:` pointer left behind in the code. Implementation: [[src/cli/comment-reminder.ts]].
+
+This is the write-side counterpart to the rest of the tool. Everything else surfaces knowledge behind a pointer that already exists; nothing acted on *writing* one, so an agent that wrote a nine-line rationale comment got no signal at all — the write succeeded and looked correct.
+
+Deliberately a reminder, not a gate. It always resolves without throwing and the caller always exits 0. Whether a comment explains *why* is not mechanically decidable, so the judgement stays with the model; the hook only guarantees the question gets asked, once per file per session.
+
+Comment syntax is matched per language family, keyed on the file's **basename** rather than its extension, so `Rakefile`, `Dockerfile`, and `Makefile` — which carry the language in the name — are recognized. Each family declares its own comment pattern, its `@lat:` marker, and a pragma pattern.
+
+Machine directives are excluded by that pragma pattern: shebangs, encoding and `frozen_string_literal` magic comments, and linter/type pragmas (`rubocop`, `noqa`, `mypy`, `shellcheck`, `eslint`, and similar). They are not prose and can never move into a document. Also skipped: `.md` files, comments that already carry a `@lat:` ref, and decoration with no alphanumeric characters.
 
 ### cursor stop
 
@@ -404,6 +443,16 @@ Implementation: [[src/search/index.ts]]
 Embeds the user's query via the active embedder, then runs a `vector_top_k()` KNN query joined back to the sections table.
 
 Implementation: [[src/search/search.ts]]
+
+## graph
+
+Export the knowledge graph as JSON, Mermaid, or Graphviz `dot`, or diff it against a git revision. Usage: `lat graph [--format json|mermaid|dot] [--at <rev> | --since <rev>]`.
+
+Without `--at`/`--since`, exports the working tree. Nodes cover documents, sections, and tags; edges cover `contains` (document/section nesting), `wikilink`, and `code-ref`. `--format json` emits the raw node/edge graph; `mermaid` emits a `flowchart TD` diagram with edge labels; `dot` emits a Graphviz `digraph lat { ... }`. Untrusted content (a heading with quotes or control characters) is escaped in every format rather than being allowed to break the output's syntax.
+
+`--at <rev>` reconstructs the graph as it existed at a git revision instead of the working tree, by reading each source file's blob at that revision. `--since <rev>` diffs the graph between that revision and the working tree and prints which sections were added, removed, or changed, rather than the graph itself. `--at` and `--since` are mutually exclusive.
+
+Implementation: [[src/graph-export.ts]], CLI wrapper [[src/cli/graph.ts]].
 
 ## reindex
 

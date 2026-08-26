@@ -72,6 +72,25 @@ describe('mode-unknown', () => {
   });
 });
 
+describe('mode-non-string-list', () => {
+  it('flags a non-string (list) mode value instead of silently skipping validation', async () => {
+    const errors = await checkMode(
+      latDir('mode-non-string-list'),
+      caseDir('mode-non-string-list'),
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain('unknown mode');
+    expect(errors[0].message).toContain('tutorial');
+  });
+});
+
+describe('mode-null', () => {
+  it('treats a bare `mode:` key with no value as absent, not an error', async () => {
+    const errors = await checkMode(latDir('mode-null'), caseDir('mode-null'));
+    expect(errors).toEqual([]);
+  });
+});
+
 describe('mode-reference-prose', () => {
   it('flags a second paragraph under a heading at its line', async () => {
     const errors = await checkMode(
@@ -185,6 +204,34 @@ describe('mode-explanation-imperative', () => {
       caseDir('mode-explanation-imperative'),
     );
     expect(errors.some((e) => e.line === 6)).toBe(false);
+  });
+
+  // @lat: [[mode#Does not flag an imperative inside a nested fence with a longer marker]]
+  it('does not flag an imperative inside a nested fence using a longer marker', async () => {
+    const errors = await checkMode(
+      latDir('mode-explanation-imperative'),
+      caseDir('mode-explanation-imperative'),
+    );
+    expect(errors.some((e) => e.line === 18)).toBe(false);
+  });
+
+  // @lat: [[mode#Does not flag an imperative inside a four-space-indented code block]]
+  it('does not flag an imperative inside a four-space-indented code block', async () => {
+    const errors = await checkMode(
+      latDir('mode-explanation-imperative'),
+      caseDir('mode-explanation-imperative'),
+    );
+    expect(errors.some((e) => e.line === 22)).toBe(false);
+  });
+
+  // @lat: [[mode#Still flags only the single ordinary-prose imperative]]
+  it('still flags only the single ordinary-prose imperative', async () => {
+    const errors = await checkMode(
+      latDir('mode-explanation-imperative'),
+      caseDir('mode-explanation-imperative'),
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0].line).toBe(10);
   });
 });
 

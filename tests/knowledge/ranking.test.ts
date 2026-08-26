@@ -4,25 +4,39 @@ import type { KnowledgeHit } from '../../src/knowledge/types.js';
 
 describe('tagsToTerms', () => {
   it('preserves authored order, not alphabetical order', () => {
-    // `run-pin` splits into `run`, `pin` (both length 3, both kept). With
-    // maxTerms=2 the cut must take these two — the first tag the author
-    // wrote — not "carry"/"param" (what sort -u would produce).
+    // One term per tag, taken before the maxTerms cap. With maxTerms=2 the
+    // cut must take the first two authored tags' terms ('run', 'carry') —
+    // not "carry"/"param" (what sort -u would produce) and not both halves
+    // of 'run-pin' (which would starve 'carry' and 'query-param' entirely).
     expect(tagsToTerms(['run-pin', 'carry', 'query-param'])).toEqual([
       'run',
-      'pin',
+      'carry',
     ]);
   });
 
-  it('drops words shorter than 3 characters', () => {
+  // @lat: [[knowledge-store#tagsToTerms: term budget per tag#Reaches more than one authored tag with a hyphenated first tag]]
+  it('reaches more than one authored tag with a hyphenated first tag', () => {
+    // Regression: a single hyphenated tag must not consume the whole term
+    // budget and starve every other tag.
+    const terms = tagsToTerms(['run-pin', 'carry', 'query-param']);
+    expect(terms.length).toBeGreaterThan(1);
+  });
+
+  it('drops words shorter than 3 characters within a tag', () => {
     expect(tagsToTerms(['a-bb-ccc'])).toEqual(['ccc']);
   });
 
+  // @lat: [[knowledge-store#tagsToTerms: term budget per tag#Takes only the first qualifying word of a hyphenated tag]]
+  it('takes only the first qualifying word of a hyphenated tag', () => {
+    expect(tagsToTerms(['RUN-away'], 5)).toEqual(['RUN']);
+  });
+
   it('dedupes case-insensitively, keeping the first spelling', () => {
-    expect(tagsToTerms(['Run', 'run', 'RUN-away'], 5)).toEqual(['Run', 'away']);
+    expect(tagsToTerms(['Run', 'run', 'RUN-away'], 5)).toEqual(['Run']);
   });
 
   it('accepts a single string', () => {
-    expect(tagsToTerms('run-pin')).toEqual(['run', 'pin']);
+    expect(tagsToTerms('run-pin')).toEqual(['run']);
   });
 
   it('returns [] for non-array non-string input', () => {
@@ -34,9 +48,13 @@ describe('tagsToTerms', () => {
   it('ignores non-string entries in an array', () => {
     expect(tagsToTerms(['run-pin', 42, null, 'carry'], 5)).toEqual([
       'run',
-      'pin',
       'carry',
     ]);
+  });
+
+  // @lat: [[knowledge-store#tagsToTerms: term budget per tag#Keeps a non-ASCII tag instead of dropping it]]
+  it('keeps a non-ASCII tag instead of dropping it', () => {
+    expect(tagsToTerms(['café-pin'])).toEqual(['café']);
   });
 
   it('respects maxTerms', () => {

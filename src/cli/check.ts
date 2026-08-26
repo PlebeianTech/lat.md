@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile, lstat, rename, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import {
@@ -12,10 +12,13 @@ import {
   buildFileIndex,
   buildSectionSlugIndex,
   resolveRef,
-  type Section,
 } from '../lattice.js';
 import { scanCodeRefs } from '../code-refs.js';
 import { checkMode } from './check-mode.js';
+import { checkStatus } from './check-status.js';
+import { checkFrontmatter } from './check-frontmatter.js';
+import { indexEntryNameFromDest } from './link-scheme.js';
+import { fencedLineMask } from './gen-index.js';
 import { SOURCE_EXTENSIONS, clearSymbolCache } from '../source-parser.js';
 import { toPosix, walkEntries } from '../walk.js';
 import type { CmdContext, CmdResult, Styler } from '../context.js';
@@ -406,14 +409,34 @@ function immediateEntries(walkedPaths: string[]): string[] {
   return [...entries].sort();
 }
 
-/** Parse bullet items from an index file. Matches `- [[name]] — description` */
+/**
+ * Parse bullet items from an index file. Recognizes both the legacy
+ * hand-written form (`- [[name]] — description`) and the generated form
+ * written by `lat check --fix` / `lat check index --fix`
+ * (`- [Title](name) — summary`) — the two do not collide because the second
+ * only matches when a `(` immediately follows the closing `]`, which never
+ * happens in a `[[...]]` wiki link.
+ */
 function parseIndexEntries(content: string): Set<string> {
   const names = new Set<string>();
-  const re = /^- \[\[([^\]]+?)(?:\|[^\]]+)?\]\]/gm;
+
+  const lines = content.split('\n');
+  const fenced = fencedLineMask(lines);
+  const unfencedContent = lines.map((l, i) => (fenced[i] ? '' : l)).join('\n');
+
+  const wikiRe = /^- \[\[([^\]]+?)(?:\|[^\]]+)?\]\]/gm;
   let match;
-  while ((match = re.exec(content)) !== null) {
+  while ((match = wikiRe.exec(unfencedContent)) !== null) {
     names.add(match[1]);
   }
+
+  // Label allows escaped brackets (`\]`, `\[`) without ending the match early.
+  const mdRe = /^- \[((?:\\.|[^\]])*)\]\(([^)]*)\)/gm;
+  while ((match = mdRe.exec(unfencedContent)) !== null) {
+    const name = indexEntryNameFromDest(match[2]);
+    if (name !== null) names.add(entryToStem(name));
+  }
+
   return names;
 }
 
@@ -436,7 +459,18 @@ export type IndexError = {
   snippet?: string;
 };
 
-export async function checkIndex(latticeDir: string): Promise<IndexError[]> {
+export type CheckIndexOptions = {
+  /**
+   * Generate/rewrite index files instead of reporting errors for them.
+   * Non-.md-file errors are still reported — --fix only ever writes markdown.
+   */
+  fix?: boolean;
+};
+
+export async function checkIndex(
+  latticeDir: string,
+  opts: CheckIndexOptions = {},
+): Promise<IndexError[]> {
   const errors: IndexError[] = [];
   const allPaths = await walkEntries(latticeDir);
 
@@ -465,7 +499,13 @@ export async function checkIndex(latticeDir: string): Promise<IndexError[]> {
     }
   }
 
-  for (const dir of dirs) {
+  // Deepest directories first: a subdirectory's index must already be
+  // regenerated before its parent index reads a title/summary from it.
+  const orderedDirs = [...dirs].sort(
+    (a, b) => b.split('/').length - a.split('/').length,
+  );
+
+  for (const dir of orderedDirs) {
     // Determine the index file name and its expected path.
     // The index file shares the directory's name — for `lat.md/` it's `lat.md`,
     // for a subdir `api/` it's `api.md`.
@@ -484,10 +524,27 @@ export async function checkIndex(latticeDir: string): Promise<IndexError[]> {
 
     // Check if the index file exists
     const indexFullPath = join(latticeDir, indexRelPath);
-    let content: string;
+    let content: string | null;
     try {
       content = await readFile(indexFullPath, 'utf-8');
     } catch {
+      content = null;
+    }
+
+    if (content === null) {
+      if (opts.fix) {
+        const refusal = await writeGeneratedIndex(
+          latticeDir,
+          dir,
+          indexFullPath,
+          dirName,
+          null,
+          children,
+        );
+        if (refusal) errors.push(refusal);
+        continue;
+      }
+
       const relDir = dir === '' ? basename(latticeDir) + '/' : dir + '/';
       errors.push({
         dir: relDir,
@@ -502,7 +559,6 @@ export async function checkIndex(latticeDir: string): Promise<IndexError[]> {
     // Children are filesystem names (with .md for files, bare for dirs).
     const listed = parseIndexEntries(content);
     const childStems = new Set(children.map(entryToStem));
-    const stemToChild = new Map(children.map((c) => [entryToStem(c), c]));
     const relDir = dir === '' ? basename(latticeDir) + '/' : dir + '/';
     const missing: string[] = [];
 
@@ -510,6 +566,29 @@ export async function checkIndex(latticeDir: string): Promise<IndexError[]> {
       if (!listed.has(entryToStem(child))) {
         missing.push(child);
       }
+    }
+
+    const indexStem = entryToStem(indexFileName);
+    const stale: string[] = [];
+    for (const name of listed) {
+      if (!childStems.has(name) && name !== indexStem) {
+        stale.push(name);
+      }
+    }
+
+    if (missing.length === 0 && stale.length === 0) continue;
+
+    if (opts.fix) {
+      const refusal = await writeGeneratedIndex(
+        latticeDir,
+        dir,
+        indexFullPath,
+        dirName,
+        content,
+        children,
+      );
+      if (refusal) errors.push(refusal);
+      continue;
     }
 
     if (missing.length > 0) {
@@ -520,18 +599,115 @@ export async function checkIndex(latticeDir: string): Promise<IndexError[]> {
       });
     }
 
-    const indexStem = entryToStem(indexFileName);
-    for (const name of listed) {
-      if (!childStems.has(name) && name !== indexStem) {
-        errors.push({
-          dir: relDir,
-          message: `"${indexRelPath}" lists "[[${name}]]" but it does not exist`,
-        });
-      }
+    for (const name of stale) {
+      errors.push({
+        dir: relDir,
+        message: `"${indexRelPath}" lists "[[${name}]]" but it does not exist`,
+      });
     }
   }
 
   return errors;
+}
+
+/**
+ * Build entry sources for a directory's children and write the generated
+ * index. Returns an IndexError describing a refusal if the index path (or
+ * the temporary path used to write it) is a symlink; returns null on
+ * success.
+ *
+ * The write never follows a symlink: it writes to a temp file in the same
+ * directory (created with O_EXCL, so a pre-planted symlink there is refused
+ * rather than written through) and renames it over the target, since rename
+ * replaces a symlink rather than following it.
+ */
+async function writeGeneratedIndex(
+  latticeDir: string,
+  dir: string,
+  indexFullPath: string,
+  dirName: string,
+  existingContent: string | null,
+  children: string[],
+): Promise<IndexError | null> {
+  const relIndexPath = relative(latticeDir, indexFullPath);
+  const relDir = dir === '' ? basename(latticeDir) + '/' : dir + '/';
+
+  try {
+    const stat = await lstat(indexFullPath);
+    if (stat.isSymbolicLink()) {
+      return {
+        dir: relDir,
+        message: `refusing to write generated index "${relIndexPath}" — it is a symlink`,
+      };
+    }
+  } catch {
+    // Does not exist yet — fine, we're creating it.
+  }
+
+  const { renderIndexEntries, spliceIndexContent } =
+    await import('./gen-index.js');
+
+  const entries = children.map((child) => {
+    const isDir = !child.endsWith('.md');
+    const dest = isDir ? `${child}/${child}.md` : child;
+    const readFrom = isDir
+      ? join(latticeDir, dir, child, `${child}.md`)
+      : join(latticeDir, dir, child);
+    return { name: child, dest, readFrom };
+  });
+
+  const rendered = await renderIndexEntries(entries);
+  const dirLabel = dirName.endsWith('.md') ? dirName.slice(0, -3) : dirName;
+  const spliced = spliceIndexContent(existingContent, dirLabel, rendered);
+  if (!spliced.ok) {
+    return {
+      dir: relDir,
+      message: `refusing to write generated index "${relIndexPath}" — ${spliced.message}`,
+    };
+  }
+  const newContent = spliced.content;
+
+  const tempPath = `${indexFullPath}.tmp`;
+  try {
+    const tempStat = await lstat(tempPath);
+    if (tempStat.isSymbolicLink() || tempStat.isFile()) {
+      // Something is already at the temp path (possibly a pre-planted
+      // symlink). Refuse rather than write through or over it.
+      //
+      // This also catches a leftover temp file from a run killed between the
+      // write and the rename, which would otherwise block --fix for this
+      // directory forever. That case is harmless to clear, but the reader
+      // cannot tell the two apart from here, so say what to do rather than
+      // deleting a file this command was never asked to remove.
+      return {
+        dir: relDir,
+        message: `refusing to write generated index "${relIndexPath}" — its temporary write path "${relative(latticeDir, tempPath)}" already exists. Inspect it, then delete it to allow --fix to proceed.`,
+      };
+    }
+  } catch {
+    // Nothing at the temp path — fine.
+  }
+
+  try {
+    // 'wx' is the load-bearing flag, not a detail: it fails rather than
+    // follows if anything appeared at the temp path since the lstat above,
+    // which closes the window between the two checks.
+    await writeFile(tempPath, newContent, { encoding: 'utf-8', flag: 'wx' });
+  } catch (err) {
+    return {
+      dir: relDir,
+      message: `refusing to write generated index "${relIndexPath}" — could not create temporary write path "${relative(latticeDir, tempPath)}" (${(err as Error).message})`,
+    };
+  }
+
+  try {
+    await rename(tempPath, indexFullPath);
+  } catch (err) {
+    await unlink(tempPath).catch(() => {});
+    throw err;
+  }
+
+  return null;
 }
 
 // --- Section structure validation ---
@@ -633,14 +809,21 @@ function formatErrorCount(count: number, s: Styler): string {
 
 // --- Unified command functions ---
 
-export async function checkAllCommand(ctx: CmdContext): Promise<CmdResult> {
+export async function checkAllCommand(
+  ctx: CmdContext,
+  opts: CheckIndexOptions = {},
+): Promise<CmdResult> {
   const startTime = Date.now();
   const md = await checkMd(ctx.latDir, ctx.projectRoot);
   const linkErrors = await checkLinks(ctx.latDir);
   const code = await checkCodeRefs(ctx.latDir, ctx.projectRoot);
-  const indexErrors = await checkIndex(ctx.latDir);
+  // `--fix` is index-only: an index is derived from frontmatter, so it can be
+  // regenerated. Nothing else `lat check` reports has a mechanical fix.
+  const indexErrors = await checkIndex(ctx.latDir, opts);
   const sectionErrors = await checkSections(ctx.latDir, ctx.projectRoot);
   const modeErrors = await checkMode(ctx.latDir, ctx.projectRoot);
+  const statusErrors = await checkStatus(ctx.latDir, ctx.projectRoot);
+  const fmErrors = await checkFrontmatter(ctx.latDir, ctx.projectRoot);
   const elapsed = Date.now() - startTime;
 
   const allErrors = [...md.errors, ...linkErrors, ...code.errors];
@@ -686,12 +869,16 @@ export async function checkAllCommand(ctx: CmdContext): Promise<CmdResult> {
   lines.push(...formatCheckIndexErrors(indexErrors, s));
   lines.push(...formatCheckErrors(sectionErrors, s));
   lines.push(...formatCheckErrors(modeErrors, s));
+  lines.push(...formatCheckErrors(statusErrors, s));
+  lines.push(...formatCheckErrors(fmErrors, s));
 
   const totalErrors =
     allErrors.length +
     indexErrors.length +
     sectionErrors.length +
-    modeErrors.length;
+    modeErrors.length +
+    statusErrors.length +
+    fmErrors.length;
   if (totalErrors > 0) {
     lines.push(formatErrorCount(totalErrors, s));
     return { output: lines.join('\n'), isError: true };
@@ -766,10 +953,23 @@ export async function checkCodeRefsCommand(
   return { output: lines.join('\n') };
 }
 
-export async function checkIndexCommand(ctx: CmdContext): Promise<CmdResult> {
-  const errors = await checkIndex(ctx.latDir);
+export async function checkIndexCommand(
+  ctx: CmdContext,
+  opts: CheckIndexOptions = {},
+): Promise<CmdResult> {
+  const errors = await checkIndex(ctx.latDir, opts);
   const s = ctx.styler;
   const lines: string[] = [];
+
+  if (opts.fix) {
+    lines.push(s.green('index: directory index files regenerated'));
+    if (errors.length > 0) {
+      lines.push(...formatCheckIndexErrors(errors, s));
+      lines.push(formatErrorCount(errors.length, s));
+      return { output: lines.join('\n'), isError: true };
+    }
+    return { output: lines.join('\n') };
+  }
 
   lines.push(...formatCheckIndexErrors(errors, s));
 
@@ -813,5 +1013,21 @@ export async function checkModeCommand(ctx: CmdContext): Promise<CmdResult> {
   }
 
   lines.push(s.green('mode: All documents match their Diátaxis mode'));
+  return { output: lines.join('\n') };
+}
+
+export async function checkStatusCommand(ctx: CmdContext): Promise<CmdResult> {
+  const errors = await checkStatus(ctx.latDir, ctx.projectRoot);
+  const s = ctx.styler;
+  const lines: string[] = [];
+
+  lines.push(...formatCheckErrors(errors, s));
+
+  if (errors.length > 0) {
+    lines.push(formatErrorCount(errors.length, s));
+    return { output: lines.join('\n'), isError: true };
+  }
+
+  lines.push(s.green('status: Every recorded review matches its document'));
   return { output: lines.join('\n') };
 }

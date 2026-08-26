@@ -1,4 +1,8 @@
-import { execFileSync } from 'node:child_process';
+import {
+  execFile,
+  type ExecFileException,
+  type ExecFileOptionsWithStringEncoding,
+} from 'node:child_process';
 import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -23,35 +27,76 @@ function escapeRegExp(s: string): string {
  * the main checkout. Outside a git repo (or on any failure) we fall back to
  * `projectRoot` itself.
  */
-function resolveMainCheckout(projectRoot: string): string {
-  try {
-    const out = execFileSync('git', ['rev-parse', '--git-common-dir'], {
+function resolveMainCheckout(projectRoot: string): Promise<string> {
+  return new Promise((resolvePromise) => {
+    // Async execFile, not execFileSync: this runs on the UserPromptSubmit
+    // critical path alongside the bd and cq stores under
+    // `Promise.allSettled`, and a synchronous subprocess call here would
+    // block the event loop and prevent the other stores' I/O from
+    // overlapping with it.
+    // `stdio` isn't in the string-encoding overload's declared option type
+    // even though Node accepts it at runtime, hence the explicit cast.
+    const options = {
       cwd: projectRoot,
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: CALL_TIMEOUT_MS,
       encoding: 'utf-8',
-    }).trim();
-    if (!out) return projectRoot;
-    const gitDir = resolve(projectRoot, out);
-    return dirname(gitDir);
-  } catch {
-    return projectRoot;
-  }
+    } as ExecFileOptionsWithStringEncoding;
+    execFile(
+      'git',
+      ['rev-parse', '--git-common-dir'],
+      options,
+      (error: ExecFileException | null, stdout: string) => {
+        if (error || !stdout) {
+          resolvePromise(projectRoot);
+          return;
+        }
+        const out = stdout.trim();
+        if (!out) {
+          resolvePromise(projectRoot);
+          return;
+        }
+        const gitDir = resolve(projectRoot, out);
+        resolvePromise(dirname(gitDir));
+      },
+    );
+  });
 }
 
-function slugify(absPath: string): string {
-  return absPath.replace(/\//g, '-');
+/**
+ * Match Claude Code's own project-directory slug: every character that
+ * isn't a letter or digit becomes `-`, including `.` — a project root like
+ * `/Users/dave/projects/claude-code/lat.md` slugifies to
+ * `-Users-dave-projects-claude-code-lat-md`, verified against a real
+ * `~/.claude/projects/` listing. Replacing only `/` (the previous
+ * implementation) leaves dots in the slug and never matches the real
+ * directory, so the store silently finds nothing for any project root
+ * containing a dot.
+ */
+export function slugify(absPath: string): string {
+  return absPath.replace(/[^a-zA-Z0-9]/g, '-');
 }
 
-function memoryDirFor(projectRoot: string): string {
-  const mainCheckout = resolveMainCheckout(projectRoot);
-  return join(
+// `resolveMainCheckout` spawns `git rev-parse` and `memoryDirFor` is called
+// once per matching tag within a single hook invocation, where the project
+// root and its main checkout never change mid-process. Memoize on
+// `projectRoot` so repeated `rank()` calls in one process spawn git at most
+// once per distinct root.
+const memoryDirCache = new Map<string, string>();
+
+async function memoryDirFor(projectRoot: string): Promise<string> {
+  const cached = memoryDirCache.get(projectRoot);
+  if (cached !== undefined) return cached;
+  const mainCheckout = await resolveMainCheckout(projectRoot);
+  const dir = join(
     homedir(),
     '.claude',
     'projects',
     slugify(mainCheckout),
     'memory',
   );
+  memoryDirCache.set(projectRoot, dir);
+  return dir;
 }
 
 /** Strip a leading/trailing pair of double quotes, if both are present. */
@@ -80,7 +125,7 @@ function readFileCapped(path: string): string | undefined {
 
 async function query(q: StoreQuery): Promise<KnowledgeHit[]> {
   try {
-    return rank(q);
+    return await rank(q);
   } catch {
     // Unconditional, for the same reason as the bd store: every individual
     // filesystem call below is already guarded, and the contract is worth
@@ -89,44 +134,75 @@ async function query(q: StoreQuery): Promise<KnowledgeHit[]> {
   }
 }
 
-function rank(q: StoreQuery): KnowledgeHit[] {
-  const memoryDir = memoryDirFor(q.projectRoot);
-  if (!existsSync(memoryDir)) return [];
+// memoryDir -> ordered list of { key, text } for its non-symlinked .md
+// files. `federateTags` calls `rank()` once per matching document within a
+// single hook invocation, where the memory store on disk cannot change
+// between calls — so the directory listing and file contents are read once
+// per process and reused, instead of re-stat'ing and re-reading every file
+// on every call.
+const fileListCache = new Map<string, { key: string; text: string }[]>();
 
-  let entries: string[];
-  try {
-    entries = readdirSync(memoryDir);
-  } catch {
-    return [];
-  }
+function loadFiles(memoryDir: string): { key: string; text: string }[] {
+  const cached = fileListCache.get(memoryDir);
+  if (cached !== undefined) return cached;
 
-  const files: string[] = [];
-  for (const entry of entries) {
-    if (!entry.endsWith('.md')) continue;
-    const full = join(memoryDir, entry);
+  let result: { key: string; text: string }[] = [];
+  if (existsSync(memoryDir)) {
+    let entries: string[] = [];
     try {
-      // The directory name is derived from a filesystem path; a symlink here
-      // could point outside the memory store and leak an unrelated file's
-      // contents into a prompt, so symlinks are never followed.
-      if (lstatSync(full).isSymbolicLink()) continue;
+      entries = readdirSync(memoryDir);
     } catch {
-      continue;
+      entries = [];
     }
-    files.push(full);
+
+    const files: string[] = [];
+    for (const entry of entries) {
+      if (!entry.endsWith('.md')) continue;
+      const full = join(memoryDir, entry);
+      try {
+        // The directory name is derived from a filesystem path; a symlink here
+        // could point outside the memory store and leak an unrelated file's
+        // contents into a prompt, so symlinks are never followed.
+        if (lstatSync(full).isSymbolicLink()) continue;
+      } catch {
+        continue;
+      }
+      files.push(full);
+    }
+
+    for (const file of files) {
+      const text = readFileCapped(file);
+      if (text === undefined) continue;
+      result.push({ key: file, text });
+    }
   }
+
+  fileListCache.set(memoryDir, result);
+  return result;
+}
+
+async function rank(q: StoreQuery): Promise<KnowledgeHit[]> {
+  const memoryDir = await memoryDirFor(q.projectRoot);
+  const files = loadFiles(memoryDir);
+  if (files.length === 0) return [];
 
   // key -> { text, count }, built in first-seen (readdir) order so ties keep
   // that order after the stable sort below, matching the bd store's rule.
   const seen = new Map<string, { text: string; count: number }>();
-  for (const file of files) {
-    const text = readFileCapped(file);
-    if (text === undefined) continue;
-    seen.set(file, { text, count: 0 });
+  for (const { key, text } of files) {
+    seen.set(key, { text, count: 0 });
   }
 
   for (const term of q.terms) {
     if (!term) continue;
-    const wordRe = new RegExp(`\\b${escapeRegExp(term)}\\b`, 'i');
+    // `\b` is ASCII-only in JS regex, so it fails to bound a term like
+    // "café" (`\bcafé\b` never matches "a café here"). Lookarounds on
+    // "word character" via a Unicode-aware class, with the `u` flag, bound
+    // the match without excluding non-ASCII letters.
+    const wordRe = new RegExp(
+      `(?<![\\p{L}\\p{N}_])${escapeRegExp(term)}(?![\\p{L}\\p{N}_])`,
+      'iu',
+    );
     for (const v of seen.values()) {
       if (wordRe.test(v.text)) v.count += 1;
     }

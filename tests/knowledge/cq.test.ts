@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createClient } from '@libsql/client';
@@ -166,5 +166,44 @@ describe('cqStore', () => {
 
     expect(hits).toHaveLength(1);
     expect(hits[0].title).toBe(summary);
+  });
+
+  // @lat: [[knowledge-store#cq store lookup and encoding#Finds a db under XDG_DATA_HOME when CQ_LOCAL_DB_PATH is unset]]
+  it('finds a db placed under XDG_DATA_HOME when CQ_LOCAL_DB_PATH is unset', async () => {
+    const prevXdg = process.env.XDG_DATA_HOME;
+    delete process.env.CQ_LOCAL_DB_PATH;
+    process.env.XDG_DATA_HOME = tmp;
+    const dbDir = join(tmp, 'cq');
+    mkdirSync(dbDir, { recursive: true });
+    const dbFile = join(dbDir, 'local.db');
+    await makeDb(dbFile, [{ summary: 'docker build fails', action: 'a' }]);
+
+    try {
+      const hits = await cqStore.query({
+        terms: ['docker'],
+        projectRoot: tmp,
+        limit: 10,
+      });
+      expect(hits).toHaveLength(1);
+    } finally {
+      if (prevXdg === undefined) delete process.env.XDG_DATA_HOME;
+      else process.env.XDG_DATA_HOME = prevXdg;
+    }
+  });
+
+  // @lat: [[knowledge-store#cq store lookup and encoding#Keeps a non-ASCII term instead of dropping it]]
+  it('keeps a term with a non-ASCII letter instead of dropping it', async () => {
+    const dbFile = join(tmp, 'local.db');
+    await makeDb(dbFile, [{ summary: 'café build fails', action: 'a' }]);
+    process.env.CQ_LOCAL_DB_PATH = dbFile;
+
+    const hits = await cqStore.query({
+      terms: ['café'],
+      projectRoot: tmp,
+      limit: 10,
+    });
+
+    expect(hits).toHaveLength(1);
+    expect(hits[0].title).toBe('café build fails');
   });
 });

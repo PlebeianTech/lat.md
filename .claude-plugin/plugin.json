@@ -1,0 +1,9 @@
+{
+  "name": "lat-md",
+  "version": "0.1.0",
+  "description": "Grounds an agent in a project's lat.md/ knowledge graph deterministically, via hooks rather than by asking the agent to remember: resolves [[refs]] and federates tagged knowledge into every prompt, reminds on writing a rationale comment that the reason belongs in lat.md/, regenerates directory indexes after edits, and blocks Stop on a failing lat check — including Diataxis mode validation.",
+  "author": {
+    "name": "Dave"
+  },
+  "keywords": ["documentation", "diataxis", "lat.md", "knowledge-graph"]
+}

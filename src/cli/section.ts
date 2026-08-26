@@ -16,6 +16,11 @@ import { scanCodeRefs } from '../code-refs.js';
 import { SOURCE_EXTENSIONS, resolveSourceSymbol } from '../source-parser.js';
 import type { CmdContext, CmdResult } from '../context.js';
 import { formatSectionId, formatNavHints } from '../format.js';
+import {
+  provenanceNote,
+  formatProvenanceNote,
+  type ProvenanceNote,
+} from './check-status.js';
 
 export type CodeBackRef = {
   file: string;
@@ -35,6 +40,8 @@ export type SectionFound = {
   kind: 'found';
   section: Section;
   content: string;
+  /** Provenance of the document holding this section, or null if unmarked. */
+  status: ProvenanceNote | null;
   outgoingRefs: { target: string; resolved: Section }[];
   outgoingSourceRefs: SourceRef[];
   incomingRefs: SectionMatch[];
@@ -227,6 +234,7 @@ export async function getSection(
     kind: 'found',
     section,
     content,
+    status: provenanceNote(fileContent),
     outgoingRefs,
     outgoingSourceRefs,
     incomingRefs,
@@ -254,6 +262,7 @@ export function formatSectionOutput(
   const {
     section,
     content,
+    status,
     outgoingRefs,
     outgoingSourceRefs,
     incomingRefs,
@@ -272,9 +281,11 @@ export function formatSectionOutput(
 
   const parts: string[] = [
     `${s.bold('[[' + formatSectionId(section.id, s) + ']]')} (${loc})`,
-    '',
-    quoted,
   ];
+  // Above the text, not below it: a reader who acts on the first line of a
+  // quoted section has already acted before a trailing caveat reaches them.
+  if (status) parts.push(formatProvenanceNote(status, s));
+  parts.push('', quoted);
 
   if (outgoingRefs.length > 0 || outgoingSourceRefs.length > 0) {
     parts.push('', '## This section references:', '');

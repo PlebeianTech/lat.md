@@ -46,6 +46,63 @@ export const LAT_REF_RE = re('gv')`
   \]\]
 `;
 
+/** Explicit opt-out: a standalone `lat:ignore` token anywhere on the line
+ *  suppresses any @lat: match on that line. This gives an author documenting
+ *  the syntax one obvious escape hatch when a match isn't inside a
+ *  quoted/backticked literal (the common case handled by
+ *  `isInsideQuotedSpan`). Word-boundary lookarounds (rather than `\b`, which
+ *  treats `:` as a boundary on both sides already and wouldn't help) keep
+ *  incidental substrings — `lat:ignore-config`, `mylat:ignore` — from
+ *  suppressing a real ref on the same line, while still matching the token
+ *  at the very start of a line or glued directly to a comment marker
+ *  (`//lat:ignore`), since `/` isn't a word character either. */
+const LAT_IGNORE_RE = /(?<![\w])lat:ignore(?![-\w])/;
+
+/** Quote characters treated as delimiting a literal span: plain strings
+ *  ('...' or "...") and backtick spans, which double as inline-code markers
+ *  when a comment is documenting the @lat: syntax itself (e.g. `` `@lat:
+ *  [[section-id]]` ``). A marker whose match falls inside such a span is an
+ *  example, not a real reference, so it is not returned as a ref. */
+const QUOTE_CHARS = ['"', '`', "'"] as const;
+
+/**
+ * Returns true if `index` (an offset into `line`) falls inside a
+ * quote-delimited span on that line. For each quote character, occurrences
+ * are paired up in order (open, close, open, close, ...); if a quote
+ * character appears an odd number of times on the line, it's ambiguous
+ * (e.g. an apostrophe in prose) and is ignored entirely for that line rather
+ * than risk hiding a real reference.
+ */
+function isInsideQuotedSpan(line: string, index: number): boolean {
+  for (const q of QUOTE_CHARS) {
+    const positions: number[] = [];
+    for (let i = 0; i < line.length; i++) {
+      if (line[i] === q && line[i - 1] !== '\\') positions.push(i);
+    }
+    if (positions.length < 2 || positions.length % 2 !== 0) continue;
+    for (let i = 0; i < positions.length; i += 2) {
+      if (index > positions[i] && index < positions[i + 1]) return true;
+    }
+  }
+  return false;
+}
+
+/** Filter regex matches on a single line, dropping ones that are inside a
+ *  quoted/backticked literal or on a line carrying an explicit `lat:ignore`
+ *  opt-out — these document the @lat: syntax rather than using it. */
+function extractRefsFromLine(line: string): string[] {
+  if (LAT_IGNORE_RE.test(line)) return [];
+  const targets: string[] = [];
+  LAT_REF_RE.lastIndex = 0;
+  let match;
+  while ((match = LAT_REF_RE.exec(line)) !== null) {
+    if (!isInsideQuotedSpan(line, match.index)) {
+      targets.push(match[1]);
+    }
+  }
+  return targets;
+}
+
 export type CodeRef = {
   target: string;
   file: string;
@@ -158,7 +215,7 @@ async function tryRipgrep(
   const out = await tryExec('rg', searchArgs, projectRoot);
   if (out === null) return null;
 
-  const { refs } = parseGrepOutput(out, projectRoot);
+  const { refs } = parseGrepOutput(out);
 
   // List all scanned files (for stats) — rg --files is fast
   const filesOut = await tryExec(
@@ -180,10 +237,7 @@ async function tryRipgrep(
 /**
  * Parse rg output lines (file:line:content) into CodeRef entries.
  */
-function parseGrepOutput(
-  output: string,
-  projectRoot: string,
-): { refs: CodeRef[] } {
+function parseGrepOutput(output: string): { refs: CodeRef[] } {
   const refs: CodeRef[] = [];
 
   if (!output.trim()) return { refs };
@@ -208,11 +262,11 @@ function parseGrepOutput(
     // Strip leading ./ from path
     if (filePath.startsWith('./')) filePath = filePath.slice(2);
 
-    // Extract targets using the same regex as the TS fallback
-    LAT_REF_RE.lastIndex = 0;
-    let match;
-    while ((match = LAT_REF_RE.exec(content)) !== null) {
-      refs.push({ target: match[1], file: filePath, line: lineNum });
+    // Extract targets using the same regex and literal-span filtering as the
+    // TS fallback, so both scan paths agree regardless of whether ripgrep is
+    // installed.
+    for (const target of extractRefsFromLine(content)) {
+      refs.push({ target, file: filePath, line: lineNum });
     }
   }
 
@@ -240,11 +294,9 @@ async function scanWithTs(
     }
     const lines = content.split('\n');
     for (let i = 0; i < lines.length; i++) {
-      let match;
-      LAT_REF_RE.lastIndex = 0;
-      while ((match = LAT_REF_RE.exec(lines[i])) !== null) {
+      for (const target of extractRefsFromLine(lines[i])) {
         refs.push({
-          target: match[1],
+          target,
           file: toPosix(relative(projectRoot, file)),
           line: i + 1,
         });
