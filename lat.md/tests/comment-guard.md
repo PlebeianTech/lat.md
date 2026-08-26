@@ -26,7 +26,7 @@ Lines carrying `@lat:` are dropped before counting, so a write consisting only o
 
 A line carrying the `lat:ignore` token is dropped before counting, matching the token [[src/code-refs.ts]] already honours.
 
-The opt-out is per line rather than per file so a deliberate exception stays visible in the diff instead of silently disarming the gate for everything that follows.
+The opt-out is per line rather than per file so a deliberate exception stays visible in the diff instead of silently disarming the gate for everything that follows. The filter lives in [[src/cli/comment-reminder.ts#candidateCommentLines]] so both halves honour it identically — see [[comment-reminder#Honours the same opt-out token as the guard]].
 
 ## Never gates markdown
 
@@ -39,3 +39,21 @@ Two identical writes to the same file both produce the same denial. [[comment-re
 ## Fails open on an unusable payload
 
 A payload naming no file returns no denial. Every fallible step degrades to allowing the edit, because refusing every write in a session over a missing `git` binary is a far worse failure than missing one comment.
+
+## Allows a whole-file rewrite that changes nothing
+
+A `Write` re-emitting an existing file verbatim is neither denied nor reminded about, however many comment lines the file already holds.
+
+A `Write` carries the whole file, not a delta, so counting `content` as written made the gate refuse edits that added no prose at all. The remediation it printed — move the reasoning out, leave a pointer, re-apply — described nothing the agent could do, because there was no new reasoning. [[src/cli/comment-reminder.ts#extractWrittenText]] now diffs `content` against what is on disk first.
+
+## Still blocks new prose in a whole-file rewrite
+
+A `Write` that re-emits an existing file *and* appends a two-line rationale block is denied, and the count names only the two added lines.
+
+This is the companion to the case above: diffing against disk must not turn the gate off for whole-file writes, only stop it counting text that was already there.
+
+## Names both exits in the denial
+
+The denial text names the two ways out — the per-line ignore token, and using `Edit` rather than a whole-file `Write`.
+
+An agent that cannot comply and cannot see an exit retries. Both exits are stated because the remediation steps do not fit every denial, and the message is read by a model under pressure.

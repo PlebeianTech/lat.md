@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
+  readFileSync,
   writeFileSync,
   statSync,
   lstatSync,
@@ -87,11 +88,41 @@ export type ToolInput = {
   edits?: { new_string?: string }[];
 };
 
-/** Only the NEW text — reading the file would fire on every pre-existing
- * comment in it, nagging about prose the agent did not write. */
+/** Lines of a whole-file `content` that the file on disk does not already
+ * hold, compared as a multiset so a line written twice against a file holding
+ * it once still counts once. Degrades to the whole text when the file cannot
+ * be read — a brand-new path, a permission error — because every line of it
+ * is new in that case. */
+function addedLines(content: string, filePath?: string): string {
+  if (!filePath) return content;
+  let onDisk: string;
+  try {
+    onDisk = readFileSync(filePath, 'utf-8');
+  } catch {
+    return content;
+  }
+  const unclaimed = new Map<string, number>();
+  for (const line of onDisk.split('\n')) {
+    unclaimed.set(line, (unclaimed.get(line) ?? 0) + 1);
+  }
+  const added: string[] = [];
+  for (const line of content.split('\n')) {
+    const left = unclaimed.get(line) ?? 0;
+    if (left > 0) unclaimed.set(line, left - 1);
+    else added.push(line);
+  }
+  return added.join('\n');
+}
+
+/** Only the NEW text. `Edit`/`MultiEdit` carry a delta already; a `Write`
+ * carries the whole file, so it is diffed against what is on disk first.
+ * Counting the file as written would fire on every pre-existing comment in
+ * it, nagging about prose the agent did not write — and would refuse a
+ * rewrite that changed nothing at all. */
 export function extractWrittenText(toolInput: ToolInput): string {
   const parts: string[] = [];
-  if (typeof toolInput.content === 'string') parts.push(toolInput.content);
+  if (typeof toolInput.content === 'string')
+    parts.push(addedLines(toolInput.content, toolInput.file_path));
   if (typeof toolInput.new_string === 'string')
     parts.push(toolInput.new_string);
   if (Array.isArray(toolInput.edits)) {
@@ -102,8 +133,19 @@ export function extractWrittenText(toolInput: ToolInput): string {
   return parts.join('\n');
 }
 
+/** Explicit, reviewable per-line opt-out, spelled the same as the token
+ * [[src/code-refs.ts]] already honours so a project has one escape hatch to
+ * learn rather than two. It lives here, not in the guard, because the
+ * advisory and blocking halves have to agree on it: an exemption that the
+ * gate honours but the reminder does not just relocates the nag.
+ * It suppresses only the line it appears on, keeping a deliberate exception
+ * visible in the diff instead of silently disarming the convention for a
+ * whole file. */
+export const LAT_IGNORE_RE = /(?<![\w])lat:ignore(?![-\w])/;
+
 /** Comment lines worth reminding about. Dropped before counting:
  *   - a line that already carries a `@lat:` pointer (the compliant state)
+ *   - a line carrying the explicit opt-out token
  *   - machine directives: shebangs, magic comments, linter/type pragmas
  *   - decoration with no alphanumeric character (`# ----`, `//////`, a bare
  *     `*​/` closing a block) */
@@ -115,6 +157,7 @@ export function candidateCommentLines(
     .split('\n')
     .filter((line) => family.commentRe.test(line))
     .filter((line) => !line.includes('@lat:'))
+    .filter((line) => !LAT_IGNORE_RE.test(line))
     .filter((line) => !/^\s*#!/.test(line))
     .filter((line) => !family.pragmaRe.test(line))
     .filter((line) => /[a-zA-Z0-9]/.test(line));

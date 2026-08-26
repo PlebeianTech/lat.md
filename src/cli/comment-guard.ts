@@ -27,13 +27,6 @@ import {
  *  explicitly allows; two or more is a block of prose. */
 const BLOCK_THRESHOLD = 2;
 
-/** Explicit, reviewable opt-out. Spelled the same as the `lat:ignore` token
- *  [[src/code-refs.ts]] already honours, so a project has one escape hatch to
- *  learn rather than two. It suppresses only the line it appears on, which
- *  keeps a deliberate exception visible in the diff instead of silently
- *  disarming the gate for a whole file. */
-const LAT_IGNORE_RE = /(?<![\w])lat:ignore(?![-\w])/;
-
 export type PreToolUseInput = {
   hook_event_name?: string;
   session_id?: string;
@@ -69,8 +62,12 @@ function buildReason(opts: {
     '  3. Re-apply the edit with the prose replaced by that one pointer line.\n\n' +
     'If a comment only narrates what the code does, delete it rather than ' +
     'moving it — a reader could reconstruct it from the code.\n\n' +
-    `To keep a specific line anyway, put \`lat:ignore\` on it. That is an ` +
-    'explicit, reviewable exception, not a way to silence the gate.'
+    'Two exits, if neither applies:\n' +
+    '  - Put `lat:ignore` on a specific line to keep it. An explicit, ' +
+    'reviewable exception, not a way to silence the gate.\n' +
+    '  - Use `Edit` rather than a whole-file `Write`. A `Write` is counted ' +
+    'against what is already on disk, so re-emitting existing comments is ' +
+    'free, but an `Edit` carries only what you changed.'
   );
 }
 
@@ -128,9 +125,7 @@ export function computeCommentBlock(input: PreToolUseInput): string | null {
   const written = extractWrittenText(toolInput);
   if (!written) return null;
 
-  const candidates = candidateCommentLines(written, family).filter(
-    (line) => !LAT_IGNORE_RE.test(line),
-  );
+  const candidates = candidateCommentLines(written, family);
   if (candidates.length < BLOCK_THRESHOLD) return null;
 
   const projectRoot = resolveProjectRoot(filePath, input.cwd);

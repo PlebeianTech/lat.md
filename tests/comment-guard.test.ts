@@ -6,6 +6,10 @@ import {
   computeCommentBlock,
   type PreToolUseInput,
 } from '../src/cli/comment-guard.js';
+import {
+  computeCommentReminder,
+  type PostToolUseInput,
+} from '../src/cli/comment-reminder.js';
 
 let projectDir: string;
 
@@ -28,6 +32,28 @@ function block(file: string, content: string): string | null {
   };
   return computeCommentBlock(input);
 }
+
+function remind(file: string, content: string): string | null {
+  const input: PostToolUseInput = {
+    hook_event_name: 'PostToolUse',
+    cwd: projectDir,
+    tool_name: 'Write',
+    tool_input: { file_path: join(projectDir, file), content },
+  };
+  return computeCommentReminder(input);
+}
+
+function seed(file: string, content: string): string {
+  writeFileSync(join(projectDir, file), content);
+  return content;
+}
+
+const RATIONALE = [
+  '// We retry three times because the upstream API rate-limits bursts',
+  '// and a single failure is almost always transient.',
+  'export const RETRIES = 3;',
+  '',
+].join('\n');
 
 describe('comment guard', () => {
   // @lat: [[comment-guard#Blocks a multi-line rationale comment]]
@@ -68,7 +94,7 @@ describe('comment guard', () => {
   });
 
   // @lat: [[comment-guard#Honours an explicit ignore token]]
-  it('honours an explicit lat:ignore opt-out', () => {
+  it('honours an explicit per-line opt-out token', () => {
     const reason = block(
       'widget.ts',
       [
@@ -78,6 +104,17 @@ describe('comment guard', () => {
       ].join('\n'),
     );
     expect(reason).toBeNull();
+  });
+
+  // @lat: [[comment-reminder#Honours the same opt-out token as the guard]]
+  it('neither denies nor reminds when every line carries the opt-out token', () => {
+    const content = [
+      '// lat:ignore keep this wire-format note verbatim',
+      '// lat:ignore and this second line continues it',
+      'export const WIRE = 1;',
+    ].join('\n');
+    expect(block('exempt.ts', content)).toBeNull();
+    expect(remind('exempt.ts', content)).toBeNull();
   });
 
   // @lat: [[comment-guard#Never gates markdown]]
@@ -108,5 +145,63 @@ describe('comment guard', () => {
     expect(
       computeCommentBlock({ tool_name: 'Write', tool_input: {} }),
     ).toBeNull();
+  });
+
+  // @lat: [[comment-guard#Allows a whole-file rewrite that changes nothing]]
+  it('allows a whole-file write that re-emits the file verbatim', () => {
+    const content = seed('verbatim.ts', RATIONALE);
+    expect(block('verbatim.ts', content)).toBeNull();
+    expect(remind('verbatim.ts', content)).toBeNull();
+  });
+
+  // @lat: [[comment-guard#Still blocks new prose in a whole-file rewrite]]
+  it('still blocks a whole-file write that adds a new rationale block', () => {
+    seed('grown.ts', RATIONALE);
+    const reason = block(
+      'grown.ts',
+      RATIONALE +
+        [
+          '',
+          '// The cache is keyed by locale because two jurisdictions can hold',
+          '// bills with identical external ids.',
+          'const CACHE = new Map();',
+          '',
+        ].join('\n'),
+    );
+    expect(reason).not.toBeNull();
+    expect(reason).toContain('2 comment lines');
+  });
+
+  // @lat: [[comment-guard#Names both exits in the denial]]
+  it('names both exits in the denial text', () => {
+    const reason = block(
+      'exits.ts',
+      [
+        '// We debounce at 300ms because anything shorter re-renders the whole',
+        '// tree on every keystroke and drops frames on low-end phones.',
+        'const DEBOUNCE = 300;',
+      ].join('\n'),
+    );
+    expect(reason).not.toBeNull();
+    expect(reason).toContain('lat:ignore');
+    expect(reason).toContain('whole-file `Write`');
+  });
+
+  // @lat: [[comment-reminder#Counts only what a whole-file rewrite adds]]
+  it('reminds about the added lines only, not the whole file', () => {
+    seed('counted.ts', RATIONALE);
+    const message = remind(
+      'counted.ts',
+      RATIONALE +
+        [
+          '',
+          '// Locale is part of the key because two jurisdictions can hold',
+          '// bills with identical external ids.',
+          'const CACHE = new Map();',
+          '',
+        ].join('\n'),
+    );
+    expect(message).not.toBeNull();
+    expect(message).toContain('2 comment line(s)');
   });
 });
