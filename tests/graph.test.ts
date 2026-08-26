@@ -42,6 +42,34 @@ function runCli(
   };
 }
 
+function parseDiffOutput(stdout: string): {
+  added: string[];
+  removed: string[];
+  changed: string[];
+} {
+  const out: Record<string, string[]> = {
+    added: [],
+    removed: [],
+    changed: [],
+  };
+  let bucket: string | null = null;
+  for (const line of stdout.split('\n')) {
+    const header = /^(added|removed|changed) \((\d+)\):$/.exec(line);
+    if (header) {
+      bucket = header[1];
+      continue;
+    }
+    const entry = /^ {2}[+\-~] (.*)$/.exec(line);
+    if (entry && bucket) out[bucket].push(entry[1]);
+  }
+  const counts = [...stdout.matchAll(/^(added|removed|changed) \((\d+)\):$/gm)];
+  expect(counts.length).toBe(3);
+  for (const [, name, n] of counts) {
+    expect(out[name].length).toBe(Number(n));
+  }
+  return { added: out.added, removed: out.removed, changed: out.changed };
+}
+
 describe('graph-basic', () => {
   // @lat: [[graph#Exports every section and edge as JSON]]
   it('exports every section and every edge as JSON', () => {
@@ -89,6 +117,44 @@ describe('graph-basic', () => {
       (e: { type: string }) => e.type === 'contains',
     );
     expect(containsEdges.length).toBeGreaterThan(0);
+  });
+
+  // @lat: [[graph#Every edge endpoint is a real node]]
+  it('lands every edge on a real node, and every section node on a file', () => {
+    const result = runCli(caseDir('graph-basic'), [
+      'graph',
+      '--format',
+      'json',
+    ]);
+    expect(result.exitCode).toBe(0);
+    const graph: {
+      nodes: { id: string; type: string; label: string; file?: string }[];
+      edges: { from: string; to: string; type: string }[];
+    } = JSON.parse(result.stdout);
+
+    const phantoms = graph.nodes.filter((n) => n.type === 'section' && !n.file);
+    expect(phantoms.map((n) => n.id)).toEqual([]);
+
+    const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+    for (const edge of graph.edges) {
+      expect(byId.has(edge.from)).toBe(true);
+      expect(byId.has(edge.to)).toBe(true);
+      for (const endpoint of [edge.from, edge.to]) {
+        const node = byId.get(endpoint)!;
+        if (node.type === 'section' || node.type === 'document') {
+          expect(node.file).toBeTruthy();
+        }
+      }
+    }
+
+    const wikilink = graph.edges.find(
+      (e) => e.type === 'wikilink' && e.to.startsWith('section:'),
+    );
+    expect(wikilink?.to).toBe('section:lat.md/tests#Tests#Login');
+    const codeRef = graph.edges.find((e) => e.type === 'code-ref');
+    expect(codeRef?.to).toBe(
+      'section:lat.md/tests#Tests#Login#Rejects bad password',
+    );
   });
 
   // @lat: [[graph#Renders mermaid output]]
@@ -224,8 +290,95 @@ describe('git history', () => {
     try {
       const result = runCli(dir, ['graph', '--since', 'HEAD~2']);
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('removed');
-      expect(result.stdout).toContain('Old Section');
+      const diff = parseDiffOutput(result.stdout);
+      expect(diff.removed).toEqual(['section:lat.md/doc#Doc#Old Section']);
+      expect(diff.added).toEqual(['section:lat.md/doc#Doc#Filler']);
+      expect(diff.changed).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // @lat: [[graph#Reconstructing the graph at a git revision#--since names a reworded section]]
+  it('--since names a section whose prose was rewritten', () => {
+    const dir = initRepo();
+    try {
+      writeFileSync(
+        join(dir, 'lat.md', 'doc.md'),
+        '# Doc\n\nInitial overview.\n\n## Filler\n\nEvery claim in this section is now the opposite of what it was.\n',
+      );
+      const result = runCli(dir, ['graph', '--since', 'HEAD']);
+      expect(result.exitCode).toBe(0);
+      const diff = parseDiffOutput(result.stdout);
+      expect(diff.added).toEqual([]);
+      expect(diff.removed).toEqual([]);
+      expect(diff.changed).toEqual(['section:lat.md/doc#Doc#Filler']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // @lat: [[graph#Reconstructing the graph at a git revision#Non-ASCII paths survive git ls-tree]]
+  it('does not drop a document whose path contains non-ASCII bytes', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lat-graph-utf8-'));
+    try {
+      mkdirSync(join(dir, 'lat.md'), { recursive: true });
+      const run = (args: string[]) =>
+        spawnSync('git', args, { cwd: dir, encoding: 'utf-8' });
+      run(['init', '-q']);
+      run(['config', 'user.email', 'test@example.com']);
+      run(['config', 'user.name', 'Test']);
+      writeFileSync(
+        join(dir, 'lat.md', 'café.md'),
+        '# Café\n\nOverview.\n\n## Naïve\n\nBody one.\n\n## Résumé\n\nBody two.\n',
+      );
+      run(['add', '.']);
+      run(['commit', '-q', '-m', 'first']);
+
+      const at = runCli(dir, ['graph', '--format', 'json', '--at', 'HEAD']);
+      expect(at.exitCode).toBe(0);
+      const labels = JSON.parse(at.stdout)
+        .nodes.filter((n: { type: string }) => n.type === 'section')
+        .map((n: { label: string }) => n.label)
+        .sort();
+      expect(labels).toEqual(['Café', 'Naïve', 'Résumé']);
+
+      const since = runCli(dir, ['graph', '--since', 'HEAD']);
+      expect(since.exitCode).toBe(0);
+      const diff = parseDiffOutput(since.stdout);
+      expect(diff).toEqual({ added: [], removed: [], changed: [] });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // @lat: [[graph#Reconstructing the graph at a git revision#Reads a document larger than the default pipe buffer]]
+  it('reads a document larger than the default 1 MB exec buffer', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lat-graph-big-'));
+    try {
+      mkdirSync(join(dir, 'lat.md'), { recursive: true });
+      const run = (args: string[]) =>
+        spawnSync('git', args, { cwd: dir, encoding: 'utf-8' });
+      run(['init', '-q']);
+      run(['config', 'user.email', 'test@example.com']);
+      run(['config', 'user.name', 'Test']);
+      const filler = 'Prose line that exists only to take up bytes.\n'.repeat(
+        40_000,
+      );
+      writeFileSync(
+        join(dir, 'lat.md', 'big.md'),
+        `# Big\n\nOverview.\n\n${filler}`,
+      );
+      run(['add', '.']);
+      run(['commit', '-q', '-m', 'first']);
+
+      const at = runCli(dir, ['graph', '--format', 'json', '--at', 'HEAD']);
+      expect(at.stderr + at.stdout).not.toContain('ENOBUFS');
+      expect(at.exitCode).toBe(0);
+      const labels = JSON.parse(at.stdout)
+        .nodes.filter((n: { type: string }) => n.type === 'section')
+        .map((n: { label: string }) => n.label);
+      expect(labels).toEqual(['Big']);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -233,8 +386,8 @@ describe('git history', () => {
 });
 
 describe('graph-export unit', () => {
-  // @lat: [[graph#graph-export unit tests#diffGraphs reports added, removed, and changed sections]]
-  it('diffGraphs reports added, removed, and changed sections', async () => {
+  // @lat: [[graph#graph-export unit tests#diffGraphs reports added and removed sections]]
+  it('diffGraphs reports added and removed sections', async () => {
     const before: GraphSourceFile[] = [
       {
         relPath: 'lat.md/x.md',
@@ -250,8 +403,57 @@ describe('graph-export unit', () => {
     const beforeGraph = await buildGraph(before, '/tmp/does-not-matter', false);
     const afterGraph = await buildGraph(after, '/tmp/does-not-matter', false);
     const diff = diffGraphs(beforeGraph, afterGraph);
-    expect(diff.removed.some((id) => id.includes('Gone'))).toBe(true);
-    expect(diff.added.some((id) => id.includes('New'))).toBe(true);
+    expect(diff.removed).toEqual(['section:lat.md/x#X#Gone']);
+    expect(diff.added).toEqual(['section:lat.md/x#X#New']);
+    expect(diff.changed).toEqual([]);
+  });
+
+  // @lat: [[graph#graph-export unit tests#diffGraphs reports a section whose prose changed]]
+  it('diffGraphs reports a section whose prose changed under an unchanged heading', async () => {
+    const before: GraphSourceFile[] = [
+      {
+        relPath: 'lat.md/x.md',
+        content:
+          '# X\n\nOverview.\n\n## Claim\n\nThe cache is write-through.\n',
+      },
+    ];
+    const after: GraphSourceFile[] = [
+      {
+        relPath: 'lat.md/x.md',
+        content: '# X\n\nOverview.\n\n## Claim\n\nThe cache is write-back.\n',
+      },
+    ];
+    const beforeGraph = await buildGraph(before, '/tmp/does-not-matter', false);
+    const afterGraph = await buildGraph(after, '/tmp/does-not-matter', false);
+    const diff = diffGraphs(beforeGraph, afterGraph);
+    expect(diff.added).toEqual([]);
+    expect(diff.removed).toEqual([]);
+    expect(diff.changed).toEqual(['section:lat.md/x#X#Claim']);
+  });
+
+  // @lat: [[graph#graph-export unit tests#diffGraphs ignores whitespace-only edits]]
+  it('diffGraphs does not report a section whose only edit is trailing whitespace', async () => {
+    const before: GraphSourceFile[] = [
+      {
+        relPath: 'lat.md/x.md',
+        content:
+          '# X\n\nOverview.\n\n## Claim\n\nThe cache is write-through.\n',
+      },
+    ];
+    const after: GraphSourceFile[] = [
+      {
+        relPath: 'lat.md/x.md',
+        content:
+          '# X\n\nOverview.  \n\n## Claim\n\nThe cache is write-through.   \n\n',
+      },
+    ];
+    const beforeGraph = await buildGraph(before, '/tmp/does-not-matter', false);
+    const afterGraph = await buildGraph(after, '/tmp/does-not-matter', false);
+    expect(diffGraphs(beforeGraph, afterGraph)).toEqual({
+      added: [],
+      removed: [],
+      changed: [],
+    });
   });
 
   // @lat: [[graph#graph-export unit tests#Formatters succeed on a quoted, control-charred label]]

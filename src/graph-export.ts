@@ -8,6 +8,7 @@
 // `quoteUntrusted`) is correct here: node ids and labels must not be
 // truncated, and quoting them would corrupt them as identifiers.
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import {
@@ -27,6 +28,9 @@ import { toPosix } from './walk.js';
 
 const execFileAsync = promisify(execFile);
 
+/** Bytes. Node's `execFile` default is 1 MB, which a large document exceeds. */
+const GIT_MAX_BUFFER = 256 * 1024 * 1024;
+
 export type GraphNodeType = 'document' | 'section' | 'code' | 'tag';
 export type GraphEdgeType = 'contains' | 'wikilink' | 'code-ref' | 'tag';
 
@@ -38,6 +42,8 @@ export type GraphNode = {
   mode?: string;
   status?: string;
   reviewedHash?: string;
+  /** sha256 of a section's own prose, excluding its heading and children. */
+  bodyHash?: string;
 };
 
 export type GraphEdge = {
@@ -84,6 +90,16 @@ function modeForFile(
     }
   }
   return undefined;
+}
+
+/** sha256 over lines (startLine, endLine], with trailing blanks normalized. */
+function hashSectionBody(lines: string[], section: Section): string {
+  const body = lines
+    .slice(section.startLine, section.endLine)
+    .map((line) => line.replace(/[ \t]+$/, ''))
+    .join('\n')
+    .trim();
+  return createHash('sha256').update(body, 'utf-8').digest('hex');
 }
 
 function tagsForFile(fm: Record<string, unknown>): string[] {
@@ -164,10 +180,12 @@ export async function buildGraph(
       addEdge({ from: dId, to: tId, type: 'tag' });
     }
 
+    const bodyLines = f.content.replace(/\r\n/g, '\n').split('\n');
     const walkSection = (section: Section, parentId: string) => {
       const sId = ensureSectionNode(section.id, section.heading);
       const node = nodes.get(sId)!;
       node.file = f.relPath;
+      node.bodyHash = hashSectionBody(bodyLines, section);
       addEdge({ from: parentId, to: sId, type: 'contains' });
       for (const child of section.children) {
         walkSection(child, sId);
@@ -187,6 +205,13 @@ export async function buildGraph(
   };
   flatten(allSections);
   const sectionIds = new Set(flat.map((s) => s.id.toLowerCase()));
+  const canonicalIds = new Map<string, string>();
+  for (const s of flat) {
+    const key = s.id.toLowerCase();
+    if (!canonicalIds.has(key)) canonicalIds.set(key, s.id);
+  }
+  const canonicalize = (id: string): string | undefined =>
+    canonicalIds.get(id.toLowerCase());
   const fileIndex = buildFileIndex(allSections);
   const slugIndex = buildSectionSlugIndex(allSections);
 
@@ -201,9 +226,12 @@ export async function buildGraph(
         fileIndex,
         slugIndex,
       );
-      const fromId = ensureSectionNode(ref.fromSection);
-      if (!ambiguous && sectionIds.has(resolved.toLowerCase())) {
-        const toId = ensureSectionNode(resolved);
+      const fromId = ensureSectionNode(
+        canonicalize(ref.fromSection) ?? ref.fromSection,
+      );
+      const canonicalTarget = ambiguous ? undefined : canonicalize(resolved);
+      if (canonicalTarget !== undefined) {
+        const toId = ensureSectionNode(canonicalTarget);
         addEdge({ from: fromId, to: toId, type: 'wikilink' });
       } else {
         const cId = codeId(ref.target);
@@ -230,10 +258,8 @@ export async function buildGraph(
       const label = `${ref.file}:${ref.line}`;
       const cId = codeId(label);
       addNode({ id: cId, type: 'code', label: cleanUntrustedId(label) });
-      const toId =
-        !ambiguous && sectionIds.has(resolved.toLowerCase())
-          ? ensureSectionNode(resolved)
-          : ensureSectionNode(ref.target);
+      const canonicalTarget = ambiguous ? undefined : canonicalize(resolved);
+      const toId = ensureSectionNode(canonicalTarget ?? ref.target);
       addEdge({ from: cId, to: toId, type: 'code-ref' });
     }
   }
@@ -272,8 +298,8 @@ export async function loadRevisionFiles(
   try {
     const { stdout } = await execFileAsync(
       'git',
-      ['ls-tree', '-r', '--name-only', rev, '--', latRelDir],
-      { cwd: projectRoot },
+      ['ls-tree', '-r', '-z', '--name-only', rev, '--', latRelDir],
+      { cwd: projectRoot, maxBuffer: GIT_MAX_BUFFER },
     );
     lsOutput = stdout;
   } catch (err) {
@@ -282,15 +308,13 @@ export async function loadRevisionFiles(
     );
   }
 
-  const paths = lsOutput
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l.endsWith('.md'));
+  const paths = lsOutput.split('\0').filter((l) => l.endsWith('.md'));
 
   const files: GraphSourceFile[] = [];
   for (const p of paths) {
     const { stdout } = await execFileAsync('git', ['show', `${rev}:${p}`], {
       cwd: projectRoot,
+      maxBuffer: GIT_MAX_BUFFER,
     });
     files.push({ relPath: p, content: stdout });
   }
@@ -320,7 +344,7 @@ export function diffGraphs(before: Graph, after: Graph): GraphDiff {
     const prior = beforeSections.get(id);
     if (!prior) {
       added.push(id);
-    } else if (prior.label !== node.label) {
+    } else if (prior.bodyHash !== node.bodyHash || prior.label !== node.label) {
       changed.push(id);
     }
   }
