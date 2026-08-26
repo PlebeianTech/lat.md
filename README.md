@@ -3,9 +3,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/1st1/lat.md/actions/workflows/ci.yml"><img src="https://github.com/1st1/lat.md/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://www.npmjs.com/package/lat.md"><img src="https://img.shields.io/npm/v/lat.md" alt="npm"></a>
+  <a href="https://github.com/PlebeianTech/lat.md/actions/workflows/ci.yml"><img src="https://github.com/PlebeianTech/lat.md/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://www.npmjs.com/package/@plebeiantech/lat.md"><img src="https://img.shields.io/npm/v/@plebeiantech/lat.md" alt="npm"></a>
 </p>
+
+# Fork of https://github.com/vercel-labs/lat.md
 
 <p align="center">A knowledge graph for your codebase, written in markdown.</p>
 
@@ -35,11 +37,40 @@ The `lat` CLI gives agents and humans a system to navigate and maintain the grap
 
 ## Install
 
+This is a fork. It publishes as [`@plebeiantech/lat.md`](https://www.npmjs.com/package/@plebeiantech/lat.md) and never under upstream's `lat.md` name, so the two can coexist.
+
+With [mise](https://mise.jdx.dev/):
+
 ```bash
-npm install -g lat.md
+mise use -g npm:@plebeiantech/lat.md@latest
 ```
 
+With npm:
+
+```bash
+npm install -g @plebeiantech/lat.md
+```
+
+Or straight from a GitHub Release, which needs no registry and no authentication:
+
+```bash
+npm i -g --prefix ~/.local/lat https://github.com/PlebeianTech/lat.md/releases/latest/download/lat.md-latest.tgz
+```
+
+That last one wants `~/.local/lat/bin` on your `PATH`. A fixed prefix keeps the install independent of whichever Node version is active.
+
 Then run `lat init` in the repo you want to use lat in.
+
+### As a Claude Code plugin
+
+The hooks are also packaged as a plugin, installable straight from this repository:
+
+```
+/plugin marketplace add PlebeianTech/lat.md
+/plugin install lat-md@lat-md
+```
+
+The plugin ships hooks only and finds `lat` on your `PATH`, accepting a build only if its version carries a `-fork` suffix.
 
 ## How it works
 
