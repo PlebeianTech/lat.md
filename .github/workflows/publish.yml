@@ -21,6 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Trusted Publishing (OIDC): npm mints a short-lived credential from this
+      # token, so no long-lived NPM_TOKEN has to exist. Also what --provenance
+      # signs with.
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -29,6 +33,8 @@ jobs:
           node-version: '22'
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
+      # Trusted Publishing needs npm >= 11.5.1; the bundled npm is older.
+      - run: npm install -g npm@latest
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -115,12 +121,17 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "NPM_TOKEN not set — skipping the npm publish."
+          # Two ways to authenticate. Trusted Publishing needs no secret and
+          # is preferred; ACTIONS_ID_TOKEN_REQUEST_URL is present whenever
+          # id-token: write is granted. A classic NPM_TOKEN still works, but a
+          # non-automation token fails with EOTP because publishing asks for a
+          # one-time password that CI cannot supply.
+          if [ -z "${NODE_AUTH_TOKEN:-}" ] && [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+            echo "No NPM_TOKEN and no OIDC credential — skipping the npm publish."
             exit 0
           fi
           if npm view "@plebeiantech/lat.md@$VER" version >/dev/null 2>&1; then
             echo "@plebeiantech/lat.md@$VER is already published, skipping."
             exit 0
           fi
-          npm publish "./release/${TGZ}" --access public
+          npm publish "./release/${TGZ}" --provenance --access public
