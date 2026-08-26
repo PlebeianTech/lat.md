@@ -210,7 +210,7 @@ GitHub Actions workflow at `.github/workflows/publish.yml`, triggered by a `v*` 
 2. **Build and test** — `pnpm install --frozen-lockfile`, `pnpm buildall`, then `pnpm vitest run`
 3. **Refuse a wrong release** — three guards, each failing the run rather than cutting a bad release: the package name must be exactly `@plebeiantech/lat.md`, the version must carry a `-fork.` suffix, and a tag must equal `v$VERSION`
 4. **Pack** — `pnpm pack`, which rewrites the `workspace:*` deps to their published versions
-5. **Publish** — `npm publish --provenance --access public`, last so it cannot block the release; skipped when the version is already on npm, or when neither an OIDC credential nor an `NPM_TOKEN` is available
+5. **Publish** — `npm publish --provenance --access public --tag latest`, last so it cannot block the release; skipped when the version is already on npm, or when neither an OIDC credential nor an `NPM_TOKEN` is available
 6. **Release** — creates the `vX.Y.Z-fork.N` release with both asset names attached, or uploads to an existing one with `--clobber`. Runs before the publish step above
 
 The job holds only `contents: write`; with no `NPM_TOKEN` set, nothing in it contacts a registry at all.
@@ -222,6 +222,12 @@ Publishing uses npm **Trusted Publishing** (OIDC): npm mints a short-lived crede
 It is configured on npmjs.com against this repository and the `publish.yml` workflow filename, and it requires npm 11.5.1 or newer — the workflow upgrades npm before publishing, because the runner's bundled version is older.
 
 A classic `NPM_TOKEN` secret still works as a fallback, and the step accepts either. One trap is worth knowing: a classic *Publish* token fails in CI with `EOTP`, because publishing under 2FA asks for a one-time password no workflow can supply. Only an *Automation* or granular token bypasses that — which is the problem Trusted Publishing removes entirely.
+
+### Why the publish names a dist-tag
+
+Every fork version is a semver **prerelease** — the `-fork.N` suffix guarantees it — and npm refuses to publish a prerelease without an explicit `--tag`, rather than silently moving `latest`.
+
+For this fork `latest` should move. It is what `mise use -g npm:@plebeiantech/lat.md@latest` resolves, and the newest fork build is always the one to install. So the publish passes `--tag latest` deliberately, accepting the thing npm is guarding against.
 
 ### Plugin distribution
 

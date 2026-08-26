@@ -134,4 +134,10 @@ jobs:
             echo "@plebeiantech/lat.md@$VER is already published, skipping."
             exit 0
           fi
-          npm publish "./release/${TGZ}" --provenance --access public
+          # --tag latest is required, not cosmetic. Every fork release is a
+          # prerelease by construction (the -fork.N suffix), and npm refuses to
+          # publish one without an explicit dist-tag rather than silently
+          # moving `latest`. Here `latest` SHOULD move: it is what
+          # `mise use -g npm:@plebeiantech/lat.md@latest` resolves, and the
+          # newest fork build is always the one we want installed.
+          npm publish "./release/${TGZ}" --provenance --access public --tag latest
