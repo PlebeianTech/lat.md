@@ -1,8 +1,8 @@
 name: Release
 
 # The fork publishes to no registry: it attaches a packed tarball to a GitHub
-# Release. The npm publish step below is dormant, running only if an NPM_TOKEN
-# secret is ever set. The package name is scoped so a fork build can never be
+# Release, then publishes @plebeiantech/lat.md to npm if an NPM_TOKEN secret
+# is set. The package name is scoped so a fork build can never be
 # confused with upstream's `lat.md`. Rationale, and why upstream's version of
 # this file was replaced wholesale, live in lat.md/dev-process.md under
 # "Publishing".
@@ -70,22 +70,6 @@ jobs:
           cp "release/${TGZ}" release/lat.md-latest.tgz
           ls -l release
 
-      # Gated on the secret so a release still cuts without one; a missing
-      # token skips publishing rather than failing the run.
-      - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "NPM_TOKEN not set — skipping the npm publish."
-            exit 0
-          fi
-          if npm view "@plebeiantech/lat.md@$VER" version >/dev/null 2>&1; then
-            echo "@plebeiantech/lat.md@$VER is already published, skipping."
-            exit 0
-          fi
-          npm publish "release/${TGZ}" --access public
-
       - name: Write the release notes
         run: |
           {
@@ -123,3 +107,20 @@ jobs:
               --title "v$VER" \
               --notes-file release-notes.md
           fi
+
+      # Last on purpose: the GitHub Release is the artifact that needs no
+      # registry, so a bad token or a registry outage must not prevent it.
+      # Gated on the secret; a missing token skips rather than fails.
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "NPM_TOKEN not set — skipping the npm publish."
+            exit 0
+          fi
+          if npm view "@plebeiantech/lat.md@$VER" version >/dev/null 2>&1; then
+            echo "@plebeiantech/lat.md@$VER is already published, skipping."
+            exit 0
+          fi
+          npm publish "./release/${TGZ}" --access public
