@@ -6,7 +6,9 @@ lat:
 
 Functional tests for the write-side `@lat:` comment reminder: the `PostToolUse` hook heuristic that nudges an agent to add a code ref when it writes a rationale-bearing comment, and the per-agent dispatch that reaches it.
 
-Tests in `tests/comment-reminder.test.ts`.
+Tests in `tests/comment-reminder.test.ts`; the two cases it shares with [[comment-guard]] live in `tests/comment-guard.test.ts`, which asserts both halves at once.
+
+The reminder and the gate now count the same candidate lines. `hooks/hooks.json` registers both on the same `Edit|Write|MultiEdit` matcher and a `PreToolUse` deny suppresses `PostToolUse`, so under the plugin the gate always answers first and the reminder never speaks. It stays live for the `lat init` wiring, which registers `PostToolUse` and no `PreToolUse` at all.
 
 ## Bare fact comments stay quiet
 
@@ -67,6 +69,18 @@ Cursor's `postToolUse` payload uses different key names and a different output e
 ### Never fails the edit on a malformed payload
 
 A non-JSON payload to the cursor `postToolUse` hook exits 0.
+
+## Honours the same opt-out token as the guard
+
+An edit whose every comment line carries the per-line ignore token draws neither a denial from [[comment-guard]] nor a reminder here.
+
+The two halves once disagreed: the gate filtered the token before counting and the reminder did not, so an agent that took the denial's own advice was immediately told the exempted lines broke the convention. The filter now lives in [[src/cli/comment-reminder.ts#candidateCommentLines]], which both halves call.
+
+## Counts only what a whole-file rewrite adds
+
+A `Write` that re-emits an existing file and appends two comment lines is reported as two lines, not as every comment in the file.
+
+The reminder shares [[src/cli/comment-reminder.ts#extractWrittenText]] with the gate, so the same whole-file diffing applies and the count it prints matches what the agent actually wrote.
 
 ## git timeout
 
