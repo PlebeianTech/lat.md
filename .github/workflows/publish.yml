@@ -62,8 +62,12 @@ jobs:
             echo "Tag ${GITHUB_REF_NAME} does not match package.json version v$VER." >&2
             exit 1
           fi
+          # Per-release dist-tag: 0.12.3-fork.2 -> fork-2. The guard above has
+          # already proven the -fork. suffix exists, so this cannot come out empty.
+          FORKTAG="fork-${VER##*-fork.}"
           echo "VER=$VER" >> "$GITHUB_ENV"
           echo "TGZ=plebeiantech-lat.md-$VER.tgz" >> "$GITHUB_ENV"
+          echo "FORKTAG=$FORKTAG" >> "$GITHUB_ENV"
 
       - name: Pack the CLI
         run: |
@@ -134,10 +138,17 @@ jobs:
             echo "@plebeiantech/lat.md@$VER is already published, skipping."
             exit 0
           fi
-          # --tag latest is required, not cosmetic. Every fork release is a
-          # prerelease by construction (the -fork.N suffix), and npm refuses to
-          # publish one without an explicit dist-tag rather than silently
-          # moving `latest`. Here `latest` SHOULD move: it is what
-          # `mise use -g npm:@plebeiantech/lat.md@latest` resolves, and the
-          # newest fork build is always the one we want installed.
-          npm publish "./release/${TGZ}" --provenance --access public --tag latest
+          # A dist-tag is required, not cosmetic: every fork release is a
+          # semver prerelease (the -fork.N suffix), and npm refuses to publish
+          # one without an explicit --tag rather than silently moving `latest`.
+          #
+          # Each release gets its own fork-N tag, so any build stays installable
+          # by name after later ones ship.
+          npm publish "./release/${TGZ}" --provenance --access public --tag "$FORKTAG"
+
+          # Then move `latest` onto it as a separate step. npm will not do this
+          # implicitly for a prerelease, and without it `latest` would stay
+          # pinned to whichever build was published first — silently installing
+          # a stale version for anyone following the documented
+          # `mise use -g npm:@plebeiantech/lat.md@latest`.
+          npm dist-tag add "@plebeiantech/lat.md@$VER" latest
