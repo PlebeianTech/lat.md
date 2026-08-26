@@ -142,13 +142,20 @@ jobs:
           # semver prerelease (the -fork.N suffix), and npm refuses to publish
           # one without an explicit --tag rather than silently moving `latest`.
           #
-          # Each release gets its own fork-N tag, so any build stays installable
-          # by name after later ones ship.
-          npm publish "./release/${TGZ}" --provenance --access public --tag "$FORKTAG"
+          # It has to be `latest`. Trusted Publishing mints a PUBLISH-SCOPED
+          # credential, so the tag set here is the only one CI can ever apply —
+          # a follow-up `npm dist-tag add` is answered with 401. Publishing
+          # under fork-N instead would strand `latest` on whichever build went
+          # out first, and `mise use -g npm:@plebeiantech/lat.md@latest`
+          # resolves through that tag.
+          npm publish "./release/${TGZ}" --provenance --access public --tag latest
 
-          # Then move `latest` onto it as a separate step. npm will not do this
-          # implicitly for a prerelease, and without it `latest` would stay
-          # pinned to whichever build was published first — silently installing
-          # a stale version for anyone following the documented
-          # `mise use -g npm:@plebeiantech/lat.md@latest`.
-          npm dist-tag add "@plebeiantech/lat.md@$VER" latest
+          # The per-release fork-N tag is a convenience, not load-bearing:
+          # pinning works by exact version regardless. It needs dist-tag
+          # permission, which OIDC does not grant, so this is best-effort and
+          # never fails the release.
+          if npm dist-tag add "@plebeiantech/lat.md@$VER" "$FORKTAG" 2>/dev/null; then
+            echo "Tagged $VER as $FORKTAG."
+          else
+            echo "Could not add the $FORKTAG tag — Trusted Publishing credentials are publish-scoped. Pin by exact version instead: @plebeiantech/lat.md@$VER"
+          fi

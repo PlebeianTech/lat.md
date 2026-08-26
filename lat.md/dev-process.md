@@ -160,6 +160,7 @@ The Release asset stays because it needs no authentication and no registry at al
 Both serve the same build.
 
 ```
+mise settings add minimum_release_age_excludes npm:@plebeiantech/lat.md
 mise use -g npm:@plebeiantech/lat.md@latest
 ```
 
@@ -233,13 +234,21 @@ A fork inherits upstream's URL, so this fails with a `422` naming both URLs unti
 
 Every fork version is a semver **prerelease** — the `-fork.N` suffix guarantees it — so npm refuses to publish it without an explicit `--tag` rather than silently moving `latest`.
 
-Each release is published under its own tag, `fork-N`, derived from the version: `0.12.3-fork.2` becomes `fork-2`. Any build therefore stays installable by name after later ones ship.
+That tag is `latest`, and it has to be. Trusted Publishing mints a **publish-scoped** credential: the tag chosen at publish time is the only one CI can ever apply, and a follow-up `npm dist-tag add` is answered with a `401`. Publishing under a per-release `fork-N` tag instead would strand `latest` on whichever build shipped first.
 
-`latest` is then moved onto the same version as a second step. npm will not do that implicitly for a prerelease, and skipping it would leave `latest` pinned to whichever build was published first — silently installing a stale version for anyone following the documented `mise use -g npm:@plebeiantech/lat.md@latest`.
+The workflow still attempts a `fork-N` tag afterwards, best-effort and never fatal, so it starts working the day a token with dist-tag permission exists. Nothing depends on it: pinning a build works by exact version either way.
 
 ```
 npm view @plebeiantech/lat.md dist-tags
 ```
+
+### Why mise needs a settings exclude
+
+`mise use -g npm:@plebeiantech/lat.md@latest` resolves through npm's `latest` dist-tag, and mise applies two filters of its own before it will accept a version.
+
+Only one of them bites. `prereleases` defaults to false and hides every `-fork.N` build from `mise ls-remote`, but an explicit `@latest` resolves through the dist-tag and is unaffected. `minimum_release_age` is the real obstacle: it quarantines anything published within roughly the last day, stable releases included, so a new fork build is invisible until the window passes.
+
+`minimum_release_age_excludes` waives it for one package. That is preferable to setting `prereleases` globally, which would apply to every tool mise manages.
 
 ### Plugin distribution
 

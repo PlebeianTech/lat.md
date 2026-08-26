@@ -42,8 +42,11 @@ This is a fork. It publishes as [`@plebeiantech/lat.md`](https://www.npmjs.com/p
 With [mise](https://mise.jdx.dev/):
 
 ```bash
+mise settings add minimum_release_age_excludes npm:@plebeiantech/lat.md
 mise use -g npm:@plebeiantech/lat.md@latest
 ```
+
+The first line is needed once per machine. mise quarantines any npm version published in the last day or so, and a fresh release is invisible until that window passes — the exclude waives it for this package alone and leaves the guard in force for every other tool.
 
 With npm:
 
