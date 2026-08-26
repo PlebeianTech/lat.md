@@ -297,7 +297,7 @@ Usage: `lat hook <agent> <event>`
 
 Currently supports:
 
-- `claude` with `UserPromptSubmit`, `Stop`, and `PostToolUse`
+- `claude` with `UserPromptSubmit`, `PreToolUse`, `Stop`, and `PostToolUse`
 - `codex` with `UserPromptSubmit`, `Stop`, and `PostToolUse`
 - `cursor` with `stop` and `postToolUse`
 
@@ -319,6 +319,16 @@ Conditionally continues Claude or Codex — only when something is actually wron
 3. **Second pass** (`stop_hook_active` true) — if check still fails, print warning to stderr (no block, loop stops). If check passes, exit silently.
 4. **First pass** — run `git diff HEAD --numstat`. Count `codeLines` (files matching [[src/source-parser.ts#SOURCE_EXTENSIONS]]) and `latMdLines`. Skip ratio check if `codeLines < 5` or `latMdLines >= 50` (enough doc work was clearly done). Otherwise round `latMdLines` up to 1 (if nonzero) and flag `needsSync` when `latMdLines < codeLines * 5%`.
 5. **Decision** — both pass: exit silently, clean output. Check failed + needs sync: block ("update relevant current-state `lat.md/` sections if needed, then run `lat check` until it passes"). Check failed only: block ("run `lat check` until it passes"). Needs sync only: block with explicit context ("not updated" when 0 lat.md lines, "may not be fully in sync (N lines)" when some changes exist but below ratio) and a reminder not to add journal/changelog noise.
+
+### PreToolUse
+
+Fires before an Edit, Write or MultiEdit and **refuses** the write when it would put a multi-line rationale comment into source. Implementation: [[src/cli/comment-guard.ts]].
+
+Two or more comment lines in one write are treated as prose. The denial names the file and tells the agent to put the reasoning in a `lat.md/` section and re-apply the edit with a single `@lat:` pointer where the prose was. Lines already carrying `@lat:`, machine pragmas, and lines carrying an explicit `lat:ignore` token are dropped before counting.
+
+This is the gate that [[cli#hook#PostToolUse]] cannot be. `PostToolUse` runs after the write has landed and can only advise; `PreToolUse` sees `tool_input` first and answers `permissionDecision: deny`. There is no per-session deduplication here, because a gate that fires once is not a gate.
+
+It fails open. A malformed payload, an unreadable tree, or a missing `git` allows the edit — refusing every write in a session over an environment fault would be a far worse failure than missing one comment.
 
 ### PostToolUse
 

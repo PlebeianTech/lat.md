@@ -24,7 +24,7 @@ import { basename, dirname, join } from 'node:path';
  * session.
  */
 
-type CommentFamily = {
+export type CommentFamily = {
   /** Matches the file's basename (Rakefile, Dockerfile, etc. carry the
    * language in the name, not an extension, so this matches on basename). */
   basenameRe: RegExp;
@@ -72,7 +72,7 @@ const FAMILIES: CommentFamily[] = [
   },
 ];
 
-function matchFamily(filePath: string): CommentFamily | null {
+export function matchFamily(filePath: string): CommentFamily | null {
   const base = basename(filePath);
   for (const family of FAMILIES) {
     if (family.basenameRe.test(base)) return family;
@@ -80,7 +80,7 @@ function matchFamily(filePath: string): CommentFamily | null {
   return null;
 }
 
-type ToolInput = {
+export type ToolInput = {
   file_path?: string;
   content?: string;
   new_string?: string;
@@ -89,7 +89,7 @@ type ToolInput = {
 
 /** Only the NEW text — reading the file would fire on every pre-existing
  * comment in it, nagging about prose the agent did not write. */
-function extractWrittenText(toolInput: ToolInput): string {
+export function extractWrittenText(toolInput: ToolInput): string {
   const parts: string[] = [];
   if (typeof toolInput.content === 'string') parts.push(toolInput.content);
   if (typeof toolInput.new_string === 'string')
@@ -107,7 +107,7 @@ function extractWrittenText(toolInput: ToolInput): string {
  *   - machine directives: shebangs, magic comments, linter/type pragmas
  *   - decoration with no alphanumeric character (`# ----`, `//////`, a bare
  *     `*​/` closing a block) */
-function candidateCommentLines(
+export function candidateCommentLines(
   written: string,
   family: CommentFamily,
 ): string[] {
@@ -123,7 +123,7 @@ function candidateCommentLines(
 /** Resolvable project root, required so a scratch file in /tmp is not treated
  * as a project. `cwd` is preferred (matches CLAUDE_PROJECT_DIR / payload cwd
  * conventions); falls back to `git rev-parse --show-toplevel`. */
-function resolveProjectRoot(
+export function resolveProjectRoot(
   filePath: string,
   payloadCwd?: string,
 ): string | null {
@@ -142,7 +142,7 @@ function resolveProjectRoot(
   }
 }
 
-function hasLatTree(projectRoot: string): boolean {
+export function hasLatTree(projectRoot: string): boolean {
   try {
     return statSync(join(projectRoot, 'lat.md')).isDirectory();
   } catch {

@@ -22,6 +22,7 @@ import {
   computeCommentReminder,
   type PostToolUseInput,
 } from './comment-reminder.js';
+import { handlePreToolUse } from './comment-guard.js';
 
 function outputPromptSubmit(context: string): void {
   process.stdout.write(
@@ -503,12 +504,15 @@ export async function hookCmd(agent: string, event: string): Promise<void> {
         case 'Stop':
           await handleStop();
           return;
+        case 'PreToolUse':
+          await handlePreToolUse(readStdin);
+          return;
         case 'PostToolUse':
           await handlePostToolUse();
           return;
         default:
           console.error(
-            `Unknown hook event for claude: ${event}. Supported: UserPromptSubmit, Stop, PostToolUse`,
+            `Unknown hook event for claude: ${event}. Supported: UserPromptSubmit, PreToolUse, Stop, PostToolUse`,
           );
           process.exit(1);
       }
