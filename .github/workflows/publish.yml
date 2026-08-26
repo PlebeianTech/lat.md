@@ -1,8 +1,9 @@
 name: Release
 
-# This fork publishes to no registry; it attaches a packed tarball to a GitHub
-# Release. Rationale, and why upstream's npm-publishing version of this file was
-# replaced wholesale, live in lat.md/dev-process.md under "Publishing".
+# The fork publishes @plebeiantech/lat.md to npm and attaches the same tarball
+# to a GitHub Release. It never touches the `lat.md` package name, which is
+# upstream's. Rationale, and why upstream's version of this file was replaced
+# wholesale, live in lat.md/dev-process.md under "Publishing".
 #
 # Deliberately not a `@lat:` pointer: .github/ is a dotfile directory and the
 # code-ref scanner never walks it, so the ref could rot without lat check ever
@@ -25,6 +26,7 @@ jobs:
         with:
           node-version: '22'
           cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -36,8 +38,13 @@ jobs:
       - run: pnpm buildall
       - run: pnpm vitest run --reporter=verbose
 
-      - name: Verify the version is a fork version and matches the tag
+      - name: Verify the package name, version, and tag
         run: |
+          NAME=$(node -p "require('./package.json').name")
+          if [ "$NAME" != "@plebeiantech/lat.md" ]; then
+            echo "Refusing to publish as '$NAME'. The fork publishes only @plebeiantech/lat.md; 'lat.md' is upstream's package." >&2
+            exit 1
+          fi
           VER=$(node -p "require('./package.json').version")
           case "$VER" in
             *-fork.*) ;;
@@ -48,6 +55,7 @@ jobs:
             exit 1
           fi
           echo "VER=$VER" >> "$GITHUB_ENV"
+          echo "TGZ=plebeiantech-lat.md-$VER.tgz" >> "$GITHUB_ENV"
 
       - name: Pack the CLI
         run: |
@@ -57,15 +65,37 @@ jobs:
           # /releases/latest/download/lat.md-latest.tgz is a URL that never
           # needs editing. GitHub's `latest` redirect resolves the release but
           # not the asset name, so a stable name has to exist as a real asset.
-          cp "release/lat.md-${VER}.tgz" release/lat.md-latest.tgz
+          cp "release/${TGZ}" release/lat.md-latest.tgz
           ls -l release
+
+      # Gated on the secret so a release still cuts without one; a missing
+      # token skips publishing rather than failing the run.
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "NPM_TOKEN not set — skipping the npm publish."
+            exit 0
+          fi
+          if npm view "@plebeiantech/lat.md@$VER" version >/dev/null 2>&1; then
+            echo "@plebeiantech/lat.md@$VER is already published, skipping."
+            exit 0
+          fi
+          npm publish "release/${TGZ}" --access public
 
       - name: Write the release notes
         run: |
           {
             echo "Fork build of lat.md."
             echo
-            echo "Install the CLI:"
+            echo "Install the CLI with mise:"
+            echo
+            echo '```'
+            echo "mise use -g npm:@plebeiantech/lat.md@latest"
+            echo '```'
+            echo
+            echo "Or straight from this release, no registry:"
             echo
             echo '```'
             echo "npm i -g https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/lat.md-latest.tgz"
@@ -74,7 +104,7 @@ jobs:
             echo "Or pin this exact version:"
             echo
             echo '```'
-            echo "npm i -g https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VER}/lat.md-${VER}.tgz"
+            echo "npm i -g https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VER}/${TGZ}"
             echo '```'
             echo
             echo "Install the Claude Code plugin (no build needed):"

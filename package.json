@@ -1,5 +1,5 @@
 {
-  "name": "lat.md",
+  "name": "@plebeiantech/lat.md",
   "version": "0.12.3-fork.1",
   "description": "A knowledge graph for your codebase, written in markdown",
   "type": "module",

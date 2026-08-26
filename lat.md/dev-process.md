@@ -135,17 +135,31 @@ Prettier with no semicolons, single quotes, trailing commas. Run `pnpm format` b
 
 ## Publishing
 
-This fork publishes to **no registry**. The CLI ships as a packed tarball attached to a GitHub Release, and the Claude Code plugin ships from this repo as its own marketplace.
+The fork publishes **`@plebeiantech/lat.md`** to public npm, and attaches the same tarball to a GitHub Release. It never publishes under the name `lat.md`, which is upstream's package.
 
-Upstream's arrangement was different and its `publish.yml` was replaced wholesale rather than adapted. That file ran on every push to `main` and ended in `publish_if_new .`, which targets the `lat.md` package on public npm — a package this fork does not own. A fork version bump would have attempted a publish to someone else's package on the next push.
+Upstream's `publish.yml` was replaced wholesale rather than adapted. That file ran on every push to `main` and ended in `publish_if_new .`, targeting `lat.md` on npm — a package this fork does not own, so a fork version bump would have attempted a publish to someone else's package. The replacement refuses to run at all unless the package name is exactly `@plebeiantech/lat.md`.
 
-The two `@lat.md/*` workspace packages are unchanged from upstream and are already on public npm at the versions this fork pins. `pnpm pack` rewrites their `workspace:*` ranges to those real versions, so a tarball built here resolves without any registry of our own.
+The two `@lat.md/*` workspace packages are unchanged from upstream and are already on public npm at the versions this fork pins. `pnpm pack` rewrites their `workspace:*` ranges to those real versions.
 
-### Why a Release asset rather than GitHub Packages
+### Why a registry at all
 
-A GitHub Release asset on a public repository is served without authentication.
+The scope exists so [mise](https://mise.jdx.dev/) can install the CLI, which it otherwise cannot.
 
-GitHub Packages' npm registry requires a token even for a public package, which would put an `.npmrc` and a personal access token on every machine that wants the CLI. That cost is paid on each install, forever, to gain nothing this project needs.
+`mise use -g npm:lat.md` resolves against public npm and installs **upstream's** build — the one without any of this fork's checks — while the npm backend rejects a tarball URL as an invalid package name, and the `github`/`ubi` backends expect a runnable binary rather than a package needing its `node_modules`. A scope we own is the only path that leaves mise's own version resolution intact.
+
+### Two install routes
+
+Both serve the same artifact, and the release carries it under both names.
+
+```
+mise use -g npm:@plebeiantech/lat.md@latest
+```
+
+```
+npm i -g https://github.com/PlebeianTech/lat.md/releases/latest/download/lat.md-latest.tgz
+```
+
+The GitHub Release route stays because a release asset on a public repository is served without authentication, which keeps a registry-free option open.
 
 ### Fork versioning
 
@@ -180,9 +194,10 @@ GitHub Actions workflow at `.github/workflows/publish.yml`, triggered by a `v*` 
 
 1. **Set up the toolchain** — Node 22 + pnpm and a Rust toolchain with the `wasm32-unknown-unknown` target, plus ripgrep so both code-ref scan paths are exercised
 2. **Build and test** — `pnpm install --frozen-lockfile`, `pnpm buildall`, then `pnpm vitest run`
-3. **Refuse a wrong release** — two guards, both failing the run rather than cutting a bad release: the version must carry a `-fork.` suffix, and a tag must equal `v$VERSION`
+3. **Refuse a wrong release** — three guards, each failing the run rather than cutting a bad release: the package name must be exactly `@plebeiantech/lat.md`, the version must carry a `-fork.` suffix, and a tag must equal `v$VERSION`
 4. **Pack** — `pnpm pack`, which rewrites the `workspace:*` deps to their published versions
-5. **Release** — creates the `vX.Y.Z-fork.N` release with both asset names attached, or uploads to an existing one with `--clobber`
+5. **Publish** — `npm publish --access public`, skipped when the `NPM_TOKEN` secret is absent or the version is already on npm, so a release still cuts without a token
+6. **Release** — creates the `vX.Y.Z-fork.N` release with both asset names attached, or uploads to an existing one with `--clobber`
 
 Nothing in the workflow contacts a registry, and it holds only `contents: write` — it cannot publish a package even by accident.
 
