@@ -88,25 +88,39 @@ export type ToolInput = {
   edits?: { new_string?: string }[];
 };
 
-/** Lines of a whole-file `content` that the file on disk does not already
- * hold, compared as a multiset so a line written twice against a file holding
- * it once still counts once. Degrades to the whole text when the file cannot
- * be read — a brand-new path, a permission error — because every line of it
- * is new in that case. */
-function addedLines(content: string, filePath?: string): string {
-  if (!filePath) return content;
+/** Line multiset of the file as it stands before the tool call, or `null`
+ * when there is no readable file — a brand-new path, a permission error, a
+ * payload naming no file. Every line is new against a file that is not
+ * there. */
+function lineCounts(filePath?: string): Map<string, number> | null {
+  if (!filePath) return null;
   let onDisk: string;
   try {
     onDisk = readFileSync(filePath, 'utf-8');
   } catch {
-    return content;
+    return null;
   }
-  const unclaimed = new Map<string, number>();
+  const counts = new Map<string, number>();
   for (const line of onDisk.split('\n')) {
-    unclaimed.set(line, (unclaimed.get(line) ?? 0) + 1);
+    counts.set(line, (counts.get(line) ?? 0) + 1);
   }
+  return counts;
+}
+
+/** The lines of one written fragment that the file does not already hold.
+ * Compared as a multiset, so a fragment emitting a line twice against a file
+ * holding it once keeps one of them. The tally is copied per fragment rather
+ * than shared across a `MultiEdit`: two hunks that each re-emit the same
+ * surrounding comment are both re-emitting it, and charging the second one
+ * for it would deny exactly the edit this is here to allow. */
+function addedLines(
+  written: string,
+  onDisk: Map<string, number> | null,
+): string {
+  if (!onDisk) return written;
+  const unclaimed = new Map(onDisk);
   const added: string[] = [];
-  for (const line of content.split('\n')) {
+  for (const line of written.split('\n')) {
     const left = unclaimed.get(line) ?? 0;
     if (left > 0) unclaimed.set(line, left - 1);
     else added.push(line);
@@ -114,20 +128,27 @@ function addedLines(content: string, filePath?: string): string {
   return added.join('\n');
 }
 
-/** Only the NEW text. `Edit`/`MultiEdit` carry a delta already; a `Write`
- * carries the whole file, so it is diffed against what is on disk first.
- * Counting the file as written would fire on every pre-existing comment in
- * it, nagging about prose the agent did not write — and would refuse a
- * rewrite that changed nothing at all. */
+/** Only the NEW text — every shape diffed against the file on disk, which at
+ * PreToolUse is still the pre-edit state.
+ *
+ * A `Write` carries the whole file, so counting `content` as written fired on
+ * every pre-existing comment and refused rewrites that changed nothing at
+ * all. An `Edit` looks like a delta but is not one: `new_string` re-emits the
+ * unchanged lines bracketing the change, so editing code next to a doc
+ * comment counted that comment as freshly written prose. That denial has no
+ * remediation — there is nothing to move — and its only exits are deleting
+ * the comment or exempting it line by line. */
 export function extractWrittenText(toolInput: ToolInput): string {
+  const onDisk = lineCounts(toolInput.file_path);
   const parts: string[] = [];
   if (typeof toolInput.content === 'string')
-    parts.push(addedLines(toolInput.content, toolInput.file_path));
+    parts.push(addedLines(toolInput.content, onDisk));
   if (typeof toolInput.new_string === 'string')
-    parts.push(toolInput.new_string);
+    parts.push(addedLines(toolInput.new_string, onDisk));
   if (Array.isArray(toolInput.edits)) {
     for (const edit of toolInput.edits) {
-      if (typeof edit?.new_string === 'string') parts.push(edit.new_string);
+      if (typeof edit?.new_string === 'string')
+        parts.push(addedLines(edit.new_string, onDisk));
     }
   }
   return parts.join('\n');

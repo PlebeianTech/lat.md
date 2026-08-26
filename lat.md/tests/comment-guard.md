@@ -44,7 +44,19 @@ A payload naming no file returns no denial. Every fallible step degrades to allo
 
 A `Write` re-emitting an existing file verbatim is neither denied nor reminded about, however many comment lines the file already holds.
 
-A `Write` carries the whole file, not a delta, so counting `content` as written made the gate refuse edits that added no prose at all. The remediation it printed — move the reasoning out, leave a pointer, re-apply — described nothing the agent could do, because there was no new reasoning. [[src/cli/comment-reminder.ts#extractWrittenText]] now diffs `content` against what is on disk first.
+A `Write` carries the whole file, not a delta, so counting `content` as written made the gate refuse edits that added no prose at all. The remediation it printed — move the reasoning out, leave a pointer, re-apply — described nothing the agent could do, because there was no new reasoning. [[src/cli/comment-reminder.ts#extractWrittenText]] now diffs every written fragment against what is on disk first.
+
+## Allows an edit that re-emits an existing comment block
+
+An `Edit` whose `new_string` carries an unchanged doc comment along with the code it changes is not denied.
+
+`new_string` looks like a delta but is not one: it re-emits the lines bracketing the change, so editing code next to a JSDoc block counted that block as freshly written prose. Observed live on `cleanUntrusted` in [[src/untrusted.ts]] — the denial cost a security-relevant doc comment, because the only exits on offer were deleting it or exempting it line by line.
+
+## Still blocks new prose beside a re-emitted block
+
+An `Edit` that re-emits an existing doc comment *and* adds two new rationale lines is denied, and the count names only the two added lines.
+
+Diffing against disk must narrow what the gate counts, not what it refuses. This is the companion case to the one above, in the same run, so a change that made re-emission free by making the gate toothless would fail here.
 
 ## Still blocks new prose in a whole-file rewrite
 

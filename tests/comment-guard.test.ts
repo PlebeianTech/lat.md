@@ -48,10 +48,41 @@ function seed(file: string, content: string): string {
   return content;
 }
 
+function blockEdit(file: string, newString: string): string | null {
+  const input: PreToolUseInput = {
+    hook_event_name: 'PreToolUse',
+    cwd: projectDir,
+    tool_name: 'Edit',
+    tool_input: { file_path: join(projectDir, file), new_string: newString },
+  };
+  return computeCommentBlock(input);
+}
+
+function remindEdit(file: string, newString: string): string | null {
+  const input: PostToolUseInput = {
+    hook_event_name: 'PostToolUse',
+    cwd: projectDir,
+    tool_name: 'Edit',
+    tool_input: { file_path: join(projectDir, file), new_string: newString },
+  };
+  return computeCommentReminder(input);
+}
+
 const RATIONALE = [
   '// We retry three times because the upstream API rate-limits bursts',
   '// and a single failure is almost always transient.',
   'export const RETRIES = 3;',
+  '',
+].join('\n');
+
+const JSDOC = [
+  '/**',
+  ' * Strips control characters before the text reaches a terminal, because a',
+  ' * pasted escape sequence would otherwise redraw the screen.',
+  ' */',
+  'export function cleanUntrusted(text: string): string {',
+  '  return text;',
+  '}',
   '',
 ].join('\n');
 
@@ -185,6 +216,28 @@ describe('comment guard', () => {
     expect(reason).not.toBeNull();
     expect(reason).toContain('lat:ignore');
     expect(reason).toContain('whole-file `Write`');
+  });
+
+  // @lat: [[comment-guard#Allows an edit that re-emits an existing comment block]]
+  it('allows an edit that re-emits an existing comment block verbatim', () => {
+    seed('untrusted.ts', JSDOC);
+    const newString = JSDOC.replace('return text;', 'return text.trim();');
+    expect(blockEdit('untrusted.ts', newString)).toBeNull();
+    expect(remindEdit('untrusted.ts', newString)).toBeNull();
+  });
+
+  // @lat: [[comment-guard#Still blocks new prose beside a re-emitted block]]
+  it('still blocks an edit that adds new prose beside a re-emitted block', () => {
+    seed('untrusted-grown.ts', JSDOC);
+    const newString =
+      [
+        '// We trim first because the caller hands us raw terminal input and a',
+        '// trailing newline would survive the control-character strip.',
+        '',
+      ].join('\n') + JSDOC.replace('return text;', 'return text.trim();');
+    const reason = blockEdit('untrusted-grown.ts', newString);
+    expect(reason).not.toBeNull();
+    expect(reason).toContain('2 comment lines');
   });
 
   // @lat: [[comment-reminder#Counts only what a whole-file rewrite adds]]

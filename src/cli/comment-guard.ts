@@ -65,9 +65,9 @@ function buildReason(opts: {
     'Two exits, if neither applies:\n' +
     '  - Put `lat:ignore` on a specific line to keep it. An explicit, ' +
     'reviewable exception, not a way to silence the gate.\n' +
-    '  - Use `Edit` rather than a whole-file `Write`. A `Write` is counted ' +
-    'against what is already on disk, so re-emitting existing comments is ' +
-    'free, but an `Edit` carries only what you changed.'
+    '  - Use `Edit` rather than a whole-file `Write`. Re-emitting a comment ' +
+    'the file already holds is free in either shape, but an `Edit` puts far ' +
+    'less text in front of the count.'
   );
 }
 
