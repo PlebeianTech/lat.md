@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "lat-md",
+  "description": "The lat.md knowledge-graph plugin, published from the fork that builds it.",
+  "owner": {
+    "name": "PlebeianTech"
+  },
+  "plugins": [
+    {
+      "name": "lat-md",
+      "source": "./",
+      "description": "Grounds an agent in a project's lat.md/ knowledge graph deterministically, via hooks rather than by asking the agent to remember: resolves [[refs]] and federates tagged knowledge into every prompt, blocks a multi-line rationale comment before it reaches source, regenerates directory indexes after edits, and blocks Stop on a failing lat check — including Diataxis mode validation.",
+      "version": "0.1.0",
+      "keywords": ["documentation", "diataxis", "lat.md", "knowledge-graph"]
+    }
+  ]
+}

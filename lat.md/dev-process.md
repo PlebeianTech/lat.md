@@ -135,33 +135,62 @@ Prettier with no semicolons, single quotes, trailing commas. Run `pnpm format` b
 
 ## Publishing
 
-A pnpm workspace publishing **three** npm packages: the root `lat.md` CLI and two supporting packages it depends on — `@lat.md/embed` (embedding engine) and `@lat.md/embed-minilm-fp16` (bundled local weights).
+This fork publishes to **no registry**. The CLI ships as a packed tarball attached to a GitHub Release, and the Claude Code plugin ships from this repo as its own marketplace.
 
-The `bin` entry exposes the `lat` command. Only `dist/src` and `templates` are included in the root package — tests and the [[website]] are excluded; the embed packages each ship their own `dist`.
+Upstream's arrangement was different and its `publish.yml` was replaced wholesale rather than adapted. That file ran on every push to `main` and ended in `publish_if_new .`, which targets the `lat.md` package on public npm — a package this fork does not own. A fork version bump would have attempted a publish to someone else's package on the next push.
 
-The two `@lat.md/*` packages are runtime `dependencies` of the root, declared as `workspace:*`. `pnpm publish` rewrites `workspace:*` to the exact local version at publish time, so a released `lat.md` pins the embed packages by their real published versions.
+The two `@lat.md/*` workspace packages are unchanged from upstream and are already on public npm at the versions this fork pins. `pnpm pack` rewrites their `workspace:*` ranges to those real versions, so a tarball built here resolves without any registry of our own.
+
+### Why a Release asset rather than GitHub Packages
+
+A GitHub Release asset on a public repository is served without authentication.
+
+GitHub Packages' npm registry requires a token even for a public package, which would put an `.npmrc` and a personal access token on every machine that wants the CLI. That cost is paid on each install, forever, to gain nothing this project needs.
+
+### Fork versioning
+
+The fork's version is a `-fork.N` prerelease of the *next* upstream patch — `0.12.3-fork.1`, not `0.12.2-fork.2`.
+
+A `-fork` prerelease of the current version sorts **below** that version under semver, so `0.12.2-fork.1` reads as older than upstream's `0.12.2` and the CLI reports itself out of date. Anchoring to the next patch keeps the fork sorting above the release it is built from.
+
+The suffix is also load-bearing at runtime: [[dev-process#Publishing#Plugin distribution]] uses it to tell a fork build from an upstream one on `PATH`.
 
 ### Release Process
 
-Step-by-step procedure for cutting a release: version bump, changelog, PR, and npm publish.
+Cutting a release is a deliberate act, triggered by a tag rather than by a merge.
 
-1. **Compile changelog** — run `git log --oneline` since the last version bump commit (look for commits matching `Bump to X.Y.Z`) and summarize notable changes as bullet points. Only include user-facing features, fixes, and behavioral changes — skip doc-only updates, refactors, and other commits that don't affect functionality
-2. **Sync main** — `git fetch` and rebase/merge to ensure local `main` is up to date with the remote before branching
-3. **Create a release branch** — branch off `main`, e.g. `release/0.1.5`
-4. **Bump versions** — update `version` in the root `package.json`. **Also bump any `@lat.md/*` workspace package whose source changed since its last publish** (compare `npm view <pkg> version` against the local `version`; inspect the published tarball if unsure). The [[dev-process#Publishing#Publish Workflow]] only republishes a package whose version is not already on npm, so a changed-but-unbumped package would silently ship stale to users while the root pins the old version. Commit message: `Bump to X.Y.Z`
-5. **Switch back to main** — check out `main` so the working tree is not left on the release branch
-6. **Push main and open a PR** — push `main` first (so the release branch diff is clean), then push the release branch and create a PR with the changelog as the body
-7. **Merge** — once CI passes and the PR is merged to `main`, the [[dev-process#Publishing#Publish Workflow]] takes over
+1. **Bump the version** — `version` in the root `package.json`, keeping the `-fork.N` suffix. Commit message: `Bump to X.Y.Z-fork.N`
+2. **Verify green** — `pnpm buildall && pnpm test`, and `lat check` on this repository's own `lat.md/`
+3. **Tag** — `git tag vX.Y.Z-fork.N` and push the tag. The tag must match `package.json` exactly; [[dev-process#Publishing#Release Workflow]] refuses the release otherwise
+4. **Install anywhere** — `npm i -g` against the release asset URL
 
-Version numbers follow semver. While pre-1.0, bump the patch for fixes and the minor for features/breaking changes. Each `@lat.md/*` package is versioned independently under the same rule.
+The two `@lat.md/*` packages are never bumped or published here. They are upstream's, unmodified, and already released.
 
-### Publish Workflow
+### Release Workflow
 
-GitHub Actions workflow at `.github/workflows/publish.yml`. Runs on every push to `main`:
+GitHub Actions workflow at `.github/workflows/publish.yml`, triggered by a `v*` tag or manually.
 
-1. **Set up the toolchain** — Node 22 + pnpm and a Rust toolchain with the `wasm32-unknown-unknown` target. `pnpm buildall` installs the Cargo-locked `wasm-bindgen-cli` into the project. The workflow also installs ripgrep so both scan paths are exercised
-2. **Build and test** — `pnpm install --frozen-lockfile`, then `pnpm buildall` (builds the WASM engine + fp16 weights + the top-level `lat` via `tsc`), then `pnpm vitest run`
-3. **Publish changed packages** — a `publish_if_new` shell helper publishes each package **in dependency order** (`packages/embed-minilm-fp16` → `packages/embed` → root `.`), skipping any whose `version` is already on npm (checked via `npm view <name>@<version>`). Each publishes with `pnpm publish --provenance --access public --no-git-checks`. Because `workspace:*` is rewritten at publish time, publishing the leaf packages first guarantees the root's rewritten pins already resolve on npm
-4. **Create GitHub release** — if a `vX.Y.Z` tag/release for the root version does not yet exist, creates one with auto-generated notes
+1. **Set up the toolchain** — Node 22 + pnpm and a Rust toolchain with the `wasm32-unknown-unknown` target, plus ripgrep so both code-ref scan paths are exercised
+2. **Build and test** — `pnpm install --frozen-lockfile`, `pnpm buildall`, then `pnpm vitest run`
+3. **Refuse a wrong release** — two guards, both failing the run rather than cutting a bad release: the version must carry a `-fork.` suffix, and a tag must equal `v$VERSION`
+4. **Pack** — `pnpm pack`, which rewrites the `workspace:*` deps to their published versions
+5. **Release** — creates the `vX.Y.Z-fork.N` release with the tarball attached, or uploads to an existing one with `--clobber`
 
-Uses npm trusted publishing (OIDC) — no `NPM_TOKEN` secret needed. The `--provenance` flag signs each package using the GitHub Actions identity. Each package is linked to the `1st1/lat.md` repo on npmjs.com under Settings → Publishing Access.
+Nothing in the workflow contacts a registry, and it holds only `contents: write` — it cannot publish a package even by accident.
+
+### Plugin distribution
+
+The Claude Code plugin is installed from this repository, which is its own marketplace: `.claude-plugin/marketplace.json` lists one plugin with `"source": "./"`.
+
+```
+/plugin marketplace add PlebeianTech/lat.md
+/plugin install lat-md@lat-md
+```
+
+Installed user-scoped, its hooks fire in every project on the machine, and `/plugin update` pulls new versions.
+
+The plugin ships **hooks only** — no `dist/`. A built CLI needs its runtime `node_modules` beside it, which no plugin repository should carry, so [[src/cli/hook.ts]] is reached through a separately installed binary rather than one bundled with the hooks.
+
+`hooks/lat-guard.sh` resolves that binary from two sources in order: a `dist/` beside the plugin, which means the plugin is running out of a development checkout of this fork; otherwise `lat` on `PATH`, accepted only if `lat --version` contains `-fork`.
+
+That check is the reason the version suffix exists. An upstream CLI answers `hook claude UserPromptSubmit` perfectly happily and without any of the checks these hooks assume, so a session would look grounded while running none of them — worse than the hook not firing at all.

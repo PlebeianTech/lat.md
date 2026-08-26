@@ -11,18 +11,50 @@
 #    reminder unconditionally. Without this guard, installing the plugin would
 #    inject that reminder into every prompt in every unrelated repository.
 #
-# 2. It resolves the CLI through $CLAUDE_PLUGIN_ROOT rather than $PATH. A
-#    globally installed `lat` may be a DIFFERENT BUILD than this one and
-#    reports the same version string, so $PATH cannot be trusted to pick the
-#    right binary. This is not hypothetical: it had already happened on this
-#    machine before the plugin existed.
+# 2. It resolves the CLI once, in one place, and verifies what it found. A
+#    globally installed `lat` may be UPSTREAM's build rather than this fork's,
+#    and an upstream binary has none of the checks the hooks below assume.
+#    That used to be undetectable, because both builds reported 0.12.2; the
+#    fork now carries a `-fork` prerelease suffix, so the check is a version
+#    comparison rather than a hardcoded path.
 #
 # Every path exits 0. A hook must never fail the tool call that triggered it.
 
 set -u
 
 START="${CLAUDE_PROJECT_DIR:-$PWD}"
-CLI="${CLAUDE_PLUGIN_ROOT:-}/dist/src/cli/index.js"
+
+# How to invoke the CLI, in two parts so neither a plugin path nor a binary
+# path has to survive word splitting: LAT_PRE is an optional interpreter and
+# LAT_BIN is what it runs. LAT_CMD is the same thing spelled for a human.
+LAT_PRE=""
+LAT_BIN=""
+LAT_CMD=""
+
+# Two sources, in order of confidence.
+#
+# A dist/ beside the plugin means the plugin is being run straight out of a
+# development checkout of the fork, and that build is by definition the one
+# whose hooks these are. Installed from a marketplace there is no dist/ — the
+# plugin ships hooks only, because the built CLI needs ~170MB of node_modules
+# beside it and no plugin repo should carry that.
+#
+# Otherwise take `lat` from PATH, but only if it identifies itself as a fork
+# build. Upstream's CLI would accept `hook claude UserPromptSubmit` and answer
+# it without any of the checks these hooks exist to run, which is worse than
+# not running at all: the session would look grounded and would not be.
+if [ -f "${CLAUDE_PLUGIN_ROOT:-}/dist/src/cli/index.js" ]; then
+  LAT_PRE="node"
+  LAT_BIN="${CLAUDE_PLUGIN_ROOT}/dist/src/cli/index.js"
+  LAT_CMD="node ${CLAUDE_PLUGIN_ROOT}/dist/src/cli/index.js"
+elif command -v lat >/dev/null 2>&1; then
+  case "$(lat --version 2>/dev/null)" in
+    *-fork*)
+      LAT_BIN="lat"
+      LAT_CMD="lat"
+      ;;
+  esac
+fi
 
 # Escape hatch for a repository that should never be treated as a lat.md
 # project, so the bootstrap notice below can be silenced permanently.
@@ -70,7 +102,7 @@ while [ -n "$dir" ] && [ "$dir" != "/" ]; do
 done
 
 if [ -n "$lat_root" ]; then
-  [ -f "$CLI" ] || exit 0
+  [ -n "$LAT_BIN" ] || exit 0
   cd "$lat_root" || exit 0
 
   # `check` is housekeeping, not a hook protocol: its stdout is a human
@@ -78,11 +110,18 @@ if [ -n "$lat_root" ]; then
   # hook, and a tree that fails a check for some unrelated reason must not
   # surface as a failing hook after every edit.
   if [ "${1:-}" = "check" ]; then
-    node "$CLI" "$@" >/dev/null 2>&1 || true
+    if [ -n "$LAT_PRE" ]; then
+      "$LAT_PRE" "$LAT_BIN" "$@" >/dev/null 2>&1 || true
+    else
+      "$LAT_BIN" "$@" >/dev/null 2>&1 || true
+    fi
     exit 0
   fi
 
-  exec node "$CLI" "$@"
+  if [ -n "$LAT_PRE" ]; then
+    exec "$LAT_PRE" "$LAT_BIN" "$@"
+  fi
+  exec "$LAT_BIN" "$@"
 fi
 
 # No lat.md/ anywhere above the project root. Tell the agent to create one,
@@ -90,13 +129,13 @@ fi
 # in, and repeating it after every edit would be noise rather than a prompt
 # to act.
 if [ "${1:-}" = "hook" ] && [ "${3:-}" = "UserPromptSubmit" ]; then
-  # The command is spelled out absolutely, not as bare `lat init`, on purpose.
-  # A `lat` on $PATH may be a DIFFERENT BUILD that reports the same version
-  # string, and `lat init` writes hook registrations naming whichever binary
-  # ran it — so bootstrapping through the wrong one silently wires the project
-  # to the wrong lat and none of this build's checks ever run.
-  cat <<'JSON' | sed "s|__LAT_CLI__|$CLI|g"
-{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"This project has no `lat.md/` directory. Run `node __LAT_CLI__ init` to create one before doing substantial work, so design intent has somewhere to live and this session can be grounded in it. Use that exact command — a bare `lat` on PATH may be a different build of this tool that reports the same version number, and initialising with it wires the project to the wrong binary. Structure what you write in `lat.md/` by Diataxis mode: every document is a tutorial, a how-to, a reference, or an explanation, declared as `mode:` under its `lat:` frontmatter and placed in the matching directory. `node __LAT_CLI__ check mode` enforces that, and `node __LAT_CLI__ check` must pass before you finish. If this project should never use lat.md, create an empty `.lat-disable` file at its root to stop this notice."}}
+  # The notice names the resolved command rather than a bare `lat`, because
+  # `lat init` writes hook registrations naming whichever binary ran it. The
+  # resolution above has already rejected a non-fork build, so whatever
+  # LAT_CMD holds is safe to bootstrap through.
+  [ -n "$LAT_CMD" ] || exit 0
+  cat <<'JSON' | sed "s|__LAT_CLI__|$LAT_CMD|g"
+{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"This project has no `lat.md/` directory. Run `__LAT_CLI__ init` to create one before doing substantial work, so design intent has somewhere to live and this session can be grounded in it. Use that exact command — a bare `lat` on PATH may be upstream's build rather than this fork's, and initialising with it wires the project to a binary without these checks. Structure what you write in `lat.md/` by Diataxis mode: every document is a tutorial, a how-to, a reference, or an explanation, declared as `mode:` under its `lat:` frontmatter and placed in the matching directory. `__LAT_CLI__ check mode` enforces that, and `__LAT_CLI__ check` must pass before you finish. If this project should never use lat.md, create an empty `.lat-disable` file at its root to stop this notice."}}
 JSON
 fi
 
