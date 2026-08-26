@@ -11,6 +11,7 @@ import type {
   Heading,
   Image,
   Link,
+  Root,
   RootContent,
   Text,
 } from 'mdast';
@@ -217,8 +218,8 @@ export function parseSections(
   filePath: string,
   content: string,
   projectRoot?: string,
+  tree: Root = parse(content),
 ): Section[] {
-  const tree = parse(content);
   const file = projectRoot
     ? toPosix(relative(projectRoot, filePath)).replace(/\.md$/, '')
     : basename(filePath, '.md');
@@ -851,8 +852,8 @@ export function extractRefs(
   filePath: string,
   content: string,
   projectRoot?: string,
+  tree: Root = parse(content),
 ): Ref[] {
-  const tree = parse(content);
   const file = projectRoot
     ? toPosix(relative(projectRoot, filePath)).replace(/\.md$/, '')
     : basename(filePath, '.md');
@@ -928,8 +929,10 @@ function closingBracket(value: string, open: number): number {
 }
 
 /** Extract link destinations and undefined full/collapsed references. */
-export function extractLinks(content: string): MdLink[] {
-  const tree = parse(content);
+export function extractLinks(
+  content: string,
+  tree: Root = parse(content),
+): MdLink[] {
   const links: MdLink[] = [];
 
   visit(tree, ['link', 'image', 'definition'], (node) => {

@@ -9,4 +9,5 @@ This directory defines the high-level concepts, business logic, and architecture
 - [[parser]] — Markdown parsing architecture, section tree construction, and ref extraction
 - [[tests]] — High-level test specifications mapped to code via require-code-mention
 - [[untrusted-content]] — Framing and sanitization for repository text placed in front of a model
+- [[view]] — Local browser architecture and test specifications
 - [[website]] — Standalone Next.js marketing site deployed to Vercel
