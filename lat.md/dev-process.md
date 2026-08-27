@@ -102,9 +102,13 @@ Every test run includes a full `tsc --noEmit` pass over the entire codebase. If 
 
 ### Continuous Integration
 
-CI (`.github/workflows/ci.yml`) runs the full `pnpm buildall` + `vitest` suite on a `[ubuntu-latest, windows-latest]` matrix (`fail-fast: false`) so platform-specific regressions — path separators (see [[parser#Short Ref Resolution]]) and line endings — are caught before release.
+CI (`.github/workflows/ci.yml`) runs `pnpm buildall`, the `vitest` suite, and `lat check` on `ubuntu-latest`. It is the only workflow that validates the tree; the release workflow builds and tests again before publishing.
 
-Cross-platform correctness relies on two conventions: stored paths are always POSIX ([[src/walk.ts#toPosix]]), and a repo-root `.gitattributes` (`eol=lf`) keeps Windows checkouts from rewriting line endings and breaking the markdown roundtrip. Functional init tests run the built CLI and database seeding in child processes so native libsql handles close before temp cleanup. Lower-level tests that retain handles or spawn a fake `git` use [[tests/util.ts#rmDirBestEffort]].
+`lat check` runs the CLI **this commit just built**, never a published one. The fork writes index entries as Markdown links where upstream writes wiki links, so upstream's parser reports every index file in this repository as malformed. Only this tree's own binary is a valid checker for this tree — which is why the third-party `lat-check` action that installed `lat.md` from npm was removed rather than pinned.
+
+Windows is not in the matrix. Cross-platform conventions still hold and are worth keeping — stored paths are always POSIX ([[src/walk.ts#toPosix]]), and a repo-root `.gitattributes` (`eol=lf`) keeps a Windows checkout from rewriting line endings and breaking the markdown roundtrip — but no runner enforces them.
+
+Functional init tests run the built CLI and database seeding in child processes so native libsql handles close before temp cleanup. Lower-level tests that retain handles or spawn a fake `git` use [[tests/util.ts#rmDirBestEffort]].
 
 ## Website Development
 

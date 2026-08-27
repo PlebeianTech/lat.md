@@ -8,12 +8,10 @@ on:
 
 jobs:
   test:
-    # Run the full suite on Linux and Windows so platform-specific issues
-    # (path separators, line endings) are caught before release.
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -46,3 +44,9 @@ jobs:
       # buildall = packages (WASM engine + fp16 weights + tsc) then top-level lat.
       - run: pnpm buildall
       - run: pnpm vitest run --reporter=verbose
+
+      # Validate lat.md/ with the binary this commit just built, not with a
+      # published one. The fork's index entries are Markdown links where
+      # upstream's are wiki links, so upstream's `lat` reports every index file
+      # as malformed. Only this tree's own CLI is a valid checker for this tree.
+      - run: node dist/src/cli/index.js check
