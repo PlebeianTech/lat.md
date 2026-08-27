@@ -37,8 +37,3 @@ templates/AGENTS.md	Template written into consumer projects by `lat init`. The f
 templates/opencode-plugin.ts	The comment convention has to be stated where the OpenCode host reads it; OpenCode has no per-edit hook the fork could attach to instead.
 templates/pi-extension.ts	Same as the OpenCode template, for the Pi host.
 templates/skill/SKILL.md	Same: the skill template `lat init` installs, carrying the fork's conventions.
-tests/cases.test.ts	Fork test cases appended to an upstream test file before the fork-owned-tests rule existed. Being migrated to fork-owned files; this entry should disappear when that lands.
-tests/hook.test.ts	Fork hook tests appended to an upstream test file, predating the rule. Migration in flight.
-tests/init-version.test.ts	Fork init-version tests appended to an upstream test file, predating the rule. Migration in flight.
-tests/init.test.ts	Fork init tests appended to an upstream test file, predating the rule. Migration in flight.
-tests/lattice.test.ts	Fork lattice tests appended to an upstream test file, predating the rule. Migration in flight.

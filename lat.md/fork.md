@@ -116,6 +116,8 @@ The regenerate path honours the same rule. It refuses to write a deletion into t
 
 `actions/checkout@v4` clones with `fetch-depth: 1`, so the fork-point commit is **not** in the runner's object store and every git command against it fails. `--fetch` runs `git fetch --no-tags --depth=1 origin 65d2f5b...` when the commit is absent, which GitHub serves for an arbitrary reachable SHA. Keeping the SHA inside the checker rather than in the workflow leaves one place for it to be wrong.
 
+Nothing under `.github/` carries a `@lat:` pointer. `walk.ts` filters every path beginning with `.`, so no workflow file is ever scanned and a ref placed there would rot without `lat check` noticing. Workflows reference this document in prose instead.
+
 Without `--fetch` the guard does not silently pass: it exits non-zero and prints the fetch command. That is the deliberate half of the design — the two failure modes worth avoiding are a check that always passes and a check that always fails, and a missing fork point produces neither silence nor a false accusation.
 
 The step runs before the build so the fork point is already fetched by the time `vitest` runs, which is what lets the suite assert that this repository itself passes the guard.

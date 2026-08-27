@@ -41,7 +41,10 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # @lat: [[fork#The upstream guard#Running it in CI]]
+      # Deliberately not a `@lat:` pointer: walk.ts excludes every path
+      # starting with `.`, so nothing under .github/ is ever scanned and a
+      # ref here would rot silently. Rationale lives in lat.md/fork.md
+      # under "The upstream guard".
       - name: Upstream guard
         run: pnpm exec tsx src/fork/upstream-guard-cli.ts --fetch
 
