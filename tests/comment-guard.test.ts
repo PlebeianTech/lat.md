@@ -33,39 +33,55 @@ function block(file: string, content: string): string | null {
   return computeCommentBlock(input);
 }
 
-function remind(file: string, content: string): string | null {
-  const input: PostToolUseInput = {
-    hook_event_name: 'PostToolUse',
-    cwd: projectDir,
-    tool_name: 'Write',
-    tool_input: { file_path: join(projectDir, file), content },
-  };
-  return computeCommentReminder(input);
-}
-
 function seed(file: string, content: string): string {
   writeFileSync(join(projectDir, file), content);
   return content;
 }
 
-function blockEdit(file: string, newString: string): string | null {
+/**
+ * PostToolUse fixture. The hook runs *after* the tool call, so the fixture
+ * applies the write before asking for a reminder — anything less is a
+ * PreToolUse assertion wearing a PostToolUse label, which is exactly how the
+ * reminder came to be silently dead in the `lat init` wiring.
+ *
+ * `fileAfter` is the file's post-edit content; it defaults to `written`, which
+ * is right for a whole-file `Write`.
+ */
+function remind(
+  file: string,
+  written: string,
+  opts: { shape?: 'content' | 'new_string'; fileAfter?: string } = {},
+): string | null {
+  seed(file, opts.fileAfter ?? written);
+  const shape = opts.shape ?? 'content';
+  const input: PostToolUseInput = {
+    hook_event_name: 'PostToolUse',
+    cwd: projectDir,
+    tool_name: shape === 'content' ? 'Write' : 'Edit',
+    tool_input:
+      shape === 'content'
+        ? { file_path: join(projectDir, file), content: written }
+        : { file_path: join(projectDir, file), new_string: written },
+  };
+  return computeCommentReminder(input);
+}
+
+function blockEdit(
+  file: string,
+  newString: string,
+  oldString?: string,
+): string | null {
   const input: PreToolUseInput = {
     hook_event_name: 'PreToolUse',
     cwd: projectDir,
     tool_name: 'Edit',
-    tool_input: { file_path: join(projectDir, file), new_string: newString },
+    tool_input: {
+      file_path: join(projectDir, file),
+      new_string: newString,
+      ...(oldString === undefined ? {} : { old_string: oldString }),
+    },
   };
   return computeCommentBlock(input);
-}
-
-function remindEdit(file: string, newString: string): string | null {
-  const input: PostToolUseInput = {
-    hook_event_name: 'PostToolUse',
-    cwd: projectDir,
-    tool_name: 'Edit',
-    tool_input: { file_path: join(projectDir, file), new_string: newString },
-  };
-  return computeCommentReminder(input);
 }
 
 const RATIONALE = [
@@ -182,7 +198,6 @@ describe('comment guard', () => {
   it('allows a whole-file write that re-emits the file verbatim', () => {
     const content = seed('verbatim.ts', RATIONALE);
     expect(block('verbatim.ts', content)).toBeNull();
-    expect(remind('verbatim.ts', content)).toBeNull();
   });
 
   // @lat: [[comment-guard#Still blocks new prose in a whole-file rewrite]]
@@ -223,7 +238,6 @@ describe('comment guard', () => {
     seed('untrusted.ts', JSDOC);
     const newString = JSDOC.replace('return text;', 'return text.trim();');
     expect(blockEdit('untrusted.ts', newString)).toBeNull();
-    expect(remindEdit('untrusted.ts', newString)).toBeNull();
   });
 
   // @lat: [[comment-guard#Still blocks new prose beside a re-emitted block]]
@@ -240,9 +254,28 @@ describe('comment guard', () => {
     expect(reason).toContain('2 comment lines');
   });
 
-  // @lat: [[comment-reminder#Counts only what a whole-file rewrite adds]]
-  it('reminds about the added lines only, not the whole file', () => {
-    seed('counted.ts', RATIONALE);
+  // @lat: [[comment-reminder#Speaks once the write has already landed]]
+  it('reminds about a write that is already on disk', () => {
+    const message = remind('landed.ts', RATIONALE);
+    expect(message).not.toBeNull();
+    expect(message).toContain('landed.ts');
+    expect(message).toContain('2 comment line(s)');
+  });
+
+  // @lat: [[comment-reminder#Speaks for an edit that has already landed]]
+  it('reminds about an edit whose new_string is already on disk', () => {
+    const fileAfter = JSDOC.replace('return text;', 'return text.trim();');
+    const message = remind('landed-edit.ts', fileAfter, {
+      shape: 'new_string',
+      fileAfter,
+    });
+    expect(message).not.toBeNull();
+    expect(message).toContain('landed-edit.ts');
+    expect(message).toContain('2 comment line(s)');
+  });
+
+  // @lat: [[comment-reminder#Counts every comment line a whole-file write emits]]
+  it('counts the whole file, not just the appended block', () => {
     const message = remind(
       'counted.ts',
       RATIONALE +
@@ -255,6 +288,93 @@ describe('comment guard', () => {
         ].join('\n'),
     );
     expect(message).not.toBeNull();
-    expect(message).toContain('2 comment line(s)');
+    expect(message).toContain('4 comment line(s)');
+  });
+
+  // @lat: [[comment-guard#Denies a block grown one line per edit]]
+  it('denies a rationale block grown one line at a time', () => {
+    const anchor = 'export const RETRIES = 3;\n';
+    const l1 = '// We retry three times because the upstream API rate-limits\n';
+    const l2 = '// bursts, and a single failure is almost always transient.\n';
+    const l3 = "// Beyond three the caller's own deadline expires first.\n";
+
+    seed('creep.ts', anchor);
+    const step1 = blockEdit('creep.ts', l1 + anchor, anchor);
+    seed('creep.ts', l1 + anchor);
+    const step2 = blockEdit('creep.ts', l1 + l2 + anchor, l1 + anchor);
+    seed('creep.ts', l1 + l2 + anchor);
+    const step3 = blockEdit(
+      'creep.ts',
+      l1 + l2 + l3 + anchor,
+      l1 + l2 + anchor,
+    );
+
+    expect(step1).toBeNull();
+    expect(step2).not.toBeNull();
+    expect(step2).toContain('2 comment lines');
+    expect(step3).not.toBeNull();
+    expect(step3).toContain('3 comment lines');
+  });
+
+  // @lat: [[comment-guard#Measures an edit against its own old_string]]
+  it('denies a new block when one line coincidentally exists elsewhere', () => {
+    const anchor = 'export const RETRIES = 3;\n';
+    const shared = '// and a single failure is almost always transient.\n';
+    seed(
+      'coincidence.ts',
+      `const UNRELATED = 1;\n${shared}const OTHER = 2;\n${anchor}`,
+    );
+    const block2 =
+      '// We retry three times because the upstream API rate-limits bursts\n' +
+      shared;
+    const reason = blockEdit('coincidence.ts', block2 + anchor, anchor);
+    expect(reason).not.toBeNull();
+    expect(reason).toContain('2 comment lines');
+  });
+
+  // @lat: [[comment-guard#Allows an edit that re-emits an existing comment block]]
+  it('allows an edit measured against an old_string that already holds it', () => {
+    seed('untrusted-old.ts', JSDOC);
+    const newString = JSDOC.replace('return text;', 'return text.trim();');
+    expect(blockEdit('untrusted-old.ts', newString, JSDOC)).toBeNull();
+  });
+
+  // @lat: [[comment-guard#Counts scattered one-liners together]]
+  it('denies two new one-line comments that are not adjacent', () => {
+    const reason = block(
+      'scattered.ts',
+      [
+        '// keyed by locale because ids collide across jurisdictions',
+        'const CACHE = new Map();',
+        '// cleared on logout because the key embeds the account id',
+        'export function reset() {}',
+      ].join('\n'),
+    );
+    expect(reason).not.toBeNull();
+    expect(reason).toContain('2 comment lines');
+  });
+
+  // @lat: [[comment-guard#Fails closed when the file cannot be read]]
+  it('denies a whole-file write when the baseline cannot be read', () => {
+    const missing = block(
+      'never-created.ts',
+      [
+        '// We debounce at 300ms because anything shorter re-renders the whole',
+        '// tree on every keystroke and drops frames on low-end phones.',
+        'const DEBOUNCE = 300;',
+      ].join('\n'),
+    );
+    expect(missing).not.toBeNull();
+
+    mkdirSync(join(projectDir, 'a-directory.ts'), { recursive: true });
+    const isDir = block(
+      'a-directory.ts',
+      [
+        '// We debounce at 300ms because anything shorter re-renders the whole',
+        '// tree on every keystroke and drops frames on low-end phones.',
+        'const DEBOUNCE = 300;',
+      ].join('\n'),
+    );
+    expect(isDir).not.toBeNull();
   });
 });

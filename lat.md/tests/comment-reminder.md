@@ -8,7 +8,9 @@ Functional tests for the write-side `@lat:` comment reminder: the `PostToolUse` 
 
 Tests in `tests/comment-reminder.test.ts`; the two cases it shares with [[comment-guard]] live in `tests/comment-guard.test.ts`, which asserts both halves at once.
 
-The reminder and the gate now count the same candidate lines. `hooks/hooks.json` registers both on the same `Edit|Write|MultiEdit` matcher and a `PreToolUse` deny suppresses `PostToolUse`, so under the plugin the gate always answers first and the reminder never speaks. It stays live for the `lat init` wiring, which registers `PostToolUse` and no `PreToolUse` at all.
+The reminder and the gate share [[src/cli/comment-reminder.ts#judgeWrittenComments]] but not a baseline: [[src/cli/comment-reminder.ts#WritePhase]] tells it which side of the tool call it is on, and only the gate can read the file as pre-edit state.
+
+`hooks/hooks.json` registers both halves on one `Edit|Write|MultiEdit` matcher and a `PreToolUse` deny suppresses `PostToolUse`, so under the plugin the gate answers first and the reminder rarely speaks. The `lat init` wiring registers `UserPromptSubmit`, `Stop` and `PostToolUse` and no `PreToolUse` at all, so there the reminder is the only enforcement the convention has.
 
 ## Bare fact comments stay quiet
 
@@ -74,13 +76,31 @@ A non-JSON payload to the cursor `postToolUse` hook exits 0.
 
 An edit whose every comment line carries the per-line ignore token draws neither a denial from [[comment-guard]] nor a reminder here.
 
-The two halves once disagreed: the gate filtered the token before counting and the reminder did not, so an agent that took the denial's own advice was immediately told the exempted lines broke the convention. The filter now lives in [[src/cli/comment-reminder.ts#candidateCommentLines]], which both halves call.
+The two halves once disagreed: the gate filtered the token before counting and the reminder did not, so an agent that took the denial's own advice was immediately told the exempted lines broke the convention. The filter now lives in [[src/cli/comment-reminder.ts#isCandidateCommentLine]], and [[src/cli/comment-reminder.ts#judgeWrittenComments]] is the only thing either half calls, so they cannot drift apart again.
 
-## Counts only what a whole-file rewrite adds
+## Speaks once the write has already landed
 
-A `Write` that re-emits an existing file and appends two comment lines is reported as two lines, not as every comment in the file.
+A `Write` whose `content` is already on disk — the real `PostToolUse` ordering — still produces a reminder naming the file and the count.
 
-The reminder shares [[src/cli/comment-reminder.ts#extractWrittenText]] with the gate, so the same diffing applies to `content`, to an `Edit`'s `new_string`, and to each `MultiEdit` hunk, and the count it prints matches what the agent actually wrote.
+The gate subtracts the lines disk already holds, which is right at `PreToolUse` because disk is then the pre-edit state. At `PostToolUse` disk is the write itself, so the same subtraction cancelled the whole payload and the reminder returned `null` at its own empty-text guard. Under `hooks/hooks.json` the gate masked that; under the `lat init` wiring, which registers no `PreToolUse`, the convention lost every trace of enforcement.
+
+## Speaks for an edit that has already landed
+
+An `Edit` whose `new_string` is already spliced into the file on disk still produces a reminder.
+
+`content` and `new_string` travel the same code path, so a fix covering only whole-file writes would have left the commoner shape silent. This case and the one above run together for that reason.
+
+## Counts every comment line a whole-file write emits
+
+A `Write` that re-emits an existing file and appends two comment lines is reported as four, not two: every candidate line in `content` counts, because after the write nothing in the payload can be told apart from what was already there.
+
+That is louder than the gate, and deliberately so. The only quieter reading available to a whole-file `Write` at `PostToolUse` is the one that produced silence. A reminder cannot block anyone, so over-counting costs an ignorable sentence while under-counting costs the convention. An `Edit` is exact in both phases, because it is measured against its own `old_string` — which is what the denial text already tells agents to prefer.
+
+## Fires end to end with the file already written
+
+The built CLI, handed a `PostToolUse` payload whose `file_path` already holds the written `content`, emits `additionalContext`.
+
+Driven through `lat hook claude PostToolUse` rather than the exported function, because the phase bug survived every unit test in this file: none of them created the target file, so all of them took the no-readable-file fast path and passed against a reminder that was completely dead.
 
 ## git timeout
 

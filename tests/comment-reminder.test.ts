@@ -222,6 +222,34 @@ describe('hook PostToolUse comment reminder', () => {
     }
   });
 
+  // @lat: [[comment-reminder#Fires end to end with the file already written]]
+  it('fires when the write has already landed on disk', () => {
+    const filePath = join(projectDir, 'landed-e2e.ts');
+    const content = [
+      '// We retry three times here because the upstream API is flaky under',
+      '// load, and a single failure would otherwise cascade into a user-',
+      '// visible error even though the request usually succeeds on retry.',
+      'export const RETRIES = 3;',
+      '',
+    ].join('\n');
+
+    writeFileSync(filePath, content);
+
+    const { stdout, exitCode } = runPostToolUse('claude', projectDir, {
+      file_path: filePath,
+      content,
+    });
+    expect(exitCode).toBe(0);
+    expect(stdout).not.toBe('');
+    const parsed = JSON.parse(stdout);
+    expect(parsed.hookSpecificOutput.additionalContext).toContain(
+      'landed-e2e.ts',
+    );
+    expect(parsed.hookSpecificOutput.additionalContext).toContain(
+      '3 comment line(s)',
+    );
+  });
+
   // @lat: [[comment-reminder#Works the same for the Codex agent]]
   it('works the same for the codex agent', () => {
     const { stdout, exitCode } = runPostToolUse('codex', projectDir, {
@@ -276,11 +304,9 @@ describe('resolveProjectRoot timeout', () => {
     const fakeBinDir = mkdtempSync(join(tmpdir(), 'lat-fake-git-'));
     const workDir = mkdtempSync(join(tmpdir(), 'lat-work-'));
     const fakeGitPath = join(fakeBinDir, 'git');
-    writeFileSync(
-      fakeGitPath,
-      '#!/bin/sh\nsleep 5\necho /tmp\n',
-      { mode: 0o755 },
-    );
+    writeFileSync(fakeGitPath, '#!/bin/sh\nsleep 5\necho /tmp\n', {
+      mode: 0o755,
+    });
     chmodSync(fakeGitPath, 0o755);
 
     const originalPath = process.env.PATH;

@@ -84,74 +84,111 @@ export function matchFamily(filePath: string): CommentFamily | null {
 export type ToolInput = {
   file_path?: string;
   content?: string;
+  old_string?: string;
   new_string?: string;
-  edits?: { new_string?: string }[];
+  edits?: { old_string?: string; new_string?: string }[];
 };
 
-/** Line multiset of the file as it stands before the tool call, or `null`
- * when there is no readable file — a brand-new path, a permission error, a
- * payload naming no file. Every line is new against a file that is not
- * there. */
-function lineCounts(filePath?: string): Map<string, number> | null {
-  if (!filePath) return null;
-  let onDisk: string;
-  try {
-    onDisk = readFileSync(filePath, 'utf-8');
-  } catch {
-    return null;
-  }
+/** Line multiset of `text`, used as the baseline a written fragment is new
+ * against. */
+function lineCounts(text: string): Map<string, number> {
   const counts = new Map<string, number>();
-  for (const line of onDisk.split('\n')) {
+  for (const line of text.split('\n')) {
     counts.set(line, (counts.get(line) ?? 0) + 1);
   }
   return counts;
 }
 
-/** The lines of one written fragment that the file does not already hold.
- * Compared as a multiset, so a fragment emitting a line twice against a file
- * holding it once keeps one of them. The tally is copied per fragment rather
- * than shared across a `MultiEdit`: two hunks that each re-emit the same
- * surrounding comment are both re-emitting it, and charging the second one
- * for it would deny exactly the edit this is here to allow. */
-function addedLines(
-  written: string,
-  onDisk: Map<string, number> | null,
-): string {
-  if (!onDisk) return written;
-  const unclaimed = new Map(onDisk);
-  const added: string[] = [];
-  for (const line of written.split('\n')) {
-    const left = unclaimed.get(line) ?? 0;
-    if (left > 0) unclaimed.set(line, left - 1);
-    else added.push(line);
+/** Baseline taken from the file itself, or `null` when there is no readable
+ * file — a brand-new path, a directory, a permission error, a payload naming
+ * no file. `null` means every line counts as new, which is what makes an
+ * unreadable file fail closed: the gate denies rather than waving the write
+ * through on evidence it could not gather. */
+function fileBaseline(filePath?: string): Map<string, number> | null {
+  if (!filePath) return null;
+  try {
+    return lineCounts(readFileSync(filePath, 'utf-8'));
+  } catch {
+    return null;
   }
-  return added.join('\n');
 }
 
-/** Only the NEW text — every shape diffed against the file on disk, which at
- * PreToolUse is still the pre-edit state.
+/**
+ * Which side of the tool call the caller is on.
  *
- * A `Write` carries the whole file, so counting `content` as written fired on
- * every pre-existing comment and refused rewrites that changed nothing at
- * all. An `Edit` looks like a delta but is not one: `new_string` re-emits the
- * unchanged lines bracketing the change, so editing code next to a doc
- * comment counted that comment as freshly written prose. That denial has no
- * remediation — there is nothing to move — and its only exits are deleting
- * the comment or exempting it line by line. */
-export function extractWrittenText(toolInput: ToolInput): string {
-  const onDisk = lineCounts(toolInput.file_path);
-  const parts: string[] = [];
+ * `'before-write'` — PreToolUse. The file on disk is still the pre-edit state,
+ * so it is usable as a baseline for a whole-file `Write`, which carries no
+ * other record of what it replaced.
+ *
+ * `'after-write'` — PostToolUse. The write has landed, so the file contains
+ * every line of `content` by construction. Diffing against it there cancels
+ * the whole payload and the caller sees nothing at all.
+ *
+ * An `Edit` carries its own `old_string` and needs neither reading: its
+ * baseline is phase-independent, which is the shape to prefer.
+ *
+ * The parameter is required so a third call site has to answer the question
+ * rather than inherit whichever default happened to suit the first two.
+ */
+export type WritePhase = 'before-write' | 'after-write';
+
+/** A written fragment paired with the text it replaces. `baseline` of `null`
+ * means nothing is known to have been there, so every line is new. */
+type WrittenFragment = {
+  text: string;
+  baseline: Map<string, number> | null;
+};
+
+/**
+ * The fragments one tool call writes, each against the narrowest baseline
+ * available for it.
+ *
+ * `old_string` is preferred over the file wherever the payload carries one,
+ * because the file is the wrong scope: matching a written line against
+ * *anywhere* in the file forgives a genuinely new block whenever one of its
+ * lines happens to duplicate an unrelated line elsewhere. `old_string` is the
+ * exact text being replaced, so the difference is the real delta.
+ *
+ * Baselines are per fragment rather than shared across a `MultiEdit`: two
+ * hunks that each re-emit the same surrounding comment are both re-emitting
+ * it, and charging the second one for it would deny exactly the edit this is
+ * here to allow.
+ */
+function writtenFragments(
+  toolInput: ToolInput,
+  phase: WritePhase,
+): WrittenFragment[] {
+  let diskRead = false;
+  let disk: Map<string, number> | null = null;
+  const fromFile = (): Map<string, number> | null => {
+    if (phase !== 'before-write') return null;
+    if (!diskRead) {
+      disk = fileBaseline(toolInput.file_path);
+      diskRead = true;
+    }
+    return disk;
+  };
+  const baselineFor = (oldString?: string): Map<string, number> | null =>
+    typeof oldString === 'string' ? lineCounts(oldString) : fromFile();
+
+  const fragments: WrittenFragment[] = [];
   if (typeof toolInput.content === 'string')
-    parts.push(addedLines(toolInput.content, onDisk));
+    fragments.push({ text: toolInput.content, baseline: fromFile() });
   if (typeof toolInput.new_string === 'string')
-    parts.push(addedLines(toolInput.new_string, onDisk));
+    fragments.push({
+      text: toolInput.new_string,
+      baseline: baselineFor(toolInput.old_string),
+    });
   if (Array.isArray(toolInput.edits)) {
     for (const edit of toolInput.edits) {
       if (typeof edit?.new_string === 'string')
-        parts.push(addedLines(edit.new_string, onDisk));
+        fragments.push({
+          text: edit.new_string,
+          baseline: baselineFor(edit.old_string),
+        });
     }
   }
-  return parts.join('\n');
+  return fragments;
 }
 
 /** Explicit, reviewable per-line opt-out, spelled the same as the token
@@ -164,24 +201,113 @@ export function extractWrittenText(toolInput: ToolInput): string {
  * whole file. */
 export const LAT_IGNORE_RE = /(?<![\w])lat:ignore(?![-\w])/;
 
-/** Comment lines worth reminding about. Dropped before counting:
+/** Whether one line is a comment worth counting. Not counted:
  *   - a line that already carries a `@lat:` pointer (the compliant state)
  *   - a line carrying the explicit opt-out token
  *   - machine directives: shebangs, magic comments, linter/type pragmas
  *   - decoration with no alphanumeric character (`# ----`, `//////`, a bare
- *     `*​/` closing a block) */
-export function candidateCommentLines(
-  written: string,
+ *     `*​/` closing a block)
+ *
+ * Both halves of the convention call this and nothing else, so the gate and
+ * the reminder cannot drift apart on what counts as prose. */
+export function isCandidateCommentLine(
+  line: string,
   family: CommentFamily,
-): string[] {
-  return written
-    .split('\n')
-    .filter((line) => family.commentRe.test(line))
-    .filter((line) => !line.includes('@lat:'))
-    .filter((line) => !LAT_IGNORE_RE.test(line))
-    .filter((line) => !/^\s*#!/.test(line))
-    .filter((line) => !family.pragmaRe.test(line))
-    .filter((line) => /[a-zA-Z0-9]/.test(line));
+): boolean {
+  return (
+    family.commentRe.test(line) &&
+    !line.includes('@lat:') &&
+    !LAT_IGNORE_RE.test(line) &&
+    !/^\s*#!/.test(line) &&
+    !family.pragmaRe.test(line) &&
+    /[a-zA-Z0-9]/.test(line)
+  );
+}
+
+/** Candidate comment lines in one write before either half reacts. A single
+ * line ("// bytes, not chars") is the bare-fact case the convention allows;
+ * two is a block of prose. */
+const PROSE_THRESHOLD = 2;
+
+export type CommentVerdict = {
+  /** Candidate comment lines this call is answerable for. Names the number
+   * printed in the denial or the reminder. */
+  count: number;
+  /** Whether the call warrants a denial from the gate or a reminder from its
+   * advisory half. */
+  flagged: boolean;
+};
+
+/**
+ * What one Edit/Write/MultiEdit call did to the comments in a file.
+ *
+ * Two rules, because neither alone survives contact with an agent:
+ *
+ * A run of `PROSE_THRESHOLD` or more *adjacent* comment lines is flagged as
+ * soon as any one of them is new. Counting only the new lines lets a block be
+ * grown one line per `Edit` and never reach the threshold — and the denial
+ * text itself recommends `Edit` over `Write`, so the technique is advertised.
+ * What matters is the block the edit leaves behind, not the increment.
+ *
+ * Isolated new comment lines are flagged once `PROSE_THRESHOLD` of them
+ * accumulate anywhere in the call. Two one-line comments in different places
+ * are still two lines of prose; without this a scattered write walks past the
+ * adjacency rule.
+ *
+ * Neither rule counts a line that was already there, so re-emitting a
+ * comment — the whole of a `Write`'s payload, or the lines bracketing an
+ * `Edit` — stays free.
+ */
+export function judgeWrittenComments(
+  toolInput: ToolInput,
+  family: CommentFamily,
+  phase: WritePhase,
+): CommentVerdict {
+  const fragments = writtenFragments(toolInput, phase);
+  if (!fragments.some((fragment) => fragment.text !== ''))
+    return { count: 0, flagged: false };
+
+  let inFlaggedRuns = 0;
+  let isolatedNew = 0;
+
+  for (const fragment of fragments) {
+    const lines = fragment.text.split('\n');
+    const unclaimed = fragment.baseline ? new Map(fragment.baseline) : null;
+    const isNew: boolean[] = [];
+    const isComment: boolean[] = [];
+    for (const line of lines) {
+      let fresh = true;
+      if (unclaimed) {
+        const left = unclaimed.get(line) ?? 0;
+        if (left > 0) {
+          unclaimed.set(line, left - 1);
+          fresh = false;
+        }
+      }
+      isNew.push(fresh);
+      isComment.push(isCandidateCommentLine(line, family));
+    }
+
+    let i = 0;
+    while (i < lines.length) {
+      if (!isComment[i]) {
+        i += 1;
+        continue;
+      }
+      let end = i;
+      while (end < lines.length && isComment[end]) end += 1;
+      let fresh = 0;
+      for (let k = i; k < end; k += 1) if (isNew[k]) fresh += 1;
+      if (end - i >= PROSE_THRESHOLD && fresh > 0) inFlaggedRuns += end - i;
+      else isolatedNew += fresh;
+      i = end;
+    }
+  }
+
+  return {
+    count: inFlaggedRuns + isolatedNew,
+    flagged: inFlaggedRuns > 0 || isolatedNew >= PROSE_THRESHOLD,
+  };
 }
 
 /** Resolvable project root, required so a scratch file in /tmp is not treated
@@ -312,16 +438,13 @@ export function computeCommentReminder(input: PostToolUseInput): string | null {
   const family = matchFamily(filePath);
   if (!family) return null;
 
-  const written = extractWrittenText(toolInput);
-  if (!written) return null;
-
   // A single-line comment ("// increment the counter") almost always states
   // a bare fact, not a rationale — the acceptance case for this hook. Only a
-  // multi-line block is treated as prose worth a reminder; the model still
-  // makes the real judgment call, this just filters the overwhelmingly
-  // common one-liner before it ever reaches that question.
-  const candidates = candidateCommentLines(written, family);
-  if (candidates.length < 2) return null;
+  // block is treated as prose worth a reminder; the model still makes the
+  // real judgment call, this just filters the overwhelmingly common one-liner
+  // before it ever reaches that question.
+  const verdict = judgeWrittenComments(toolInput, family, 'after-write');
+  if (!verdict.flagged) return null;
 
   const sessionId = input.session_id;
   let dedup: { seen: boolean; markAsSeen: () => void } | null = null;
@@ -338,7 +461,7 @@ export function computeCommentReminder(input: PostToolUseInput): string | null {
 
   const message = buildMessage({
     base,
-    count: candidates.length,
+    count: verdict.count,
     marker: family.marker,
     hasTree,
   });

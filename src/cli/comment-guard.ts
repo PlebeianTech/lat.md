@@ -1,7 +1,6 @@
 import {
-  candidateCommentLines,
-  extractWrittenText,
   hasLatTree,
+  judgeWrittenComments,
   matchFamily,
   resolveProjectRoot,
   type ToolInput,
@@ -21,11 +20,6 @@ import {
  * There is deliberately no per-session dedup here. A gate that fires once is
  * not a gate.
  */
-
-/** Minimum candidate comment lines in one write before the edit is refused.
- *  A single line ("// bytes, not chars") is the bare-fact case the convention
- *  explicitly allows; two or more is a block of prose. */
-const BLOCK_THRESHOLD = 2;
 
 export type PreToolUseInput = {
   hook_event_name?: string;
@@ -122,18 +116,15 @@ export function computeCommentBlock(input: PreToolUseInput): string | null {
   const family = matchFamily(filePath);
   if (!family) return null;
 
-  const written = extractWrittenText(toolInput);
-  if (!written) return null;
-
-  const candidates = candidateCommentLines(written, family);
-  if (candidates.length < BLOCK_THRESHOLD) return null;
+  const verdict = judgeWrittenComments(toolInput, family, 'before-write');
+  if (!verdict.flagged) return null;
 
   const projectRoot = resolveProjectRoot(filePath, input.cwd);
   if (!projectRoot) return null;
 
   return buildReason({
     base: filePath.split('/').pop() ?? filePath,
-    count: candidates.length,
+    count: verdict.count,
     marker: family.marker,
     hasTree: hasLatTree(projectRoot),
   });
