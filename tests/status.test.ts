@@ -213,6 +213,18 @@ describe('lat check status', () => {
   it('exits zero on a tree whose reviews all match', () => {
     const { exitCode } = runCli('status-reviewed', ['check', 'status']);
     expect(exitCode).toBe(0);
+
+    const targeted = runCli('headless-check', [
+      'check',
+      'status',
+      '--',
+      'links',
+    ]);
+    expect(targeted.exitCode).toBe(0);
+    expect(targeted.stderr).toBe('');
+    expect(targeted.stdout).toContain(
+      'status: Every recorded review matches its document',
+    );
   });
 
   // The whole point of the hash: editing reviewed prose must turn the tree red.

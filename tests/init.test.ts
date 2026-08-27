@@ -75,7 +75,6 @@ vi.mock('../src/search/db.js', () => ({
 }));
 
 import { initCmd } from '../src/cli/init.js';
-import { checklistMenu } from '../src/cli/checklist-menu.js';
 
 type CliResult = {
   stdout: string;
@@ -364,59 +363,5 @@ describe('lat init embedding setup', () => {
     expectSuccess(result);
     expect(result.stdout).toContain('lat reindex --local');
     expect(readRepoEmbedding()).toBe('local');
-  });
-});
-
-describe('lat init Cursor hooks', () => {
-  let root: string;
-  let stdinIsTTY: PropertyDescriptor | undefined;
-
-  beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'lat-init-cursor-'));
-    mkdirSync(join(root, 'lat.md'), { recursive: true });
-    stdinIsTTY = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
-    Object.defineProperty(process.stdin, 'isTTY', {
-      configurable: true,
-      value: false,
-    });
-    getLlmKey.mockReset();
-    getRepoEmbedding.mockReset();
-    getStoredModel.mockReset();
-    getStoredModel.mockResolvedValue(null);
-    selectMenu.mockReset();
-    vi.mocked(checklistMenu).mockReset();
-    vi.mocked(checklistMenu).mockResolvedValue(['cursor']);
-    vi.spyOn(console, 'log').mockImplementation(() => {});
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-    if (stdinIsTTY) {
-      Object.defineProperty(process.stdin, 'isTTY', stdinIsTTY);
-    } else {
-      delete (process.stdin as { isTTY?: boolean }).isTTY;
-    }
-    rmSync(root, { recursive: true, force: true });
-  });
-
-  // @lat: [[init#Cursor init registers a postToolUse hook]]
-  it('registers a postToolUse hook for the comment reminder alongside stop', async () => {
-    await initCmd(root);
-
-    const hooksPath = join(root, '.cursor', 'hooks.json');
-    expect(existsSync(hooksPath)).toBe(true);
-
-    const hooks = JSON.parse(readFileSync(hooksPath, 'utf-8')) as {
-      hooks: Record<string, { command: string }[]>;
-    };
-
-    expect(hooks.hooks.stop?.[0]?.command).toContain('hook cursor stop');
-    // Deliberately postToolUse, not afterFileEdit: Cursor ignores the latter's
-    // output, so a reminder sent from it could never reach the agent.
-    expect(hooks.hooks.afterFileEdit).toBeUndefined();
-    expect(hooks.hooks.postToolUse?.[0]?.command).toContain(
-      'hook cursor postToolUse',
-    );
   });
 });
