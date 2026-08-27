@@ -16,6 +16,7 @@ Shared patterns for writing and organizing tests in this project.
 - [Check Code Refs](check-code-refs.md) — Tests for validating \`@lat:\` code references and required code mention coverage.
 - [Check Explicit Directories](check-headless.md) — Functional tests cover validation of Markdown directories outside \`lat.md/\`.
 - [Check Index](check-index.md) — Tests for validating \`lat.md/\` directory index files and subdirectory index files.
+- [Check Coverage](check-coverage.md) — Tests for the floor that fails a \`lat.md/\` tree whose documents no \`@lat:\` code ref anywhere in the project reaches.
 - [Check Links](check-links.md) — Tests for full CLI validation of ordinary markdown links to local files in \`lat.md/\` files.
 - [Check MD](check-md.md) — Tests for validating wiki links in \`lat.md/\` markdown files.
 - [Check Sections](check-sections.md) — Validates that every section in \`lat.md/\` has a well-formed leading paragraph.
@@ -24,6 +25,8 @@ Shared patterns for writing and organizing tests in this project.
 - [Configuration](config.md) — Tests in \`tests/config.test.ts\` verify durable user-level configuration behavior in an isolated XDG directory.
 - [Diátaxis Mode Check](mode.md) — Tests for \`checkMode\`'s exemption of imperative sentences that appear inside code samples rather than ordinary prose, for \`lat check mode\` \(see \[\[cli#check\]\]\).
 - [Expand](expand.md) — Tests for the \`lat expand\` command that resolves \`\[\[refs\]\]\` and appends context blocks.
+- [Fork Instructions](fork-instructions.md) — Tests for the fork's own instruction channel into a consumer project: the \`%% lat-fork:begin %%\` marker block appended to generated agent files, and the \`lat-md-conventions\` skill written beside upstream's.
+- [Fork Scaffold](fork-scaffold.md) — Tests for the Diátaxis directory scaffold \`lat init\` writes into a fresh \`lat.md/\`, and the \`require-mode\` gate it turns on in the root index.
 - [Frontmatter Field Placement](frontmatter-placement.md) — Tests for \`parseFrontmatter\`'s validation of known \`lat\` fields written at the document root instead of nested under \`lat:\`, and the \`checkFrontmatter\` check that surfaces it via \`lat check\`.
 - [Graph Export](graph-export.md) — Functional and unit tests for \[\[cli#graph\]\] — exporting the knowledge graph and diffing it against git history.
 - [Hook](hook.md) — Functional tests for Claude, Codex, and Cursor lifecycle hooks. Runs hook commands against fixtures and injects a fake \`git\` through PATH to control \`git diff HEAD --numstat\` output.

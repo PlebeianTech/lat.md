@@ -36,7 +36,5 @@ src/cli/section.ts	The provenance note must print above the quoted section rathe
 src/code-refs.ts	`lat:ignore` handling and the literal-example exclusion are decisions the scanner makes per match, inside upstream's scan loop.
 src/init-version.ts	A single constant. `lat init` output changed, and the version that tells users to re-run it lives only here.
 src/lattice.ts	Frontmatter parsing exposes the raw `lat:` mapping so every fork check reads its own fields without a further upstream edit. One edit here buys the closure of this file to all later ones.
-templates/AGENTS.md	Template written into consumer projects by `lat init`. The fork's conventions never reach a consumer unless they are in the template.
 templates/opencode-plugin.ts	The comment convention has to be stated where the OpenCode host reads it; OpenCode has no per-edit hook the fork could attach to instead.
 templates/pi-extension.ts	Same as the OpenCode template, for the Pi host.
-templates/skill/SKILL.md	Same: the skill template `lat init` installs, carrying the fork's conventions.

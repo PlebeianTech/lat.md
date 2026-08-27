@@ -36,6 +36,76 @@ Two files added independently never conflict in git and can still collide in the
 
 `lat.md/tests/graph.md` and upstream's later `lat.md/view/graph.md` are the worked example — see [[fork#Merging upstream#What a clean merge still breaks]]. Prefer a name that says what the fork-owned thing is, not the general topic it sits under.
 
+## The instruction channel
+
+What `lat init` teaches a consumer project's agent reaches it through a fork-owned template and a fork-owned marker block, so the fork can say more without editing upstream's onboarding text.
+
+Upstream's channel is two files: `templates/AGENTS.md`, written into `CLAUDE.md` / `AGENTS.md` / `.github/copilot-instructions.md` inside `%% lat:begin %%` markers, and `templates/skill/SKILL.md`, written whole into each agent's skills directory. Both are upstream's own agent-facing prose and among the files upstream most often revises, so every sentence the fork adds is a conflict bought on credit.
+
+`templates/fork/conventions.md` replaces that. [[src/cli/fork-instructions.ts#writeForkInstructions]] appends it under its own `%% lat-fork:begin %%` / `%% lat-fork:end %%` markers and writes it again, with frontmatter, as a separate `lat-md-conventions` skill. The whole upstream footprint is one import and one call in `initCmd`.
+
+Moving the fork's existing Diátaxis prose into it took `templates/AGENTS.md` off [[fork#The upstream guard#The allowlist]] entirely and returned `templates/skill/SKILL.md` to upstream's exact bytes — the diff got *smaller* while the instruction got stronger. Test spec: [[tests/fork-instructions]].
+
+### Why two markers rather than one section
+
+Upstream's `appendTemplateSection` rewrites the span between its own markers in place, splicing around whatever sits outside them.
+
+A fork block after `%% lat:end %%` is therefore untouched by every upstream re-run, and upstream's block is untouched by every fork re-run. Merging the two into one section would give both writers the same span and make the last one to run the winner.
+
+### Why the skill is a separate file
+
+Upstream writes its `lat-md` skill with `writeTemplateFile`, which compares a hash of the **whole** file against the one recorded at write time.
+
+Appending to that file changes the whole-file hash, so every later `lat init` would report the skill as user-modified and stop to ask. A second skill directory has no such coupling. It also earns its keep: `lat-md` is upstream's authoring syntax, `lat-md-conventions` is what `lat check` fails on here.
+
+### What the template demands
+
+Three rules, each written because an agent was observed to miss it.
+
+Every document goes in a Diátaxis mode directory, and a document that would fail its mode is two documents rather than one softened one. Every project carries at least one `@lat:` ref, starting at the application entrypoint and pointing at the root index. An `@lat:` pointer is a machine directive and is exempt from any project convention that minimises comments — and the marker is a comment syntax, not a language allowlist, so no example list should be read as an exclusion.
+
+## The Diátaxis gate
+
+`lat init` scaffolds the four mode directories into a fresh `lat.md/` and stamps [[markdown#Frontmatter#require-mode]] into the root index, so a project set up after this existed cannot quietly place its documents where no shape rule reaches them.
+
+[[cli#check#mode]] binds only inside `tutorials/`, `how-to/`, `reference/` and `explanation/`. A tree whose documents all sit flat at the top therefore passes every mode rule by never being subject to one — and an agent asked to document a codebase writes flat files, because upstream's `templates/init/` is one root index and nothing suggests otherwise. A bella-derms session did exactly that, and confirmed on request that its largest document produced 64 errors the moment it was copied into `reference/`.
+
+Two halves, and the order matters. [[src/cli/fork-scaffold.ts#writeForkScaffold]] makes the directories exist, each with an index written to satisfy its own mode, so correct placement is the path of least resistance. The `require-mode` flag then makes flat placement an error rather than an option. Structure without the gate is a suggestion; the gate without structure is an error message with nowhere to point. Test spec: [[tests/fork-scaffold]].
+
+### Why the flag lives in the tree
+
+An opt-in flag in the root index, rather than a CLI flag or an environment variable, is what lets the rule ship without breaking anything.
+
+This repository's own `lat.md/` is eleven flat documents. Gating every tree would fail it on the commit that introduced the gate, and the honest repair — assigning modes and then splitting the documents that fail them — is real restructuring work that has nothing to do with shipping the rule. A flag read from the tree makes adoption a decision each project makes once.
+
+### What the scaffold writes
+
+Four directories, four indexes, and two additions to the root index.
+
+Each mode index is written to the rule it will be checked against rather than to one house style: the tutorial index carries ordered steps and a stated outcome, the how-to index carries ordered steps, the reference index carries no second paragraph. The root index gains the `require-mode` frontmatter and a listing of the four directories — the listing because without it `lat check index` reports four missing entries on a tree `lat init` has just created, which is a poor first impression of a tool whose pitch is that the check passes.
+
+## The code-ref floor
+
+A `lat.md/` tree that holds documents and has no `@lat:` ref pointing into it from anywhere in the codebase fails `lat check`, whatever its frontmatter says.
+
+[[markdown#Frontmatter#require-code-mention]] was the only thing asking for refs, and it is opt-in: an agent setting up a tree can decline to write it and every check still passes. One did, and gave two reasons worth recording because neither was carelessness. It read "Supported comment styles: `//` (JS/TS/Rust/Go/C) and `#` (Python)" as an exclusive list and concluded Ruby was unsupported — the list enumerates comment syntaxes, and [[src/code-refs.ts#scanCodeRefs]] is textual and reads every non-markdown file. And it was optimising for a green check rather than a correct one, so of two paths it took the one that could not fail.
+
+The floor is one ref, not a ratio. A per-document rule would fail this repository, where `dev-process`, `markdown`, `parser`, `website` and everything under `view/` have no incoming ref and are not worse for it — the rule would have to be either wrong here or watered down everywhere. Test spec: [[tests/check-coverage]].
+
+### Why the entrypoint is named in the message rather than checked
+
+Naming the application entrypoint means guessing per framework, and a check that guesses wrong is a check that gets turned off.
+
+`config/application.rb`, `manage.py`, `main.go`, `src/index.ts`, a Cargo bin target — the right answer differs per project and sometimes per directory. So the gate counts refs and the failure message names the convention, quoting the root index's own H1 so the suggested line can be pasted as-is. A generic placeholder would be pasted verbatim and then fail [[cli#check#code-refs]], turning one error into two.
+
+`~/plebtech/sway` arrived at the same convention by hand before any of this existed: `config/application.rb` and `app/frontend/entrypoints/application.tsx` each carry a ref to the root index, one per entrypoint.
+
+### Why the message argues rather than instructs
+
+Two of the three paragraphs in the failure exist to answer an objection the reader already holds.
+
+An agent working in a repository whose convention is that comments are untrusted input — subtractive, budgeted, justified — is right about prose comments and will apply that rule here unless told the boundary. So the message says what an `@lat:` line is: a machine directive in the same class as `# frozen_string_literal:` or `// eslint-disable`, carrying no rationale and unable to rot quietly, because `lat check` fails the moment its target moves. The other paragraph corrects the language-allowlist reading directly, at the moment it matters.
+
 ## Turning a workflow off without editing it
 
 Whether a GitHub Actions workflow runs is repository **state**, not file content, so a workflow can be disabled without appearing in the diff at all.
@@ -214,6 +284,8 @@ Both serve the same build.
 mise settings add minimum_release_age_excludes npm:@plebeiantech/lat.md
 mise use -g npm:@plebeiantech/lat.md@latest
 ```
+
+The `settings add` line is not optional. mise's `minimum_release_age` quarantines packages published within the last few days, and a fork release is always inside that window — so without the waiver mise filters out every candidate version and fails with `no versions found for npm:@plebeiantech/lat.md matching date filter`, which reads as if the package does not exist. Pinning an older version does not help; they are all too new. The waiver is permanent by necessity, and waiving an age check on a package you publish yourself is what the setting is for.
 
 ```
 npm i -g --prefix ~/.local/lat https://github.com/PlebeianTech/lat.md/releases/latest/download/lat.md-latest.tgz

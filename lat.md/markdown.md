@@ -134,6 +134,19 @@ Once a mode applies (declared or inferred), [[cli#check#mode]] enforces content 
 
 An unknown `mode` value is always an error, regardless of directory.
 
+### require-mode
+
+Set on the **root index only**. When `true`, every document in the tree that is neither a directory index nor covered by [[markdown#Frontmatter#mode]] — by declaration or by sitting in a mode directory — is a [[cli#check#mode]] error.
+
+```yaml
+---
+lat:
+  require-mode: true
+---
+```
+
+The flag is opt-in and lives in the tree rather than in a CLI flag or an environment variable, because the rule belongs to a documentation set and a tree that predates it has to keep passing. [[cli#init]] stamps it into the root index it scaffolds, so a project set up after this existed is gated from its first commit. See [[fork#The Diátaxis gate]].
+
 ### status
 
 Records who last vouches for a document's prose: whether a person has read and checked it, or an agent produced it and no one has reviewed it since.

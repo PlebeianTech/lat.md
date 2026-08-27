@@ -17,6 +17,7 @@ import { scanCodeRefs } from '../code-refs.js';
 import { checkMode } from './check-mode.js';
 import { checkStatus } from './check-status.js';
 import { checkFrontmatter } from './check-frontmatter.js';
+import { checkCoverage } from './check-coverage.js';
 import { indexEntryNameFromDest } from './link-scheme.js';
 import { fencedLineMask } from './gen-index.js';
 import { SOURCE_EXTENSIONS, clearSymbolCache } from '../source-parser.js';
@@ -824,6 +825,7 @@ export async function checkAllCommand(
   const modeErrors = await checkMode(ctx.latDir, ctx.projectRoot);
   const statusErrors = await checkStatus(ctx.latDir, ctx.projectRoot);
   const fmErrors = await checkFrontmatter(ctx.latDir, ctx.projectRoot);
+  const coverageErrors = await checkCoverage(ctx.latDir, ctx.projectRoot);
   const elapsed = Date.now() - startTime;
 
   const allErrors = [...md.errors, ...linkErrors, ...code.errors];
@@ -871,6 +873,7 @@ export async function checkAllCommand(
   lines.push(...formatCheckErrors(modeErrors, s));
   lines.push(...formatCheckErrors(statusErrors, s));
   lines.push(...formatCheckErrors(fmErrors, s));
+  lines.push(...formatCheckErrors(coverageErrors, s));
 
   const totalErrors =
     allErrors.length +
@@ -878,7 +881,8 @@ export async function checkAllCommand(
     sectionErrors.length +
     modeErrors.length +
     statusErrors.length +
-    fmErrors.length;
+    fmErrors.length +
+    coverageErrors.length;
   if (totalErrors > 0) {
     lines.push(formatErrorCount(totalErrors, s));
     return { output: lines.join('\n'), isError: true };

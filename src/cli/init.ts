@@ -33,6 +33,8 @@ import {
 import { getLocalVersion, fetchLatestVersion } from '../version.js';
 import { selectMenu, type SelectOption } from './select-menu.js';
 import { checklistMenu } from './checklist-menu.js';
+import { writeForkInstructions } from './fork-instructions.js';
+import { writeForkScaffold } from './fork-scaffold.js';
 
 async function confirm(
   rl: ReturnType<typeof createInterface>,
@@ -1420,6 +1422,7 @@ export async function initCmd(targetDir?: string): Promise<void> {
       mkdirSync(latDir, { recursive: true });
       cpSync(templateDir, latDir, { recursive: true });
       console.log(styleText('green', 'Created lat.md/'));
+      writeForkScaffold(latDir);
     }
 
     // Step 2: Configure fresh/outdated setups, ask interactive users about an
@@ -1564,6 +1567,8 @@ export async function initCmd(targetDir?: string): Promise<void> {
       console.log(styleText('bold', 'Setting up Codex...'));
       await setupCodex(root, latDir, fileHashes, ask, commandStyle);
     }
+
+    await writeForkInstructions(root, latDir, fileHashes, ask);
 
     // Record init version and file hashes so `lat check` can detect stale setups
     writeInitMeta(latDir, fileHashes);

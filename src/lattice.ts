@@ -64,6 +64,7 @@ export type MdLink =
 export const LAT_FIELDS = [
   'require-code-mention',
   'mode',
+  'require-mode',
   'status',
   'reviewed-hash',
   'tags',

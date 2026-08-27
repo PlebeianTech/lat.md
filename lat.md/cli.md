@@ -97,6 +97,8 @@ Two validations:
 1. Every `// @lat: [[...]]` or `# @lat: [[...]]` comment in source code must point to a real section in `lat.md/`
 2. For files with [[markdown#Frontmatter#require-code-mention]], every leaf section must be referenced by at least one `// @lat:` comment in the codebase
 
+A third validation runs only as part of a full `lat check` and has no subcommand of its own: a tree holding documents that **no** `@lat:` ref anywhere reaches is an error, whatever its frontmatter says. Implementation: [[src/cli/check-coverage.ts#checkCoverage]]. The reasoning is in [[fork#The code-ref floor]].
+
 ### sections
 
 Validate that every section has a well-formed leading paragraph. Two checks:
@@ -141,6 +143,8 @@ Failing open is the whole reason this exists. A misplaced or unparseable `requir
 ### mode
 
 Validate the `mode` field under a document's `lat:` frontmatter against the Diátaxis mode content rules. See [[markdown#Frontmatter#mode]] for the field itself. Implementation: [[src/cli/check-mode.ts]].
+
+When the root index sets [[markdown#Frontmatter#require-mode]], the same check also reports any document that declares no mode and sits in no mode directory. Without that flag a flat document is simply unchecked, which is how a tree can pass while none of its content has ever been measured against a mode rule.
 
 ### status
 

@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { dirname, relative } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 import type { Heading, List, Paragraph, Root, RootContent } from 'mdast';
 import { listLatticeFiles, parseFrontmatter } from '../lattice.js';
 import { parse } from '../parser.js';
@@ -203,12 +203,42 @@ function findImperativeHits(
   return hits;
 }
 
+/**
+ * The index file a directory is required to carry, e.g. `lat.md` for the root
+ * and `reference.md` for `reference/`. An index is navigation rather than
+ * content, so the `require-mode` gate below never asks one to declare a mode.
+ */
+export function indexNameFor(dirName: string): string {
+  return dirName.endsWith('.md') ? dirName : dirName + '.md';
+}
+
+/**
+ * Whether the root index turns the mode requirement on.
+ *
+ * Opt-in, and deliberately read from the tree rather than from a flag or an
+ * environment variable: the rule belongs to a documentation set, not to a
+ * machine or a CI job, and a tree that predates the rule has to keep passing.
+ * `lat init` stamps the flag into the root index it scaffolds, so a project
+ * set up after this exists is gated from its first commit while an older one
+ * is untouched until someone adds the line.
+ */
+async function requireModeEnabled(latticeDir: string): Promise<boolean> {
+  const indexPath = join(latticeDir, indexNameFor(basename(latticeDir)));
+  try {
+    const content = await readFile(indexPath, 'utf-8');
+    return parseFrontmatter(content).raw['require-mode'] === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function checkMode(
   latticeDir: string,
   projectRoot = dirname(latticeDir),
 ): Promise<CheckError[]> {
   const files = await listLatticeFiles(latticeDir);
   const errors: CheckError[] = [];
+  const requireMode = await requireModeEnabled(latticeDir);
 
   for (const file of files) {
     const content = await readFile(file, 'utf-8');
@@ -277,7 +307,23 @@ export async function checkMode(
     }
 
     const mode = (declared ?? dirMode) as DiataxisMode | undefined;
-    if (mode === undefined) continue;
+    if (mode === undefined) {
+      const segments = relFromLattice.split('/');
+      const fileName = segments.pop()!;
+      const holder =
+        segments.length === 0 ? basename(latticeDir) : segments.at(-1)!;
+      const isIndex = fileName === indexNameFor(holder);
+      if (requireMode && !isIndex) {
+        errors.push({
+          file: relPath,
+          line: 1,
+          target,
+          message:
+            'document declares no Diátaxis mode and is not in a mode directory — move it under lat.md/tutorials/, lat.md/how-to/, lat.md/reference/ or lat.md/explanation/, or declare one under its `lat:` frontmatter.\n    A document that would fail its mode is usually two documents: the lookup half belongs in reference/, the reasoning half in explanation/.\n    (The root index sets require-mode: true. Remove that line to turn this off.)',
+        });
+      }
+      continue;
+    }
 
     const tree = parse(content);
 
