@@ -67,9 +67,13 @@ Windows is not in the `ci.yml` matrix. The POSIX-path and `eol=lf` conventions i
 Before editing anything, resolve whether upstream owns it. The question is asked at the sync point, not at the original fork point, so a file upstream added later still answers `UPSTREAM`.
 
 ```
-SYNC=$(grep -v '^#' fork-upstream-sync-point | head -1)
+SYNC=$(awk 'NF && $1 !~ /^#/ {print $1; exit}' fork-upstream-sync-point)
 git cat-file -e "$SYNC:<path>" && echo UPSTREAM || echo fork-owned
 ```
+
+The `NF` guard matters: the recorded revision sits below a blank line, so a
+plain `grep -v '^#' | head -1` selects the blank and silently answers the
+wrong question. `parseSyncPoint` skips blanks for the same reason.
 
 ## The upstream guard
 

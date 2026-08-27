@@ -251,19 +251,26 @@ describe('upstream guard', () => {
       readFileSync(join(root, SYNC_POINT_FILE), 'utf-8'),
     );
     expect(recorded).toMatch(/^[0-9a-f]{40}$/);
-    expect(hasCommit(root, recorded!)).toBe(true);
 
     // No syncPoint here on purpose: this is the path CI takes, reading the
     // recorded file rather than being handed a revision.
+    //
+    // fetch: true because a workflow that clones at the default depth of 1
+    // does not carry the sync point, and this test must not depend on some
+    // other step in some other workflow having fetched it first — publish.yml
+    // has no such step. fetchSyncPoint only runs when the commit is absent,
+    // so a normal checkout touches the network not at all.
     const result = runGuard({
       repo: root,
       allowlistFile: ALLOWLIST_FILE,
       regenerate: false,
-      fetch: false,
+      fetch: true,
     });
 
+    expect(result.report).not.toContain('is not in this repository');
     expect(result.findings).toEqual([]);
     expect(result.ok).toBe(true);
+    expect(hasCommit(root, recorded!)).toBe(true);
   });
 });
 
