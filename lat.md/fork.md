@@ -166,6 +166,20 @@ A **name collided**. Upstream added `lat.md/view/graph.md` while the fork alread
 
 Neither is visible to the upstream guard, which reads paths rather than contents. The suite and `lat check` are what close that gap, which is why step 6 runs the whole tree rather than the files the merge touched.
 
+## Watching the drift
+
+A weekly workflow fetches upstream, trial-merges it, and reports what it finds, so the cost of the next merge is a standing number rather than a surprise.
+
+```
+pnpm exec tsx src/fork/upstream-drift-cli.ts
+```
+
+It reports how far upstream has moved past the sync point, which files it touched, which files **both** sides changed, and whether `git merge-tree` finds a textual conflict. The both-sides list is the leading indicator: those are the files the next conflict will come from, even in a week when the merge is clean.
+
+The workflow then merges for real in the runner's checkout and runs `pnpm typecheck` and `lat check` on the result, because [[fork#Merging upstream#What a clean merge still breaks]] is not visible to `git merge-tree`. It never pushes and never writes to any remote — the upstream fetch is read-only, and nothing is posted to a repository this project does not own.
+
+`--fail-on-conflict` turns the report into a gate. It is off by default: a conflict with upstream is information, not a broken build.
+
 ## Publishing
 
 The fork publishes **`@plebeiantech/lat.md`** to public npm and attaches the same tarball to a GitHub Release. It never publishes under the name `lat.md`, which is upstream's.

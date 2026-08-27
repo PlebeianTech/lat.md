@@ -1,0 +1,70 @@
+# Fork-owned. Upstream has no equivalent workflow.
+#
+# Read-only against vercel-labs/lat.md: it fetches, and never pushes,
+# comments, or opens anything on a repository this project does not own.
+#
+# Deliberately not a `@lat:` pointer — walk.ts excludes every path starting
+# with `.`, so a ref here would never be scanned and would rot silently.
+# The rationale lives in lat.md/fork.md under "Watching the drift".
+name: Upstream drift
+
+on:
+  schedule:
+    - cron: '17 7 * * 1'
+  workflow_dispatch:
+    inputs:
+      fail-on-conflict:
+        description: Fail the run when the merge would conflict
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The trial merge needs real history; the default depth of 1 has none.
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Report the drift
+        run: |
+          pnpm exec tsx src/fork/upstream-drift-cli.ts \
+            ${{ inputs.fail-on-conflict && '--fail-on-conflict' || '' }} \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # git merge-tree only answers whether the text merges. Two additions can
+      # collide in the knowledge graph, and an upstream type can widen under a
+      # fork-owned test, with no conflict either time. Both need the real tree.
+      - name: Merge for real, then check the result
+        run: |
+          git config user.name 'upstream-drift'
+          git config user.email 'upstream-drift@users.noreply.github.com'
+          if ! git merge --no-edit refs/remotes/upstream/main; then
+            echo '## Merge conflicts — stopping here' >> "$GITHUB_STEP_SUMMARY"
+            git merge --abort
+            exit 0
+          fi
+          pnpm install --no-frozen-lockfile
+          {
+            pnpm typecheck \
+              && echo '- typecheck: pass' >> "$GITHUB_STEP_SUMMARY" \
+              || echo '- typecheck: **FAIL**' >> "$GITHUB_STEP_SUMMARY"
+          }
+          pnpm exec tsc || true
+          {
+            node dist/src/cli/index.js check \
+              && echo '- lat check: pass' >> "$GITHUB_STEP_SUMMARY" \
+              || echo '- lat check: **FAIL**' >> "$GITHUB_STEP_SUMMARY"
+          }
