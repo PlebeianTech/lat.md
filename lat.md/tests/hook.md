@@ -70,9 +70,13 @@ When init runs from a local compiled JavaScript entry point, generated hook comm
 
 Without this, `lat check` fails on the command line while the Stop hook calls the same tree clean and ends the session with the post-task checklist reported as complete.
 
+Tested in `tests/hook-stop-mode.test.ts`.
+
 ## Parses the lat.md tree once per prompt (lat-t1y.23)
 
 `UserPromptSubmit` handling needs the parsed tree for both [[cli#expand]] and [[cli#search]] federation lookups. Threading a preloaded-sections parameter through both call sites avoids walking and parsing the tree twice per prompt.
+
+Tested in `tests/preloaded-sections.test.ts`.
 
 ### expandPrompt uses preloaded sections instead of re-parsing the tree
 

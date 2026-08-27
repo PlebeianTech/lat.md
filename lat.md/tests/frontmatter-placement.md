@@ -8,7 +8,7 @@ Tests for `parseFrontmatter`'s validation of known `lat` fields written at the d
 
 A field written at the document root was silently accepted by the regex-based frontmatter reader that lat-t1y.1 replaced. The stricter parser stops reading it, and because the field most often placed there turns a validation on, the failure is silent and fails open — the tree behaves as if the field were never set.
 
-Tests in `tests/lattice.test.ts` (`parseFrontmatter`) and `tests/lattice.test.ts` (`checkFrontmatter`).
+Tests in `tests/frontmatter.test.ts`, covering both `parseFrontmatter` and `checkFrontmatter`.
 
 ## parseFrontmatter reports misplaced fields
 
