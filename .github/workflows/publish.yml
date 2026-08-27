@@ -69,7 +69,12 @@ jobs:
             fi
           else
             # workflow_dispatch: no tag in the ref, so v$VER is fetched instead.
-            git fetch --depth=1 origin "refs/tags/v$VER:refs/tags/v$VER" 2>/dev/null || true
+            # Deliberately not --depth=1. A shallow fetch writes .git/shallow
+            # and grafts history at the fetched commit, which is HEAD here — so
+            # every `git describe` in the notes step below dies with "Not a
+            # valid object name" and the release ships with no commit range and
+            # no diff link. `fetch-depth: 0` above already paid for the history.
+            git fetch --no-tags origin "refs/tags/v$VER:refs/tags/v$VER" 2>/dev/null || true
             if TAGGED=$(git rev-parse -q --verify "refs/tags/v$VER^{commit}" 2>/dev/null); then
               if [ "$TAGGED" != "$(git rev-parse HEAD)" ]; then
                 echo "Tag v$VER points at $TAGGED, but this run is building $(git rev-parse HEAD)." >&2
@@ -118,8 +123,11 @@ jobs:
           PREV=$(git describe --first-parent --tags --abbrev=0 --match 'v*-fork.*' "v${VER}^" 2>/dev/null \
             || git describe --first-parent --tags --abbrev=0 --match 'v*-fork.*' HEAD^ 2>/dev/null \
             || true)
+          # $GITHUB_SHA rather than HEAD: this string ends up in a compare URL
+          # that outlives the run, and HEAD there resolves to whatever the
+          # default branch tip happens to be when someone clicks it.
           RANGE_END="v${VER}"
-          git rev-parse -q --verify "refs/tags/v${VER}^{commit}" >/dev/null 2>&1 || RANGE_END=HEAD
+          git rev-parse -q --verify "refs/tags/v${VER}^{commit}" >/dev/null 2>&1 || RANGE_END="${GITHUB_SHA}"
           {
             if [ -f "$NOTES_FILE" ]; then
               cat "$NOTES_FILE"
@@ -178,7 +186,13 @@ jobs:
             gh release upload "v$VER" release/*.tgz --clobber
             gh release edit "v$VER" --notes-file release-notes.md
           else
+            # --target pins the tag to the commit this run built, tested and
+            # packed. Without it gh creates the tag at the default branch tip,
+            # which on a workflow_dispatch run made before the tag exists is
+            # whatever landed on main since — a tag that disagrees with its own
+            # artifact, and a name too taken to push the real one over.
             gh release create "v$VER" release/*.tgz \
+              --target "$GITHUB_SHA" \
               --title "v$VER" \
               --notes-file release-notes.md
           fi

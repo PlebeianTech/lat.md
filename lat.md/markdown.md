@@ -147,6 +147,8 @@ lat:
 
 The flag is opt-in and lives in the tree rather than in a CLI flag or an environment variable, because the rule belongs to a documentation set and a tree that predates it has to keep passing. [[cli#init]] stamps it into the root index it scaffolds, so a project set up after this existed is gated from its first commit. See [[fork#The Diátaxis gate]].
 
+Only `true` and `false` are accepted, and `false` is a durable opt-out that [[cli#init]] does not re-offer. Any other value is a [[cli#check#mode]] error rather than a silent off — `yes` and `1` are a string and a number to a YAML 1.2 parser, so a root index that looks gated to its author would otherwise enforce nothing and say nothing.
+
 ### status
 
 Records who last vouches for a document's prose: whether a person has read and checked it, or an agent produced it and no one has reviewed it since.

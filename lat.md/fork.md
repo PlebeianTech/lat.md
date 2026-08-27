@@ -84,11 +84,17 @@ This repository's own `lat.md/` is eleven flat documents. Gating every tree woul
 
 The first version had no such offer, which left the gate unreachable for exactly the projects that needed it: a re-run on an existing project picked up the instruction block and the conventions skill and silently skipped the flag. Restructuring someone's tree unasked is still wrong, so the offer prints how many documents would need a mode, then asks. A refusal is recorded in a fork-owned `lat.md/.cache/lat_fork.json` and never asked again; a run with no TTY prints the frontmatter to paste and records nothing, because the shared `ask` returns true whenever readline is absent and a silent yes is the one answer this must not give.
 
+The count comes from running [[cli#check#mode]] twice, gated and ungated, and reporting the difference — so it is the checker's own number rather than a second copy of its rules, and it excludes documents that are already failing, which cost nothing to adopt. [[src/cli/fork-scaffold.ts#planRequireMode]] decides whether the flag can be written *before* the question is asked, because a yes that cannot be honoured is worse than never offering: asking first once left a tree with four new directories, a rewritten index and no gate, and a message saying nothing could be edited. When the flag cannot land nothing is written, nothing is recorded, and the reason is printed every run until the user fixes it — a defect they can repair is not something to remember, and remembering it is what silenced the recovery.
+
+Only an unparseable root index or a `lat:` key holding a list or a scalar reaches that path now. Everything else merges, because the flag is set through the YAML document API rather than by editing lines: `parseDocument` already knows where the block ends, which indented lines belong to `lat:` rather than to the next key, and whether the value on the `lat:` line is a flow mapping or an anchor. Line surgery had to infer all of it from raw text, and got each one wrong in turn.
+
 ### What the scaffold writes
 
 Four directories, four indexes, and two additions to the root index.
 
 Each mode index is written to the rule it will be checked against rather than to one house style: the tutorial index carries ordered steps and a stated outcome, the how-to index carries ordered steps, the reference index carries no second paragraph. The root index gains the `require-mode` frontmatter and a listing of the four directories — the listing because without it `lat check index` reports four missing entries on a tree `lat init` has just created, which is a poor first impression of a tool whose pitch is that the check passes.
+
+All of it is conditional on the flag landing. [[src/cli/fork-scaffold.ts#writeForkScaffold]] decides that before it writes anything, and writes nothing when the answer is no: four directories with the gate off reads as adopted to [[cli#check#mode]] and passes, and four directories the root index does not list fails [[cli#check#index]] instead. Half-adoption is worse than none in both directions.
 
 ## The code-ref floor
 

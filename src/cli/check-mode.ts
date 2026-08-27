@@ -213,7 +213,7 @@ export function indexNameFor(dirName: string): string {
 }
 
 /**
- * Whether the root index turns the mode requirement on.
+ * What the root index says about the mode requirement.
  *
  * Opt-in, and deliberately read from the tree rather than from a flag or an
  * environment variable: the rule belongs to a documentation set, not to a
@@ -221,24 +221,51 @@ export function indexNameFor(dirName: string): string {
  * `lat init` stamps the flag into the root index it scaffolds, so a project
  * set up after this exists is gated from its first commit while an older one
  * is untouched until someone adds the line.
+ *
+ * The raw value is returned rather than a boolean so the caller can tell an
+ * absent flag from one that was set to something this never reads. `yes` and
+ * `1` are strings to a YAML 1.2 parser, and enforcing nothing on them while
+ * saying nothing about them is how a project ends up believing the gate is on.
  */
-async function requireModeEnabled(latticeDir: string): Promise<boolean> {
+async function readRequireModeFlag(latticeDir: string): Promise<unknown> {
   const indexPath = join(latticeDir, indexNameFor(basename(latticeDir)));
   try {
     const content = await readFile(indexPath, 'utf-8');
-    return parseFrontmatter(content).raw['require-mode'] === true;
+    return parseFrontmatter(content).raw['require-mode'];
   } catch {
-    return false;
+    return undefined;
   }
 }
+
+export type CheckModeOptions = {
+  /**
+   * Enforce as if the root index said this, whatever it actually says. Used to
+   * price adoption — running once each way and taking the difference is what
+   * the offer in `lat init` reports, and it keeps that number defined by this
+   * checker rather than by a second copy of its rules.
+   */
+  requireMode?: boolean;
+};
 
 export async function checkMode(
   latticeDir: string,
   projectRoot = dirname(latticeDir),
+  options: CheckModeOptions = {},
 ): Promise<CheckError[]> {
   const files = await listLatticeFiles(latticeDir);
   const errors: CheckError[] = [];
-  const requireMode = await requireModeEnabled(latticeDir);
+  const flag = await readRequireModeFlag(latticeDir);
+  const requireMode = options.requireMode ?? flag === true;
+
+  if (flag !== undefined && typeof flag !== 'boolean') {
+    const indexPath = join(latticeDir, indexNameFor(basename(latticeDir)));
+    errors.push({
+      file: relative(process.cwd(), indexPath),
+      line: 1,
+      target: toPosix(relative(projectRoot, indexPath)).replace(/\.md$/, ''),
+      message: `require-mode is ${JSON.stringify(flag)} — it must be true or false.\n    Anything else is enforced as off, so the gate this line looks like it turns on is not running.`,
+    });
+  }
 
   for (const file of files) {
     const content = await readFile(file, 'utf-8');

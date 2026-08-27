@@ -14,7 +14,8 @@ import { parseFrontmatter } from '../src/lattice.js';
 import {
   listModeDirs,
   offerRequireMode,
-  requireModeSet,
+  planRequireMode,
+  requireModeState,
   stampRequireMode,
   writeForkScaffold,
 } from '../src/cli/fork-scaffold.js';
@@ -69,65 +70,152 @@ describe('fork Diátaxis scaffold', () => {
   });
 
   // @lat: [[tests/fork-scaffold#Fork Scaffold#The flag merges into frontmatter that already exists]]
-  it('merges into every frontmatter shape it can edit safely', () => {
-    // A `lat:` mapping already there — insert a sibling, keeping its keys.
+  it('merges into every frontmatter shape that can hold a mapping key', () => {
+    // A `lat:` mapping already there — add a sibling, keep its keys.
     expect(stampRequireMode('---\nlat:\n  tags: [x]\n---\n\nLead.\n')).toBe(
-      '---\nlat:\n  require-mode: true\n  tags: [x]\n---\n\nLead.\n',
+      '---\nlat:\n  tags: [x]\n  require-mode: true\n---\n\nLead.\n',
     );
-
-    // Siblings must share indentation, so take it from the existing child.
-    expect(
-      stampRequireMode('---\nlat:\n    tags: [x]\n---\n\nLead.\n'),
-    ).toBe('---\nlat:\n    require-mode: true\n    tags: [x]\n---\n\nLead.\n');
 
     // Frontmatter with no `lat:` key at all — add the mapping.
     expect(stampRequireMode('---\ntitle: X\n---\n\nLead.\n')).toBe(
       '---\ntitle: X\nlat:\n  require-mode: true\n---\n\nLead.\n',
     );
 
-    // Already set, in any position — untouched.
-    const set = '---\nlat:\n  require-mode: false\n---\n\nLead.\n';
-    expect(stampRequireMode(set)).toBe(set);
+    // A bare `lat:` beside a sibling list. Line surgery refused this one: its
+    // scan for the mapping's first child walked past the end of the block and
+    // found `- ada`, which belongs to `authors:`.
+    expect(
+      stampRequireMode('---\nlat:\nauthors:\n  - ada\n---\n\nLead.\n'),
+    ).toBe(
+      '---\nlat:\n  require-mode: true\nauthors:\n  - ada\n---\n\nLead.\n',
+    );
+
+    // A flow mapping and an anchor both merge; both used to be refused.
+    expect(stampRequireMode('---\nlat: {tags: [x]}\n---\n\nLead.\n')).toBe(
+      '---\nlat: {tags: [x], require-mode: true}\n---\n\nLead.\n',
+    );
+    expect(stampRequireMode('---\nlat: &a\n  tags: [x]\n---\n\nLead.\n')).toBe(
+      '---\nlat: &a\n  tags: [x]\n  require-mode: true\n---\n\nLead.\n',
+    );
+
+    // Closed with `----`. This is frontmatter to the parser, so it has to be
+    // frontmatter here too — prepending a second block above it orphans every
+    // field the first one declared while leaving it in the file.
+    expect(
+      stampRequireMode('---\nlat:\n  a: 1\n----\n\nLead.\n'),
+    ).toBe('---\nlat:\n  a: 1\n  require-mode: true\n----\n\nLead.\n');
+
+    // Comments survive the round trip.
+    expect(
+      stampRequireMode('---\n# why\nlat:\n  tags: [x] # keep\n---\n\nLead.\n'),
+    ).toContain('# why');
+  });
+
+  // @lat: [[tests/fork-scaffold#Fork Scaffold#An explicit answer is left alone]]
+  it('reads the flag as four states and leaves a decided one alone', () => {
+    const on = '---\nlat:\n  require-mode: true\n---\n\nLead.\n';
+    const off = '---\nlat:\n  require-mode: false\n---\n\nLead.\n';
+    const loose = '---\nlat:\n  require-mode: yes\n---\n\nLead.\n';
+
+    expect(requireModeState(on)).toBe('on');
+    expect(requireModeState(off)).toBe('off');
+    expect(requireModeState(loose)).toBe('invalid');
+    expect(requireModeState('---\nlat:\n  tags: [x]\n---\n')).toBe('unset');
+
+    // `false` is an answer, not an absence, so it is never overwritten.
+    expect(stampRequireMode(off)).toBe(off);
+    // `yes` is a string to a YAML 1.2 parser. Treating it as set would agree
+    // with nothing: `checkMode` enforces on `=== true` and would stay off.
+    expect(planRequireMode(loose).kind).toBe('invalid');
   });
 
   // @lat: [[tests/fork-scaffold#Fork Scaffold#A shape it cannot edit is refused rather than corrupted]]
-  it('refuses every shape it cannot merge into, and never breaks the parse', () => {
+  it('refuses only what cannot hold a key, and never loses a field', () => {
     for (const shape of [
-      '---\nlat: {tags: [x]}\n---\n\nLead.\n', // flow mapping
-      '---\nlat:\n  - a\n  - b\n---\n\nLead.\n', // block sequence
+      '---\nlat:\n  - a\n  - b\n---\n\nLead.\n', // a list takes no key
+      '---\nlat: hello\n---\n\nLead.\n', // nor does a scalar
     ]) {
-      const out = stampRequireMode(shape);
-      expect(out).toBe(shape);
-      expect(requireModeSet(out)).toBe(false);
+      expect(stampRequireMode(shape)).toBe(shape);
+      expect(planRequireMode(shape).kind).toBe('unsupported');
     }
 
-    // The guarantee, independent of which shapes were anticipated: whatever
-    // comes back parses. An unparseable document has every lat: field ignored.
+    // Frontmatter that does not parse is named, not edited: every `lat:` field
+    // on such a document is already being ignored.
+    const tabs = '---\nlat:\n\ttags: x\n---\n\nLead.\n';
+    const plan = planRequireMode(tabs);
+    expect(plan.kind).toBe('unparseable');
+    expect(plan.kind === 'unparseable' && plan.detail).toMatch(/Tabs/);
+
+    // The guarantee, stated independently of which shapes were anticipated:
+    // whatever comes back parses, and every field that was read before is read
+    // back the same afterwards. An edit that sets the gate and drops
+    // `require-code-mention` turns one check on and another silently off.
     for (const shape of [
       '---\nlat: {tags: [x]}\n---\n\nLead.\n',
       '---\nlat:\n  - a\n  - b\n---\n\nLead.\n',
       '---\nlat:\n  tags: [x]\n---\n\nLead.\n',
+      '---\nlat:\n  require-code-mention: true\n----\n\nLead.\n',
+      '---\nlat:\n\ttags: x\n---\n\nLead.\n',
+      '---\nlat: &a\n  tags: [x]\n---\n\nLead.\n',
       '---\ntitle: X\n---\n\nLead.\n',
       'No frontmatter at all.\n',
     ]) {
-      const problems = parseFrontmatter(stampRequireMode(shape)).problems ?? [];
-      expect(problems.filter((p) => p.kind === 'parse-error')).toEqual([]);
+      const before = parseFrontmatter(shape);
+      const after = parseFrontmatter(stampRequireMode(shape));
+      const broke = (fm: typeof before): boolean =>
+        (fm.problems ?? []).some((p) => p.kind === 'parse-error');
+      // Never *introduces* one. A document that already did not parse is left
+      // exactly as it was, and reported rather than edited.
+      expect(broke(after)).toBe(broke(before));
+      for (const [key, value] of Object.entries(before.raw)) {
+        if (key === 'require-mode') continue;
+        expect(after.raw[key]).toEqual(value);
+      }
     }
   });
 
   // @lat: [[tests/fork-scaffold#Fork Scaffold#A root-level flag does not count as set]]
-  it('writes the nested flag even when a root-level one is already there', () => {
+  it('moves a stray root-level flag rather than shadowing it', () => {
     const stray = '---\nrequire-mode: true\n---\n\nLead.\n';
-    expect(requireModeSet(stray)).toBe(false);
+    expect(requireModeState(stray)).toBe('unset');
+    expect(parseFrontmatter(stray).problems).toEqual([
+      { kind: 'root-level-field', field: 'require-mode' },
+    ]);
+
     const out = stampRequireMode(stray);
-    expect(requireModeSet(out)).toBe(true);
-    expect(out).toContain('lat:');
+    expect(requireModeState(out)).toBe('on');
+    // Writing the nested key silences `checkFrontmatter`'s misplacement report
+    // for that field, so leaving the dead key behind would end the one message
+    // that would ever have mentioned it.
+    expect(out).toBe('---\nlat:\n  require-mode: true\n---\n\nLead.\n');
+  });
+
+  // @lat: [[tests/fork-scaffold#Fork Scaffold#Nothing is restructured when the gate cannot land]]
+  it('leaves the tree alone when the gate cannot be written', () => {
+    const { root, latDir } = makeTree();
+    try {
+      const unstampable = '---\nlat:\n  - a\n---\n\n# Bella\n\nLead.\n';
+      writeFileSync(join(latDir, 'lat.md'), unstampable);
+      scaffold(latDir);
+      // Four directories plus a listing but no gate reads as adopted to
+      // `checkMode` and as a broken index to `lat check index`. Neither is
+      // better than doing nothing.
+      expect(readFileSync(join(latDir, 'lat.md'), 'utf-8')).toBe(unstampable);
+      expect(existsSync(join(latDir, 'reference'))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   // @lat: [[tests/fork-scaffold#Fork Scaffold#Existing frontmatter and listings are left alone]]
-  it('does not list the mode directories twice', () => {
+  it('lists the mode directories that are missing and no others', () => {
+    // One already linked: the other three still have to be, or the run leaves
+    // three directories that no index points at and `lat check index` fails.
     const listed = 'Lead.\n\n- [Reference](reference/reference.md) — facts.\n';
-    expect(listModeDirs(listed)).toBe(listed);
+    const filled = listModeDirs(listed);
+    expect(filled).toContain('[Tutorials](tutorials/tutorials.md)');
+    expect(filled.match(/reference\/reference\.md/g)).toHaveLength(1);
+    expect(listModeDirs(filled)).toBe(filled);
     expect(listModeDirs(listModeDirs('Lead.\n'))).toBe(listModeDirs('Lead.\n'));
   });
 
@@ -339,17 +427,40 @@ describe('the offer terminates', () => {
     return { prompts, latDir, root };
   }
 
-  // @lat: [[tests/fork-scaffold#Fork Scaffold#An unsupported shape is asked about once]]
-  it('asks once, then records that the shape cannot be edited', async () => {
-    const { prompts, latDir, root } = await offerOn(
-      '---\nlat: {tags: [x]}\n---\n\n# Bella\n\nRoot index.\n',
-      3,
-    );
+  // @lat: [[tests/fork-scaffold#Fork Scaffold#An unsupported shape is never asked about]]
+  it('never asks about a shape it cannot edit, and changes nothing', async () => {
+    const shape = '---\nlat:\n  - a\n  - b\n---\n\n# Bella\n\nRoot index.\n';
+    const { prompts, latDir, root } = await offerOn(shape, 3);
     try {
-      expect(prompts).toBe(1);
-      expect(
-        JSON.parse(readFileSync(join(latDir, '.cache', 'lat_fork.json'), 'utf-8')),
-      ).toEqual({ require_mode_unsupported: true });
+      // Asked first and refused afterwards, this cost a tree four directories
+      // and a rewritten index in exchange for a gate that never landed — and
+      // then recorded the failure, so the offer never returned.
+      expect(prompts).toBe(0);
+      expect(readFileSync(join(latDir, 'lat.md'), 'utf-8')).toBe(shape);
+      expect(existsSync(join(latDir, 'reference'))).toBe(false);
+      expect(existsSync(join(latDir, '.cache', 'lat_fork.json'))).toBe(false);
+
+      // Nothing was recorded, so repairing the frontmatter is enough: the very
+      // next run offers, which is the only thing that makes the printed advice
+      // worth printing.
+      writeFileSync(
+        join(latDir, 'lat.md'),
+        '---\nlat:\n  tags: [a]\n---\n\n# Bella\n\nRoot index.\n',
+      );
+      let asked = 0;
+      const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        await offerRequireMode(latDir, true, async () => {
+          asked++;
+          return true;
+        });
+      } finally {
+        spy.mockRestore();
+      }
+      expect(asked).toBe(1);
+      expect(requireModeState(readFileSync(join(latDir, 'lat.md'), 'utf-8'))).toBe(
+        'on',
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -363,12 +474,15 @@ describe('the offer terminates', () => {
       '---\nlat:\n    tags: [x]\n---\n\n# Bella\n\nRoot index.\n',
       '---\ntitle: Bella\n---\n\n# Bella\n\nRoot index.\n',
       '---\nrequire-mode: true\n---\n\n# Bella\n\nRoot index.\n',
+      '---\nlat: {tags: [x]}\n---\n\n# Bella\n\nRoot index.\n',
+      '---\nlat: &a\n  tags: [x]\n---\n\n# Bella\n\nRoot index.\n',
+      '---\nlat:\nauthors:\n  - ada\n---\n\n# Bella\n\nRoot index.\n',
     ]) {
       const { prompts, latDir, root } = await offerOn(shape, 3);
       try {
         expect(prompts).toBe(1);
         const index = readFileSync(join(latDir, 'lat.md'), 'utf-8');
-        expect(requireModeSet(index)).toBe(true);
+        expect(requireModeState(index)).toBe('on');
         expect(index.match(/require-mode/g)?.length ?? 0).toBeLessThanOrEqual(2);
       } finally {
         rmSync(root, { recursive: true, force: true });
@@ -376,16 +490,27 @@ describe('the offer terminates', () => {
     }
   });
 
-  // @lat: [[tests/fork-scaffold#Fork Scaffold#An unknown mode counts toward the total]]
-  it('counts a document whose declared mode is not one of the four', async () => {
+  // @lat: [[tests/fork-scaffold#Fork Scaffold#The count is what adoption would newly cost]]
+  it('counts only errors the gate would newly cause', async () => {
     const root = mkdtempSync(join(tmpdir(), 'lat-count-'));
     const latDir = join(root, 'lat.md');
     mkdirSync(latDir, { recursive: true });
+    mkdirSync(join(latDir, 'reference'), { recursive: true });
     writeFileSync(join(latDir, 'lat.md'), '# Bella\n\nRoot index.\n');
     writeFileSync(
-      join(latDir, 'guide.md'),
-      '---\nlat:\n  mode: guide\n---\n\n# Guide\n\nA document.\n',
+      join(latDir, 'reference', 'reference.md'),
+      '# Reference\n\nLookup facts.\n',
     );
+    // Two documents with byte-identical frontmatter, one flat and one inside a
+    // mode directory. Both are already errors, so neither is a cost of
+    // adopting the gate — the hand-rolled count reported one of them and
+    // skipped the other purely on where it sat.
+    const broken = '---\nlat:\n  mode: guide\n---\n\n# G\n\nA document.\n';
+    writeFileSync(join(latDir, 'guide.md'), broken);
+    writeFileSync(join(latDir, 'reference', 'guide.md'), broken);
+    // This one is a cost: fine today, an error once the gate is on.
+    writeFileSync(join(latDir, 'flat.md'), '# Flat\n\nA document.\n');
+
     const logs: string[] = [];
     const spy = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => {
       logs.push(a.join(' '));
@@ -393,8 +518,32 @@ describe('the offer terminates', () => {
     try {
       await offerRequireMode(latDir, true, async () => false);
       expect(logs.join('\n')).toContain('1 document(s) would need a mode');
+      expect(logs.join('\n')).toContain('flat');
+      // Already broken either way, and `lat check` says so with or without it.
+      expect((await checkMode(latDir, root)).length).toBe(2);
     } finally {
       spy.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // @lat: [[tests/fork-scaffold#Fork Scaffold#A flag value that is neither true nor false is reported]]
+  it('reports a require-mode value the checker will not act on', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'lat-flag-'));
+    const latDir = join(root, 'lat.md');
+    mkdirSync(latDir, { recursive: true });
+    writeFileSync(
+      join(latDir, 'lat.md'),
+      '---\nlat:\n  require-mode: yes\n---\n\n# Bella\n\nRoot index.\n',
+    );
+    writeFileSync(join(latDir, 'flat.md'), '# Flat\n\nA document.\n');
+    try {
+      const errors = await checkMode(latDir, root);
+      expect(errors).toHaveLength(1);
+      expect(errors[0].message).toContain('must be true or false');
+      // Enforced as off, which is the half that used to happen in silence.
+      expect(errors[0].message).toContain('not running');
+    } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
