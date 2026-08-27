@@ -1,5 +1,5 @@
 import { basename, extname } from 'node:path';
-import type { Link, Root, RootContent } from 'mdast';
+import type { Link, PhrasingContent, Root, RootContent } from 'mdast';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import type { Options as SanitizeSchema } from 'rehype-sanitize';
 import rehypeSlug from 'rehype-slug';
@@ -12,10 +12,15 @@ import { parse } from '../parser.js';
 
 export type WikiLinkContext = { line: number };
 
+export type WikiLinkResolution = {
+  href: string;
+  referenceCount: number;
+};
+
 export type WikiLinkResolver = (
   target: string,
   context: WikiLinkContext,
-) => string | null | Promise<string | null>;
+) => WikiLinkResolution | null | Promise<WikiLinkResolution | null>;
 
 export type MarkdownRenderOptions = {
   activeMarkdownLink?: string;
@@ -34,6 +39,7 @@ const CODE_LINK_CLASSES = [
   'wiki-link-code',
   'wiki-link-active',
   'code-link-language',
+  'code-link-leading',
   'code-language-ts',
   'code-language-js',
   'code-language-py',
@@ -43,14 +49,25 @@ const CODE_LINK_CLASSES = [
 ];
 
 const ERROR_CLASS = 'markdown-error';
+const EXTERNAL_LINK_CLASS = 'external-link';
+const EXTERNAL_LINK_ICON_CLASS = 'external-link-icon';
 const GIT_CLASSES = ['git-added', 'git-removed'];
 
 function classAttributes(
   tag: string,
 ): NonNullable<SanitizeSchema['attributes']>[string] {
+  const attributes = defaultSchema.attributes?.[tag] ?? [];
+  const allowedClasses = attributes.flatMap((attribute) =>
+    Array.isArray(attribute) && attribute[0] === 'className'
+      ? attribute.slice(1)
+      : [],
+  );
   return [
-    ...(defaultSchema.attributes?.[tag] ?? []),
-    ['className', ERROR_CLASS, ...GIT_CLASSES],
+    ...attributes.filter(
+      (attribute) =>
+        !(Array.isArray(attribute) && attribute[0] === 'className'),
+    ),
+    ['className', ...allowedClasses, ERROR_CLASS, ...GIT_CLASSES],
   ];
 }
 
@@ -70,6 +87,7 @@ const sanitizeSchema: SanitizeSchema = {
         'wiki-link-segmented',
         'wiki-link-code',
         'wiki-link-active',
+        EXTERNAL_LINK_CLASS,
         ERROR_CLASS,
         ...GIT_CLASSES,
       ],
@@ -87,20 +105,25 @@ const sanitizeSchema: SanitizeSchema = {
     img: classAttributes('img'),
     ins: classAttributes('ins'),
     li: classAttributes('li'),
+    ol: classAttributes('ol'),
     p: classAttributes('p'),
     pre: classAttributes('pre'),
     span: [
       ...(defaultSchema.attributes?.span ?? []),
       'ariaHidden',
+      'ariaLabel',
       [
         'className',
         'wiki-link-context',
         'wiki-link-leaf',
+        'wiki-link-ref-count',
+        EXTERNAL_LINK_ICON_CLASS,
         ...CODE_LINK_CLASSES.slice(2),
         ERROR_CLASS,
         ...GIT_CLASSES,
       ],
     ],
+    ul: classAttributes('ul'),
   },
 };
 
@@ -202,6 +225,69 @@ function languageIcon(language: {
   } as RootContent;
 }
 
+function codeLinkContent(
+  language: { className: string; label: string },
+  children: RootContent[],
+): RootContent[] {
+  const [first, ...rest] = children;
+  if (!first) return [languageIcon(language)];
+
+  let leading = first;
+  let remainder: RootContent | null = null;
+  if (first.type === 'text') {
+    const breakAt = first.value.search(/\s/);
+    if (breakAt > 0) {
+      leading = { ...first, value: first.value.slice(0, breakAt) };
+      remainder = { ...first, value: first.value.slice(breakAt) };
+    }
+  }
+
+  return [
+    {
+      type: 'emphasis',
+      data: {
+        hName: 'span',
+        hProperties: { className: ['code-link-leading'] },
+      },
+      children: [languageIcon(language), leading],
+    } as RootContent,
+    ...(remainder ? [remainder] : []),
+    ...rest,
+  ];
+}
+
+function externalLinkIcon(): PhrasingContent {
+  return {
+    type: 'emphasis',
+    data: {
+      hName: 'span',
+      hProperties: {
+        ariaHidden: 'true',
+        className: [EXTERNAL_LINK_ICON_CLASS],
+      },
+    },
+    children: [],
+  } as PhrasingContent;
+}
+
+function isExternalSiteUrl(url: string): boolean {
+  return /^(?:https?:)?\/\//i.test(url);
+}
+
+function referenceCountBadge(count: number): RootContent {
+  return {
+    type: 'emphasis',
+    data: {
+      hName: 'span',
+      hProperties: {
+        className: ['wiki-link-ref-count'],
+        ariaLabel: `${count} ${count === 1 ? 'reference' : 'references'}`,
+      },
+    },
+    children: [{ type: 'text', value: String(count) }],
+  } as RootContent;
+}
+
 type MarkableNode = RootContent & {
   data?: {
     hName?: string;
@@ -291,33 +377,48 @@ export async function renderMarkdown(
   tree.children = tree.children.filter((node) => node.type !== 'yaml');
   if (options.errors) markMarkdownErrors(tree, options.errors);
 
-  if (options.rewriteMarkdownLink || options.activeMarkdownLink) {
-    visit(tree, 'link', (node: Link) => {
-      const authoredUrl = node.url;
-      if (
-        options.activeMarkdownLink &&
-        authoredUrl === options.activeMarkdownLink
-      ) {
-        node.data = {
-          ...node.data,
-          hProperties: {
-            ...(node.data?.hProperties ?? {}),
-            className: ['wiki-link-active'],
-          },
-        };
-      }
-      if (options.rewriteMarkdownLink) {
-        node.url = options.rewriteMarkdownLink(authoredUrl);
-      }
-    });
-  }
+  visit(tree, 'link', (node: Link) => {
+    const authoredUrl = node.url;
+    if (
+      options.activeMarkdownLink &&
+      authoredUrl === options.activeMarkdownLink
+    ) {
+      node.data = {
+        ...node.data,
+        hProperties: {
+          ...(node.data?.hProperties ?? {}),
+          className: ['wiki-link-active'],
+        },
+      };
+    }
+    if (options.rewriteMarkdownLink) {
+      node.url = options.rewriteMarkdownLink(authoredUrl);
+    }
+    if (!isExternalSiteUrl(node.url)) return;
+
+    const properties = node.data?.hProperties ?? {};
+    const currentClasses = properties.className;
+    const classes = Array.isArray(currentClasses)
+      ? currentClasses.map(String)
+      : currentClasses
+        ? [String(currentClasses)]
+        : [];
+    node.data = {
+      ...node.data,
+      hProperties: {
+        ...properties,
+        className: [...classes, EXTERNAL_LINK_CLASS],
+      },
+    };
+    node.children.push(externalLinkIcon());
+  });
 
   const firstHeading = tree.children.find((node) => node.type === 'heading');
   const title = firstHeading
     ? nodeText(firstHeading)
     : basename(filePath, '.md');
 
-  const resolvedLinks = new Map<WikiLink, string | null>();
+  const resolvedLinks = new Map<WikiLink, WikiLinkResolution | null>();
   if (resolveWikiLink) {
     const wikiLinks: WikiLink[] = [];
     visit(tree, 'wikiLink', (node: WikiLink) => {
@@ -335,11 +436,12 @@ export async function renderMarkdown(
 
   visit(tree, 'wikiLink', (node: WikiLink, index, parent) => {
     if (index === undefined || !parent || !('children' in parent)) return;
-    const href = resolvedLinks.get(node);
+    const resolution = resolvedLinks.get(node);
     const markedProperties = node.data?.hProperties as
       | Record<string, unknown>
       | undefined;
-    if (href) {
+    if (resolution) {
+      const { href, referenceCount } = resolution;
       const content = wikiLinkContent(node);
       const language = href.startsWith('/code/')
         ? codeLanguage(node.value)
@@ -369,9 +471,12 @@ export async function renderMarkdown(
                 },
               }
             : undefined,
-        children: language
-          ? [languageIcon(language), ...content.children]
-          : content.children,
+        children: [
+          ...(language
+            ? codeLinkContent(language, content.children)
+            : content.children),
+          ...(referenceCount > 1 ? [referenceCountBadge(referenceCount)] : []),
+        ],
       } as RootContent;
       return;
     }

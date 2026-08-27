@@ -268,6 +268,12 @@ All setup steps are idempotent — existing configuration is detected and skippe
 
 `.gitignore` entries are only added if the target path is not already tracked in git (`git ls-files`); if tracked, the step prints a warning and skips to avoid a no-op ignore rule.
 
+### Generated instruction ownership
+
+Generated agent instructions and `lat-md` skills direct project-specific documentation into `lat.md/` so it survives setup refreshes.
+
+The `AGENTS.md` and `lat-md` `SKILL.md` templates state that these generated files are owned by lat tooling and may be replaced by a later `lat init`. Agents must record project guidance in `lat.md/` rather than changing generated copies.
+
 ### Marker-based append mode
 
 Shared files use `appendTemplateSection` to preserve user content outside lat's managed section.
@@ -425,7 +431,7 @@ All embedding generation is isolated in the `@lat.md/embed` package, exposed thr
 
 Uses `@libsql/client` in local file mode. Under Node, file URLs load the native `libsql` platform binding, so database handles follow native OS lifetime and locking rules.
 
-Vector search is built into libsql via `F32_BLOB` column type, `libsql_vector_idx` for indexing, and `vector_top_k()` for KNN queries.
+Vector search is built into libsql via `F32_BLOB` column type, `libsql_vector_idx` for indexing, and `vector_top_k()` for KNN queries. Returned candidates retain their exact cosine similarity as a score for downstream consumers.
 
 Single `sections` table holds metadata, content, content hash, and the embedding vector. No separate vector table needed. The `meta` table records the embedding model + dimensions the index was built with ([[src/search/db.ts#getStoredModel]], e.g. `local:minilm-l6-v2:384` or `openai:1536`). This record is authoritative for [[cli#search#Backend selection]] — vectors from different models are not comparable, so a model change never silently rebuilds; [[cli#reindex]] drops (via [[src/search/db.ts#dropSections]]) and rebuilds explicitly.
 
@@ -472,7 +478,7 @@ Rebuilds the embedding index — the single write/rebuild path (`lat search` onl
 Backend selection honors the **durable per-repo preference**: a repo pinned to local rebuilds local
 and ignores `LAT_LLM_KEY` (printing a note when a key is nonetheless set). Flags override: `--local`
 forces the offline model; `--remote` re-resolves from the key (the escape hatch back to hosted, and
-errors if no key is set). A bare run on an *unpinned* repo decides from the environment. This is how
+errors if no key is set). A bare run on an _unpinned_ repo decides from the environment. This is how
 a user migrates — e.g. after removing a key, or when a key is rejected.
 
 If a key is used but rejected, `lat reindex` verifies it with a probe embed first (so an invalid key

@@ -38,10 +38,27 @@ export async function uiCommand(
   ctx: CmdContext,
   options: UiCommandOptions = {},
 ): Promise<CmdResult> {
-  const server = await startViewServer(ctx, options);
+  let server: ViewServer;
+  try {
+    server = await startViewServer(ctx, options);
+  } catch (error) {
+    if (
+      options.port !== undefined &&
+      (error as NodeJS.ErrnoException).code === 'EADDRINUSE'
+    ) {
+      return {
+        isError: true,
+        output: `Port ${options.port} is already in use. Choose another with --port <number>.`,
+      };
+    }
+    throw error;
+  }
   options.onStarted?.(server);
 
-  const lines = [`Viewing lat.md at ${server.url}`];
+  const lines = [
+    `Viewing lat.md at ${server.url}`,
+    'Note: you can use `lat ui build` to build a static version of the UI',
+  ];
   try {
     await (options.openBrowser ?? openBrowser)(server.url);
   } catch (error) {

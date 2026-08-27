@@ -84,7 +84,7 @@ describe('parses the lat.md tree once per prompt (lat-t1y.23)', () => {
     vi.mocked(
       (await import('../src/search/search.js')).searchSections,
     ).mockResolvedValue([
-      { id: featureId, file: '', heading: '', content: '' },
+      { id: featureId, file: '', heading: '', content: '', score: 1 },
     ]);
 
     spy.mockClear();
