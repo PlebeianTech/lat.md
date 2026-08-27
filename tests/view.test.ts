@@ -684,6 +684,9 @@ describe('lat ui', () => {
     );
     expect(styles).toContain('.external-link-icon');
     expect(styles).toContain('-webkit-mask:');
+    expect(styles.match(/\.markdown a\s*\{([^}]*)\}/)?.[1]).toContain(
+      'text-decoration-line: underline;',
+    );
   });
 
   // @lat: [[lat.md/view/specs#View Tests#Shows a local table of contents]]
@@ -845,6 +848,27 @@ describe('lat ui', () => {
     );
     expect(styles).not.toContain('order: -1');
     expect(styles).toContain('min-height: 44px');
+    expect(styles).toMatch(
+      /@media \(max-width: 1340px\)[\s\S]*?\.document-layout \{[\s\S]*?align-items: stretch;/,
+    );
+    expect(styles).toMatch(
+      /@media \(min-width: 64rem\) and \(max-width: 1340px\)[\s\S]*?grid-template-areas:[\s\S]*?'metadata toc'[\s\S]*?'document document'/,
+    );
+    expect(styles).toMatch(
+      /@media \(min-width: 64rem\) and \(max-width: 1340px\)[\s\S]*?\.sidebar-header \{[\s\S]*?min-height: 42px;[\s\S]*?\.document-toc-toggle \{[\s\S]*?min-height: 42px;/,
+    );
+    expect(styles).toMatch(
+      /@media \(min-width: 64rem\) and \(max-width: 1340px\)[\s\S]*?\.document-toc-list \{[\s\S]*?position: absolute;[\s\S]*?top: 100%;/,
+    );
+    expect(styles).toMatch(
+      /@media \(min-width: 64rem\) and \(max-width: 1340px\)[\s\S]*?\.document-toc \{[^}]*position: relative;[^}]*top: 0;/,
+    );
+    expect(styles).toMatch(
+      /@media \(min-width: 64rem\) and \(max-width: 1340px\)[\s\S]*?\.document-toc-states \{[^}]*padding-right: 14px;/,
+    );
+    expect(styles).toMatch(
+      /@media \(width < 64rem\)[\s\S]*?\.document-toc-toggle \{[\s\S]*?border-top: 0;/,
+    );
   });
 
   // @lat: [[lat.md/view/specs#View Tests#Exposes code-mention frontmatter as metadata]]
@@ -904,10 +928,18 @@ describe('lat ui', () => {
       join(import.meta.dirname, '..', 'view', 'src', 'styles.css'),
       'utf8',
     );
-    const leadingRule = styles.match(/\.code-link-leading\s*\{([^}]*)\}/)?.[1];
+    const leadingRule = styles.match(
+      /^\.code-link-leading\s*\{([^}]*)\}/m,
+    )?.[1];
     expect(leadingRule).toContain('display: inline-flex;');
     expect(leadingRule).toContain('align-items: baseline;');
     expect(leadingRule).toContain('white-space: nowrap;');
+    expect(styles).toContain(
+      'a.wiki-link-segmented .wiki-link-context,\na.wiki-link-segmented .wiki-link-leaf,',
+    );
+    expect(styles).toContain(
+      'a.wiki-link-code:not(.wiki-link-segmented) .code-link-leading',
+    );
 
     for (const referenceCount of [0, 1]) {
       const sparseReferences = await renderMarkdown(
