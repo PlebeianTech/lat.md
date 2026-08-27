@@ -106,7 +106,20 @@ jobs:
       - name: Write the release notes
         run: |
           NOTES_FILE=".github/release-notes/v${VER}.md"
-          PREV=$(git describe --tags --abbrev=0 "v${VER}^" 2>/dev/null || true)
+          # --match pins this to the fork's own tag line. Upstream's v0.12.x
+          # tags are not on origin today, so a fresh clone cannot see them —
+          # but `git fetch upstream` brings them into any local checkout, and
+          # one `git push --tags` would put them where this runs. --first-parent
+          # keeps a merged side branch from supplying a nearer tag.
+          #
+          # HEAD^ is the fallback for a workflow_dispatch run made before the
+          # tag exists, which the version check above explicitly allows; without
+          # it those notes claim "First release of the fork".
+          PREV=$(git describe --first-parent --tags --abbrev=0 --match 'v*-fork.*' "v${VER}^" 2>/dev/null \
+            || git describe --first-parent --tags --abbrev=0 --match 'v*-fork.*' HEAD^ 2>/dev/null \
+            || true)
+          RANGE_END="v${VER}"
+          git rev-parse -q --verify "refs/tags/v${VER}^{commit}" >/dev/null 2>&1 || RANGE_END=HEAD
           {
             if [ -f "$NOTES_FILE" ]; then
               cat "$NOTES_FILE"
@@ -114,7 +127,7 @@ jobs:
               echo "## What changed"
               echo
               if [ -n "$PREV" ]; then
-                git log --no-merges --pretty='- %s' "${PREV}..v${VER}" \
+                git log --no-merges --pretty='- %s' "${PREV}..${RANGE_END}" \
                   | grep -v '^- Bump to ' || echo "- No commits since ${PREV}."
               else
                 echo "- First release of the fork."
@@ -122,7 +135,7 @@ jobs:
             fi
             echo
             if [ -n "$PREV" ]; then
-              echo "[Full diff](https://github.com/${GITHUB_REPOSITORY}/compare/${PREV}...v${VER})"
+              echo "[Full diff](https://github.com/${GITHUB_REPOSITORY}/compare/${PREV}...${RANGE_END})"
               echo
             fi
             echo "---"

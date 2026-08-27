@@ -27,11 +27,17 @@ A `lat:` mapping gains `require-mode` as a sibling at the indentation its existi
 
 Bailing on any existing frontmatter — the first version — produced a silent no-op. A root index carrying `lat: tags: [...]` could never opt in, and `lat init` re-offered on every run because the flag it thought it had written was not there. The indentation case matters for the same reason: two-space children under a four-space mapping is a YAML error, not a formatting quibble.
 
-## A flow mapping is refused rather than corrupted
+## A shape it cannot edit is refused rather than corrupted
 
-`lat: {tags: [x]}` on one line is returned unchanged, because a line-based insert would break it.
+`lat: {tags: [x]}` on one line and `lat:` holding a block sequence are both returned unchanged, and every shape — refused or merged — comes back parsing.
 
-The caller checks whether the flag actually landed and prints the manual edit when it did not, so the refusal is visible rather than a loop.
+The block sequence is the case that made the last check necessary rather than decorative: inserting a mapping key above `- a` yields "a block sequence may not be used as an implicit map key", and the file was written before anything noticed. An unparseable document has *every* `lat:` field ignored, so a bad merge does not merely fail to set the flag; it turns off every check that document had already opted into. The shape tests name the failures anticipated; the parse assertion covers the ones that were not.
+
+## A root-level flag does not count as set
+
+`require-mode: true` written at the document root leaves [[src/cli/fork-scaffold.ts#requireModeSet]] false, and stamping adds the nested field rather than treating the stray one as the answer.
+
+Reading the raw frontmatter text instead of the parsed `lat:` mapping made this shape permanently unwritable — the stamp saw a match and bailed, the verification saw none, and `lat init` asked again forever. The stray root-level key is left where it is; [[cli#check#Frontmatter placement]] already reports it precisely.
 
 ## Existing frontmatter and listings are left alone
 
@@ -83,3 +89,18 @@ A prompt with no terminal to answer it would be taken as a yes by the caller's `
 
 A root index that already declares `require-mode`, whatever its value, produces no output at all.
 
+## An unsupported shape is asked about once
+
+A root index whose frontmatter cannot be edited is offered once, then recorded as `require_mode_unsupported` and never raised again.
+
+Reporting without recording is the same endless prompt as the bug above, reached from the other side. The two markers are kept apart because they mean different things: one is an answer, the other is a shape.
+
+## Every editable shape is asked about once
+
+Each of the five mergeable root-index shapes prompts exactly once over three runs and ends with the flag readable through the `lat:` mapping.
+
+## An unknown mode counts toward the total
+
+A document declaring `mode: guide` is included in the count of documents needing a mode.
+
+[[cli#check#mode]] errors on an unrecognised mode exactly as it does on none at all, and the count is the number the adoption decision is made on — advertising a document as settled and then failing it is worse than counting it.

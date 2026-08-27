@@ -10,6 +10,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkMode } from '../src/cli/check-mode.js';
+import { parseFrontmatter } from '../src/lattice.js';
 import {
   listModeDirs,
   offerRequireMode,
@@ -89,11 +90,38 @@ describe('fork Diátaxis scaffold', () => {
     expect(stampRequireMode(set)).toBe(set);
   });
 
-  // @lat: [[tests/fork-scaffold#Fork Scaffold#A flow mapping is refused rather than corrupted]]
-  it('leaves a flow-mapping lat: key alone', () => {
-    const flow = '---\nlat: {tags: [x]}\n---\n\nLead.\n';
-    expect(stampRequireMode(flow)).toBe(flow);
-    expect(requireModeSet(flow)).toBe(false);
+  // @lat: [[tests/fork-scaffold#Fork Scaffold#A shape it cannot edit is refused rather than corrupted]]
+  it('refuses every shape it cannot merge into, and never breaks the parse', () => {
+    for (const shape of [
+      '---\nlat: {tags: [x]}\n---\n\nLead.\n', // flow mapping
+      '---\nlat:\n  - a\n  - b\n---\n\nLead.\n', // block sequence
+    ]) {
+      const out = stampRequireMode(shape);
+      expect(out).toBe(shape);
+      expect(requireModeSet(out)).toBe(false);
+    }
+
+    // The guarantee, independent of which shapes were anticipated: whatever
+    // comes back parses. An unparseable document has every lat: field ignored.
+    for (const shape of [
+      '---\nlat: {tags: [x]}\n---\n\nLead.\n',
+      '---\nlat:\n  - a\n  - b\n---\n\nLead.\n',
+      '---\nlat:\n  tags: [x]\n---\n\nLead.\n',
+      '---\ntitle: X\n---\n\nLead.\n',
+      'No frontmatter at all.\n',
+    ]) {
+      const problems = parseFrontmatter(stampRequireMode(shape)).problems ?? [];
+      expect(problems.filter((p) => p.kind === 'parse-error')).toEqual([]);
+    }
+  });
+
+  // @lat: [[tests/fork-scaffold#Fork Scaffold#A root-level flag does not count as set]]
+  it('writes the nested flag even when a root-level one is already there', () => {
+    const stray = '---\nrequire-mode: true\n---\n\nLead.\n';
+    expect(requireModeSet(stray)).toBe(false);
+    const out = stampRequireMode(stray);
+    expect(requireModeSet(out)).toBe(true);
+    expect(out).toContain('lat:');
   });
 
   // @lat: [[tests/fork-scaffold#Fork Scaffold#Existing frontmatter and listings are left alone]]
@@ -281,6 +309,92 @@ describe('adopting the gate in an existing tree', () => {
       scaffold(latDir);
       expect(await offer(latDir, true, true)).toEqual([]);
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('the offer terminates', () => {
+  async function offerOn(
+    rootIndex: string,
+    runs: number,
+  ): Promise<{ prompts: number; latDir: string; root: string }> {
+    const root = mkdtempSync(join(tmpdir(), 'lat-terminate-'));
+    const latDir = join(root, 'lat.md');
+    mkdirSync(latDir, { recursive: true });
+    writeFileSync(join(latDir, 'lat.md'), rootIndex);
+    writeFileSync(join(latDir, 'doc.md'), '# Doc\n\nA document.\n');
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    let prompts = 0;
+    try {
+      for (let i = 0; i < runs; i++) {
+        await offerRequireMode(latDir, true, async () => {
+          prompts++;
+          return true;
+        });
+      }
+    } finally {
+      spy.mockRestore();
+    }
+    return { prompts, latDir, root };
+  }
+
+  // @lat: [[tests/fork-scaffold#Fork Scaffold#An unsupported shape is asked about once]]
+  it('asks once, then records that the shape cannot be edited', async () => {
+    const { prompts, latDir, root } = await offerOn(
+      '---\nlat: {tags: [x]}\n---\n\n# Bella\n\nRoot index.\n',
+      3,
+    );
+    try {
+      expect(prompts).toBe(1);
+      expect(
+        JSON.parse(readFileSync(join(latDir, '.cache', 'lat_fork.json'), 'utf-8')),
+      ).toEqual({ require_mode_unsupported: true });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // @lat: [[tests/fork-scaffold#Fork Scaffold#Every editable shape is asked about once]]
+  it('asks once and lands the flag on every shape it can edit', async () => {
+    for (const shape of [
+      '# Bella\n\nRoot index.\n',
+      '---\nlat:\n  tags: [x]\n---\n\n# Bella\n\nRoot index.\n',
+      '---\nlat:\n    tags: [x]\n---\n\n# Bella\n\nRoot index.\n',
+      '---\ntitle: Bella\n---\n\n# Bella\n\nRoot index.\n',
+      '---\nrequire-mode: true\n---\n\n# Bella\n\nRoot index.\n',
+    ]) {
+      const { prompts, latDir, root } = await offerOn(shape, 3);
+      try {
+        expect(prompts).toBe(1);
+        const index = readFileSync(join(latDir, 'lat.md'), 'utf-8');
+        expect(requireModeSet(index)).toBe(true);
+        expect(index.match(/require-mode/g)?.length ?? 0).toBeLessThanOrEqual(2);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  });
+
+  // @lat: [[tests/fork-scaffold#Fork Scaffold#An unknown mode counts toward the total]]
+  it('counts a document whose declared mode is not one of the four', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'lat-count-'));
+    const latDir = join(root, 'lat.md');
+    mkdirSync(latDir, { recursive: true });
+    writeFileSync(join(latDir, 'lat.md'), '# Bella\n\nRoot index.\n');
+    writeFileSync(
+      join(latDir, 'guide.md'),
+      '---\nlat:\n  mode: guide\n---\n\n# Guide\n\nA document.\n',
+    );
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => {
+      logs.push(a.join(' '));
+    });
+    try {
+      await offerRequireMode(latDir, true, async () => false);
+      expect(logs.join('\n')).toContain('1 document(s) would need a mode');
+    } finally {
+      spy.mockRestore();
       rmSync(root, { recursive: true, force: true });
     }
   });

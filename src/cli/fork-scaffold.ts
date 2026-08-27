@@ -104,9 +104,13 @@ export function stampRequireMode(content: string): string {
     return `---\nlat:\n  require-mode: true\n---\n\n${content.replace(/^\n+/, '')}`;
   }
 
-  const body = fence[1];
-  if (/^\s*require-mode\s*:/m.test(body)) return content;
+  // Asked of the parsed `lat:` mapping, not of the raw text. A regex over the
+  // body also matches a *root-level* `require-mode:`, which upstream ignores —
+  // treating that as "already set" left the flag permanently unwritable and
+  // `lat init` asking about it on every run.
+  if (requireModeSet(content)) return content;
 
+  const body = fence[1];
   const lines = body.split('\n');
   const latAt = lines.findIndex((line) => /^lat\s*:/.test(line));
 
@@ -123,6 +127,9 @@ export function stampRequireMode(content: string): string {
     const child = lines
       .slice(latAt + 1)
       .find((line) => line.trim() !== '' && /^\s/.test(line));
+    // `lat:` holding a block sequence takes no mapping key at all: inserting
+    // one yields "a block sequence may not be used as an implicit map key".
+    if (child && /^\s*-\s/.test(child)) return content;
     const indent = child ? (child.match(/^\s+/)?.[0] ?? '  ') : '  ';
     merged = [
       ...lines.slice(0, latAt + 1),
@@ -131,8 +138,21 @@ export function stampRequireMode(content: string): string {
     ];
   }
 
-  const end = fence[0].length;
-  return `---\n${merged.join('\n')}\n---${fence[2] || '\n'}${content.slice(end)}`;
+  const stamped = `---\n${merged.join('\n')}\n---${fence[2] || '\n'}${content.slice(fence[0].length)}`;
+
+  // Last gate, and the one that matters: never hand back frontmatter that
+  // stopped parsing. Every `lat:` field on an unparseable document is silently
+  // ignored, so a bad merge does not just fail to set the flag — it turns off
+  // every check the document had already opted into. The shape checks above
+  // are the diagnosis; this is the guarantee.
+  //
+  // A pre-existing `root-level-field` problem is not disqualifying: it was
+  // there before, `checkFrontmatter` reports it precisely, and refusing on it
+  // would reinstate the loop this function exists to end.
+  const problems = parseFrontmatter(stamped).problems ?? [];
+  if (problems.some((problem) => problem.kind === 'parse-error'))
+    return content;
+  return requireModeSet(stamped) ? stamped : content;
 }
 
 /** Whether the gate is on, read straight from a root index's frontmatter. */
@@ -209,24 +229,40 @@ function declinePath(latDir: string): string {
   return join(latDir, '.cache', 'lat_fork.json');
 }
 
-function declined(latDir: string): boolean {
+/**
+ * Two reasons to stop offering, kept apart because they mean different things.
+ * `declined` is an answer; `unsupported` is a frontmatter shape this cannot
+ * edit, recorded so the offer does not repeat forever on a flag that will
+ * never land. Both stop the prompt; only the second prints an edit to make.
+ */
+type ForkMeta = {
+  require_mode_declined?: boolean;
+  require_mode_unsupported?: boolean;
+};
+
+function readForkMeta(latDir: string): ForkMeta {
   try {
     const raw: unknown = JSON.parse(readFileSync(declinePath(latDir), 'utf-8'));
-    return (
-      typeof raw === 'object' &&
-      raw !== null &&
-      (raw as Record<string, unknown>)['require_mode_declined'] === true
-    );
+    if (typeof raw === 'object' && raw !== null) return raw as ForkMeta;
   } catch {
-    return false;
+    // Absent or unreadable — nothing has been settled yet.
   }
+  return {};
 }
 
-function recordDecline(latDir: string): void {
+function settled(latDir: string): boolean {
+  const meta = readForkMeta(latDir);
+  return (
+    meta.require_mode_declined === true ||
+    meta.require_mode_unsupported === true
+  );
+}
+
+function recordSettled(latDir: string, key: keyof ForkMeta): void {
   mkdirSync(join(latDir, '.cache'), { recursive: true });
   writeFileSync(
     declinePath(latDir),
-    JSON.stringify({ require_mode_declined: true }, null, 2) + '\n',
+    JSON.stringify({ ...readForkMeta(latDir), [key]: true }, null, 2) + '\n',
   );
 }
 
@@ -245,10 +281,19 @@ async function unmodedDocuments(latDir: string): Promise<string[]> {
     const holder = segments.length === 0 ? basename(latDir) : segments.at(-1)!;
     if (fileName === indexNameFor(holder)) continue;
     if (segments.length > 0 && modeDirs.has(segments[0])) continue;
+    // Only a *valid* mode counts. `checkMode` errors on `mode: guide` exactly
+    // as it does on no mode at all, and this number is what the user decides
+    // on — advertising a document as settled and then failing it is worse than
+    // counting it.
     const declaredMode = parseFrontmatter(readFileSync(file, 'utf-8')).raw[
       'mode'
     ];
-    if (typeof declaredMode === 'string') continue;
+    if (
+      typeof declaredMode === 'string' &&
+      (DIATAXIS_MODES as readonly string[]).includes(declaredMode)
+    ) {
+      continue;
+    }
     offenders.push(rel);
   }
   return offenders;
@@ -275,7 +320,7 @@ export async function offerRequireMode(
   const rootIndex = join(latDir, indexNameFor(basename(latDir)));
   if (!existsSync(rootIndex)) return;
   if (requireModeSet(readFileSync(rootIndex, 'utf-8'))) return;
-  if (declined(latDir)) return;
+  if (settled(latDir)) return;
 
   const offenders = await unmodedDocuments(latDir);
 
@@ -326,7 +371,7 @@ export async function offerRequireMode(
 
   console.log('');
   if (!(await ask('  Turn require-mode on for this project?'))) {
-    recordDecline(latDir);
+    recordSettled(latDir, 'require_mode_declined');
     console.log(
       '  ' +
         styleText('dim', 'Skipped. Add') +
@@ -341,6 +386,10 @@ export async function offerRequireMode(
   // The one frontmatter shape `stampRequireMode` refuses to edit. Saying so
   // beats re-offering forever on a flag that never lands.
   if (!requireModeSet(readFileSync(rootIndex, 'utf-8'))) {
+    // Recorded, not just reported. Re-asking on every run about a flag this
+    // cannot write is the same loop the merge fix removed, arrived at from the
+    // other side.
+    recordSettled(latDir, 'require_mode_unsupported');
     console.log(
       '  ' +
         styleText('yellow', 'Could not edit the frontmatter safely.') +
