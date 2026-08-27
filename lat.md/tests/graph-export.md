@@ -2,7 +2,7 @@
 lat:
   require-code-mention: true
 ---
-# Graph
+# Graph Export
 
 Functional and unit tests for [[cli#graph]] — exporting the knowledge graph and diffing it against git history.
 

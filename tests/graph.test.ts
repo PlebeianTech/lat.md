@@ -71,7 +71,7 @@ function parseDiffOutput(stdout: string): {
 }
 
 describe('graph-basic', () => {
-  // @lat: [[graph#Exports every section and edge as JSON]]
+  // @lat: [[graph-export#Exports every section and edge as JSON]]
   it('exports every section and every edge as JSON', () => {
     const result = runCli(caseDir('graph-basic'), [
       'graph',
@@ -119,7 +119,7 @@ describe('graph-basic', () => {
     expect(containsEdges.length).toBeGreaterThan(0);
   });
 
-  // @lat: [[graph#Every edge endpoint is a real node]]
+  // @lat: [[graph-export#Every edge endpoint is a real node]]
   it('lands every edge on a real node, and every section node on a file', () => {
     const result = runCli(caseDir('graph-basic'), [
       'graph',
@@ -157,7 +157,7 @@ describe('graph-basic', () => {
     );
   });
 
-  // @lat: [[graph#Renders mermaid output]]
+  // @lat: [[graph-export#Renders mermaid output]]
   it('renders mermaid output', () => {
     const result = runCli(caseDir('graph-basic'), [
       'graph',
@@ -169,14 +169,14 @@ describe('graph-basic', () => {
     expect(result.stdout).toContain('-->|');
   });
 
-  // @lat: [[graph#Renders dot output]]
+  // @lat: [[graph-export#Renders dot output]]
   it('renders dot output', () => {
     const result = runCli(caseDir('graph-basic'), ['graph', '--format', 'dot']);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('digraph lat {');
   });
 
-  // @lat: [[graph#Rejects an unknown format]]
+  // @lat: [[graph-export#Rejects an unknown format]]
   it('rejects an unknown format', () => {
     const result = runCli(caseDir('graph-basic'), [
       'graph',
@@ -188,7 +188,7 @@ describe('graph-basic', () => {
 });
 
 describe('graph-untrusted-title', () => {
-  // @lat: [[graph#Untrusted heading survives every format]]
+  // @lat: [[graph-export#Untrusted heading survives every format]]
   it('does not break json, mermaid, or dot output on a quoted heading', () => {
     for (const format of ['json', 'mermaid', 'dot']) {
       const result = runCli(caseDir('graph-untrusted-title'), [
@@ -258,7 +258,7 @@ describe('git history', () => {
     return dir;
   }
 
-  // @lat: [[graph#Reconstructing the graph at a git revision#Differs from the working tree]]
+  // @lat: [[graph-export#Reconstructing the graph at a git revision#Differs from the working tree]]
   it('reconstructs the graph at a revision, differing from the working tree', () => {
     const dir = initRepo();
     try {
@@ -284,7 +284,7 @@ describe('git history', () => {
     }
   });
 
-  // @lat: [[graph#Reconstructing the graph at a git revision#--since names a removed section]]
+  // @lat: [[graph-export#Reconstructing the graph at a git revision#--since names a removed section]]
   it('--since names a section that was deleted', () => {
     const dir = initRepo();
     try {
@@ -299,7 +299,7 @@ describe('git history', () => {
     }
   });
 
-  // @lat: [[graph#Reconstructing the graph at a git revision#--since names a reworded section]]
+  // @lat: [[graph-export#Reconstructing the graph at a git revision#--since names a reworded section]]
   it('--since names a section whose prose was rewritten', () => {
     const dir = initRepo();
     try {
@@ -318,7 +318,7 @@ describe('git history', () => {
     }
   });
 
-  // @lat: [[graph#Reconstructing the graph at a git revision#Non-ASCII paths survive git ls-tree]]
+  // @lat: [[graph-export#Reconstructing the graph at a git revision#Non-ASCII paths survive git ls-tree]]
   it('does not drop a document whose path contains non-ASCII bytes', () => {
     const dir = mkdtempSync(join(tmpdir(), 'lat-graph-utf8-'));
     try {
@@ -352,7 +352,7 @@ describe('git history', () => {
     }
   });
 
-  // @lat: [[graph#Reconstructing the graph at a git revision#Reads a document larger than the default pipe buffer]]
+  // @lat: [[graph-export#Reconstructing the graph at a git revision#Reads a document larger than the default pipe buffer]]
   it('reads a document larger than the default 1 MB exec buffer', () => {
     const dir = mkdtempSync(join(tmpdir(), 'lat-graph-big-'));
     try {
@@ -386,7 +386,7 @@ describe('git history', () => {
 });
 
 describe('graph-export unit', () => {
-  // @lat: [[graph#graph-export unit tests#diffGraphs reports added and removed sections]]
+  // @lat: [[graph-export#graph-export unit tests#diffGraphs reports added and removed sections]]
   it('diffGraphs reports added and removed sections', async () => {
     const before: GraphSourceFile[] = [
       {
@@ -408,7 +408,7 @@ describe('graph-export unit', () => {
     expect(diff.changed).toEqual([]);
   });
 
-  // @lat: [[graph#graph-export unit tests#diffGraphs reports a section whose prose changed]]
+  // @lat: [[graph-export#graph-export unit tests#diffGraphs reports a section whose prose changed]]
   it('diffGraphs reports a section whose prose changed under an unchanged heading', async () => {
     const before: GraphSourceFile[] = [
       {
@@ -431,7 +431,7 @@ describe('graph-export unit', () => {
     expect(diff.changed).toEqual(['section:lat.md/x#X#Claim']);
   });
 
-  // @lat: [[graph#graph-export unit tests#diffGraphs ignores whitespace-only edits]]
+  // @lat: [[graph-export#graph-export unit tests#diffGraphs ignores whitespace-only edits]]
   it('diffGraphs does not report a section whose only edit is trailing whitespace', async () => {
     const before: GraphSourceFile[] = [
       {
@@ -456,7 +456,7 @@ describe('graph-export unit', () => {
     });
   });
 
-  // @lat: [[graph#graph-export unit tests#Formatters succeed on a quoted, control-charred label]]
+  // @lat: [[graph-export#graph-export unit tests#Formatters succeed on a quoted, control-charred label]]
   it('formatters all succeed on a graph with a quoted, control-charred label', async () => {
     const files: GraphSourceFile[] = [
       {

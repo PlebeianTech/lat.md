@@ -25,7 +25,7 @@ Shared patterns for writing and organizing tests in this project.
 - [Diátaxis Mode Check](mode.md) — Tests for \`checkMode\`'s exemption of imperative sentences that appear inside code samples rather than ordinary prose, for \`lat check mode\` \(see \[\[cli#check\]\]\).
 - [Expand](expand.md) — Tests for the \`lat expand\` command that resolves \`\[\[refs\]\]\` and appends context blocks.
 - [Frontmatter Field Placement](frontmatter-placement.md) — Tests for \`parseFrontmatter\`'s validation of known \`lat\` fields written at the document root instead of nested under \`lat:\`, and the \`checkFrontmatter\` check that surfaces it via \`lat check\`.
-- [Graph](graph.md) — Functional and unit tests for \[\[cli#graph\]\] — exporting the knowledge graph and diffing it against git history.
+- [Graph Export](graph-export.md) — Functional and unit tests for \[\[cli#graph\]\] — exporting the knowledge graph and diffing it against git history.
 - [Hook](hook.md) — Functional tests for Claude, Codex, and Cursor lifecycle hooks. Runs hook commands against fixtures and injects a fake \`git\` through PATH to control \`git diff HEAD --numstat\` output.
 - [Init](init.md) — Tests run non-interactive database flows through the built CLI in child processes; TTY-only menu branches use isolated mocks.
 - [Knowledge Session Markers](knowledge-session.md) — Tests for the per-session marker store \(\[\[src/knowledge/session.ts\]\]\) that backs federation dedupe across separate hook processes in the same agent session, and the end-to-end federation flow that depends on it.
