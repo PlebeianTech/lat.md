@@ -1,0 +1,13 @@
+# The last upstream commit merged into this fork.
+#
+# Everything the upstream guard measures is relative to this commit: the
+# diff that reveals what the fork changed, and the tree that decides which
+# paths upstream owns. Advance it in the same commit as every upstream
+# merge, or the guard reads upstream's own churn as fork divergence.
+#
+#   node dist/src/fork/upstream-guard-cli.js --set-sync-point <rev>
+#   node dist/src/fork/upstream-guard-cli.js --regenerate
+#
+# The original fork point was 65d2f5b220853b2b10dca3de18d511f575bc12c7.
+
+03c6b02de1ce40fbded9d30194c75deaa963af1e

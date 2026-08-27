@@ -10,7 +10,7 @@ Every upstream file this fork edits is a merge conflict waiting to happen. A fil
 
 The target shape for anything that must reach upstream code: a new module holding the logic, plus an import and one call line in the upstream file. `src/cli/check-status.ts` and `src/cli/check-frontmatter.ts` are the reference implementations — each is a new file whose entire upstream footprint is an import and one appended line in `checkAllCommand`.
 
-Four rules follow from that, in the order they are worth applying.
+Five rules follow from that, in the order they are worth applying.
 
 ### Never delete an upstream file
 
@@ -29,6 +29,12 @@ When our code calls upstream's, adjust the result in our file rather than editin
 ### Docs are ours, so write our own
 
 Fork-specific documentation belongs in fork-owned files like this one, linked from upstream docs rather than written into them. That keeps an upstream doc's diff to a link.
+
+### Name a new file something upstream would not reach for
+
+Two files added independently never conflict in git and can still collide in the graph, because a short-form `[[name]]` reference resolves by bare filename.
+
+`lat.md/tests/graph.md` and upstream's later `lat.md/view/graph.md` are the worked example — see [[fork#Merging upstream#What a clean merge still breaks]]. Prefer a name that says what the fork-owned thing is, not the general topic it sits under.
 
 ## Turning a workflow off without editing it
 
@@ -58,15 +64,16 @@ Windows is not in the `ci.yml` matrix. The POSIX-path and `eol=lf` conventions i
 
 ## Verifying a file's ownership
 
-Before editing anything, resolve whether upstream owns it. The fork point is `65d2f5b`.
+Before editing anything, resolve whether upstream owns it. The question is asked at the sync point, not at the original fork point, so a file upstream added later still answers `UPSTREAM`.
 
 ```
-git cat-file -e 65d2f5b:<path> && echo UPSTREAM || echo fork-owned
+SYNC=$(grep -v '^#' fork-upstream-sync-point | head -1)
+git cat-file -e "$SYNC:<path>" && echo UPSTREAM || echo fork-owned
 ```
 
 ## The upstream guard
 
-A checker that compares the working tree against the fork point and fails when the diff touches an upstream file that `fork-upstream-allowlist.tsv` does not name. It is what turns [[fork#Keeping the diff small]] from prose into a build step.
+A checker that compares the working tree against the sync point and fails when the diff touches an upstream file that `fork-upstream-allowlist.tsv` does not name. It is what turns [[fork#Keeping the diff small]] from prose into a build step.
 
 The rule was broken twice in one session by agents who did not disagree with it — they were moving fast, and prose does not stop that. Mechanism does.
 
@@ -75,9 +82,23 @@ node dist/src/fork/upstream-guard-cli.js
 pnpm exec tsx src/fork/upstream-guard-cli.ts
 ```
 
-Both lines run the same program. The first needs `pnpm build` to have run; the second needs only `pnpm install`. `--repo`, `--fork-point`, and `--allowlist` override the defaults, which are the working directory, `65d2f5b`, and the allowlist at the repository root.
+Both lines run the same program. The first needs `pnpm build` to have run; the second needs only `pnpm install`. `--repo`, `--sync-point`, `--allowlist`, and `--sync-point-file` override the defaults, which are the working directory, the recorded sync point, and the two files at the repository root.
 
-A path is upstream when `git cat-file -e 65d2f5b:<path>` resolves to a blob, so every file the fork added is invisible to the check and costs nothing. The diff is taken with `--no-renames`, which makes a renamed upstream file read as a deletion plus an addition — and a deletion is refused.
+A path is upstream when it resolves to a blob in the sync point's tree, so every file the fork added is invisible to the check and costs nothing. The diff is taken with `--no-renames`, which makes a renamed upstream file read as a deletion plus an addition — and a deletion is refused.
+
+### The sync point
+
+`fork-upstream-sync-point` records the last upstream commit merged into this fork, and every measurement the guard makes is taken relative to it.
+
+A frozen baseline cannot work. The guard was first written against the fork point `65d2f5b`, which made it read upstream's own commits as fork divergence the moment upstream was merged — 27 violations, every one of them a file the fork had never touched. Advancing the record in the same commit as the merge is what keeps the number honest.
+
+The same baseline decides ownership. A file upstream added after the fork point is upstream's, and a check anchored at the fork point would call it fork-owned and wave an unexplained edit through.
+
+```
+node dist/src/fork/upstream-guard-cli.js --set-sync-point <rev>
+```
+
+The revision has to be an ancestor of `HEAD` already: a sync point off the current history makes the diff meaningless, so recording one before its merge lands is refused. A shallow clone cannot answer the ancestry question at all, and skips the check rather than failing on truncated history.
 
 ### The allowlist
 
@@ -114,13 +135,36 @@ The regenerate path honours the same rule. It refuses to write a deletion into t
   run: pnpm exec tsx src/fork/upstream-guard-cli.ts --fetch
 ```
 
-`actions/checkout@v4` clones with `fetch-depth: 1`, so the fork-point commit is **not** in the runner's object store and every git command against it fails. `--fetch` runs `git fetch --no-tags --depth=1 origin 65d2f5b...` when the commit is absent, which GitHub serves for an arbitrary reachable SHA. Keeping the SHA inside the checker rather than in the workflow leaves one place for it to be wrong.
+`actions/checkout@v4` clones with `fetch-depth: 1`, so the sync-point commit is **not** in the runner's object store and every git command against it fails. `--fetch` runs `git fetch --no-tags --depth=1 origin <sync point>` when the commit is absent, which GitHub serves for an arbitrary reachable SHA. Keeping the revision in `fork-upstream-sync-point` rather than in the workflow leaves one place for it to be wrong.
 
 Nothing under `.github/` carries a `@lat:` pointer. `walk.ts` filters every path beginning with `.`, so no workflow file is ever scanned and a ref placed there would rot without `lat check` noticing. Workflows reference this document in prose instead.
 
-Without `--fetch` the guard does not silently pass: it exits non-zero and prints the fetch command. That is the deliberate half of the design — the two failure modes worth avoiding are a check that always passes and a check that always fails, and a missing fork point produces neither silence nor a false accusation.
+Without `--fetch` the guard does not silently pass: it exits non-zero and prints the fetch command. That is the deliberate half of the design — the two failure modes worth avoiding are a check that always passes and a check that always fails, and a missing sync point produces neither silence nor a false accusation.
 
-The step runs before the build so the fork point is already fetched by the time `vitest` runs, which is what lets the suite assert that this repository itself passes the guard.
+The step runs before the build so the sync point is already fetched by the time `vitest` runs, which is what lets the suite assert that this repository itself passes the guard.
+
+## Merging upstream
+
+Merging is cheap when the fork's own rules have been kept. Most of the procedure is moving the sync point and re-deriving the allowlist from it.
+
+1. **Look before merging** — `git fetch upstream`, then `git merge-tree --write-tree --name-only HEAD upstream/main` names every conflict without touching the working tree
+2. **Merge** — `git merge upstream/main`, resolving what git reports
+3. **Install** — `pnpm install`, since upstream may have added dependencies
+4. **Move the sync point** — `--set-sync-point <the upstream commit just merged>`
+5. **Regenerate the allowlist** — the baseline moved, so the set of files the fork diverges in moved with it; replace any `TODO` marker the generator writes
+6. **Check the whole tree** — `pnpm typecheck`, `pnpm build`, `pnpm vitest run --dir tests`, and `lat check`
+
+Steps 4 and 5 belong in the merge commit or the one right after it. Between the merge and the new sync point, the guard is measuring against a baseline that no longer describes anything.
+
+### What a clean merge still breaks
+
+A merge git calls clean is not the same as a merged tree that works, and the 0.12.2 merge produced one instance of each failure this fork has seen.
+
+A **type widened underneath us**. Upstream added a field to what `searchSections` returns, and a fork-owned test's fixture no longer satisfied it. `pnpm typecheck` catches this; the merge itself cannot.
+
+A **name collided**. Upstream added `lat.md/view/graph.md` while the fork already had `lat.md/tests/graph.md`. Two additions, no textual overlap, and every short-form `[[graph#...]]` reference became ambiguous — 32 `lat check` errors, two of them inside upstream's own documents, which this fork's filename had broken. Renaming the fork-owned file fixed all 32 and left upstream's links alone. See [[fork#Keeping the diff small#Name a new file something upstream would not reach for]].
+
+Neither is visible to the upstream guard, which reads paths rather than contents. The suite and `lat check` are what close that gap, which is why step 6 runs the whole tree rather than the files the merge touched.
 
 ## Publishing
 

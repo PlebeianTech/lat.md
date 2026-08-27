@@ -11,11 +11,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
   ALLOWLIST_FILE,
-  FORK_POINT,
+  SYNC_POINT_FILE,
   classify,
   hasCommit,
   parseAllowlist,
   parseNameStatus,
+  parseSyncPoint,
+  renderSyncPoint,
   renderAllowlist,
   repoRoot,
   runGuard,
@@ -23,7 +25,7 @@ import {
 } from '../src/fork/upstream-guard.js';
 
 let repo: string;
-let forkPoint: string;
+let syncPoint: string;
 
 const GIT_ENV = {
   ...process.env,
@@ -64,7 +66,7 @@ function allowlist(...entries: [string, string][]): void {
 function guard(): GuardResult {
   return runGuard({
     repo,
-    forkPoint,
+    syncPoint,
     allowlistFile: ALLOWLIST_FILE,
     regenerate: false,
     fetch: false,
@@ -74,7 +76,7 @@ function guard(): GuardResult {
 function regenerate(): GuardResult {
   return runGuard({
     repo,
-    forkPoint,
+    syncPoint,
     allowlistFile: ALLOWLIST_FILE,
     regenerate: true,
     fetch: false,
@@ -94,7 +96,7 @@ beforeAll(() => {
   write('nested/upstream-c.txt', 'c\n');
   git('add', '-A');
   git('commit', '-qm', 'upstream');
-  forkPoint = git('rev-parse', 'HEAD').trim();
+  syncPoint = git('rev-parse', 'HEAD').trim();
 });
 
 afterAll(() => {
@@ -172,7 +174,7 @@ describe('upstream guard', () => {
   it('names the fetch command when the fork point is missing', () => {
     const result = runGuard({
       repo,
-      forkPoint: '0'.repeat(40),
+      syncPoint: '0'.repeat(40),
       allowlistFile: ALLOWLIST_FILE,
       regenerate: false,
       fetch: false,
@@ -245,11 +247,16 @@ describe('upstream guard', () => {
 
   it('passes on this repository against the committed allowlist', () => {
     const root = repoRoot(process.cwd());
-    expect(hasCommit(root, FORK_POINT)).toBe(true);
+    const recorded = parseSyncPoint(
+      readFileSync(join(root, SYNC_POINT_FILE), 'utf-8'),
+    );
+    expect(recorded).toMatch(/^[0-9a-f]{40}$/);
+    expect(hasCommit(root, recorded!)).toBe(true);
 
+    // No syncPoint here on purpose: this is the path CI takes, reading the
+    // recorded file rather than being handed a revision.
     const result = runGuard({
       repo: root,
-      forkPoint: FORK_POINT,
       allowlistFile: ALLOWLIST_FILE,
       regenerate: false,
       fetch: false,
@@ -257,5 +264,116 @@ describe('upstream guard', () => {
 
     expect(result.findings).toEqual([]);
     expect(result.ok).toBe(true);
+  });
+});
+
+// @lat: [[fork#The upstream guard#The sync point]]
+describe('the sync point', () => {
+  it('stops reporting upstream churn once it is advanced past it', () => {
+    // Stand in for an upstream commit landing on top of the recorded point.
+    write('upstream-a.txt', 'a as upstream now has it\n');
+    git('add', '-A');
+    git('commit', '-qm', 'upstream moves on');
+    const merged = git('rev-parse', 'HEAD').trim();
+
+    allowlist(['upstream-b.txt', 'a different file entirely']);
+
+    const stale = runGuard({
+      repo,
+      syncPoint,
+      allowlistFile: ALLOWLIST_FILE,
+      regenerate: false,
+      fetch: false,
+    });
+    expect(stale.findings.map((f) => f.path)).toEqual(['upstream-a.txt']);
+
+    const advanced = runGuard({
+      repo,
+      syncPoint: merged,
+      allowlistFile: ALLOWLIST_FILE,
+      regenerate: false,
+      fetch: false,
+    });
+    expect(advanced.findings).toEqual([]);
+    expect(advanced.ok).toBe(true);
+
+    git('reset', '-q', '--hard', syncPoint);
+    reset();
+  });
+
+  it('treats a file upstream added after the fork point as upstream-owned', () => {
+    write('upstream-d.txt', 'd\n');
+    git('add', '-A');
+    git('commit', '-qm', 'upstream adds a file');
+    const merged = git('rev-parse', 'HEAD').trim();
+
+    write('upstream-d.txt', 'd, edited by the fork\n');
+    allowlist(['upstream-b.txt', 'a different file entirely']);
+
+    const result = runGuard({
+      repo,
+      syncPoint: merged,
+      allowlistFile: ALLOWLIST_FILE,
+      regenerate: false,
+      fetch: false,
+    });
+    expect(result.findings.map((f) => f.kind)).toEqual(['unallowlisted']);
+    expect(result.findings[0]!.path).toBe('upstream-d.txt');
+
+    git('reset', '-q', '--hard', syncPoint);
+    reset();
+  });
+
+  it('refuses a sync point that is not an ancestor of HEAD', () => {
+    const orphan = spawnSync(
+      'git',
+      ['-C', repo, 'commit-tree', `${syncPoint}^{tree}`, '-m', 'elsewhere'],
+      { encoding: 'utf-8', env: GIT_ENV },
+    ).stdout.trim();
+
+    const result = runGuard({
+      repo,
+      syncPoint: orphan,
+      allowlistFile: ALLOWLIST_FILE,
+      regenerate: false,
+      fetch: false,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.report).toContain('not an ancestor of HEAD');
+  });
+
+  it('reports a missing record rather than guessing a baseline', () => {
+    const result = runGuard({
+      repo,
+      allowlistFile: ALLOWLIST_FILE,
+      syncPointFile: 'no-such-sync-point',
+      regenerate: false,
+      fetch: false,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.report).toContain('no sync point recorded');
+  });
+
+  it('records a revision and keeps the surrounding prose', () => {
+    write(SYNC_POINT_FILE, '# why this file exists\n\ndeadbeef\n');
+    const result = runGuard({
+      repo,
+      allowlistFile: ALLOWLIST_FILE,
+      setSyncPoint: syncPoint,
+      regenerate: false,
+      fetch: false,
+    });
+    expect(result.ok).toBe(true);
+
+    const written = readFileSync(join(repo, SYNC_POINT_FILE), 'utf-8');
+    expect(written).toContain('# why this file exists');
+    expect(parseSyncPoint(written)).toBe(syncPoint);
+    reset();
+  });
+
+  it('reads past comments and blank lines to the revision', () => {
+    expect(parseSyncPoint('# a note\n\n  abc123  \n')).toBe('abc123');
+    expect(parseSyncPoint('# only comments\n')).toBeUndefined();
+    expect(renderSyncPoint('# kept\n\nold\n', 'new')).toBe('# kept\n\nnew\n');
   });
 });

@@ -5,6 +5,9 @@
 # fork must diverge in that file. A placeholder reason fails the check —
 # regenerate writes the marker, a person replaces it with the real reason.
 #
+# Paths are relative to the sync point in fork-upstream-sync-point, so an
+# upstream merge moves this list. Regenerate in the same commit.
+#
 # Deleting an upstream file is never allowlistable. See lat.md/fork.md.
 
 .github/workflows/ci.yml	CI is fork-owned by the repo owner's explicit sanction: the job must build this tree's own CLI, run the fork's suite, and run the upstream guard, none of which upstream's workflow does.

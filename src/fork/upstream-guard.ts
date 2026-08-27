@@ -3,7 +3,14 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 
 // @lat: [[fork#The upstream guard]]
-export const FORK_POINT = '65d2f5b220853b2b10dca3de18d511f575bc12c7';
+export const SYNC_POINT_FILE = 'fork-upstream-sync-point';
+
+/**
+ * The commit this fork was originally cut from. It is not the guard's
+ * baseline — see [[fork#The upstream guard#The sync point]] for why a frozen
+ * one cannot tell the fork's changes from upstream's.
+ */
+export const ORIGINAL_FORK_POINT = '65d2f5b220853b2b10dca3de18d511f575bc12c7';
 
 // @lat: [[fork#The upstream guard#The allowlist]]
 export const ALLOWLIST_FILE = 'fork-upstream-allowlist.tsv';
@@ -17,6 +24,9 @@ const ALLOWLIST_HEADER = [
   '# One entry per line: the repo-relative path, a TAB, then the reason the',
   '# fork must diverge in that file. A placeholder reason fails the check —',
   '# regenerate writes the marker, a person replaces it with the real reason.',
+  '#',
+  '# Paths are relative to the sync point in fork-upstream-sync-point, so an',
+  '# upstream merge moves this list. Regenerate in the same commit.',
   '#',
   '# Deleting an upstream file is never allowlistable. See lat.md/fork.md.',
   '',
@@ -243,16 +253,50 @@ export function upstreamPaths(
   return out;
 }
 
+// @lat: [[fork#The upstream guard#The sync point]]
+export function parseSyncPoint(text: string): string | undefined {
+  for (const raw of text.split('\n')) {
+    const line = raw.replace(/\r$/, '').trim();
+    if (line === '' || line.startsWith('#')) continue;
+    return line.split(/\s/)[0];
+  }
+  return undefined;
+}
+
+export function renderSyncPoint(previous: string, rev: string): string {
+  const kept = previous
+    .split('\n')
+    .filter((raw) => {
+      const line = raw.replace(/\r$/, '').trim();
+      return line === '' || line.startsWith('#');
+    })
+    .join('\n')
+    .replace(/\n+$/, '');
+  return `${kept}\n\n${rev}\n`;
+}
+
+export function isAncestorOfHead(repo: string, rev: string): boolean {
+  return git(repo, ['merge-base', '--is-ancestor', rev, 'HEAD']).status === 0;
+}
+
+export function isShallow(repo: string): boolean {
+  const result = git(repo, ['rev-parse', '--is-shallow-repository']);
+  return result.stdout.trim() === 'true';
+}
+
 export type GuardOptions = {
   repo: string;
-  forkPoint: string;
+  /** Overrides the recorded sync point. Omitted, the file decides. */
+  syncPoint?: string;
   allowlistFile: string;
+  syncPointFile?: string;
   regenerate: boolean;
   fetch: boolean;
+  setSyncPoint?: string;
 };
 
 // @lat: [[fork#The upstream guard#Running it in CI]]
-export function fetchForkPoint(repo: string, rev: string): boolean {
+export function fetchSyncPoint(repo: string, rev: string): boolean {
   const result = git(repo, ['fetch', '--no-tags', '--depth=1', 'origin', rev]);
   return result.status === 0 && hasCommit(repo, rev);
 }
@@ -264,10 +308,16 @@ export type GuardResult = {
   warnings: string[];
 };
 
+function pathFor(repo: string, file: string): string {
+  return isAbsolute(file) ? file : resolve(repo, file);
+}
+
 function allowlistPathFor(options: GuardOptions): string {
-  return isAbsolute(options.allowlistFile)
-    ? options.allowlistFile
-    : resolve(options.repo, options.allowlistFile);
+  return pathFor(options.repo, options.allowlistFile);
+}
+
+function syncPointPathFor(options: GuardOptions): string {
+  return pathFor(options.repo, options.syncPointFile ?? SYNC_POINT_FILE);
 }
 
 function loadAllowlist(file: string): ParsedAllowlist {
@@ -275,32 +325,70 @@ function loadAllowlist(file: string): ParsedAllowlist {
   return parseAllowlist(readFileSync(file, 'utf-8'));
 }
 
+function fail(report: string): GuardResult {
+  return { ok: false, report, findings: [], warnings: [] };
+}
+
 export function runGuard(options: GuardOptions): GuardResult {
   const root = repoRoot(options.repo);
   const opts = { ...options, repo: root };
+  const syncFile = syncPointPathFor(opts);
+
+  if (opts.setSyncPoint !== undefined) {
+    return recordSyncPoint(root, syncFile, opts.setSyncPoint);
+  }
+
+  let syncPoint = opts.syncPoint;
+  if (syncPoint === undefined) {
+    if (!existsSync(syncFile)) {
+      return fail(
+        `upstream-guard: no sync point recorded at ${syncFile}\n` +
+          '    The guard measures everything from the last upstream commit ' +
+          'merged\n' +
+          '    into this fork. Record it:\n' +
+          '      node dist/src/fork/upstream-guard-cli.js --set-sync-point ' +
+          '<rev>\n',
+      );
+    }
+    syncPoint = parseSyncPoint(readFileSync(syncFile, 'utf-8'));
+    if (syncPoint === undefined || syncPoint === '') {
+      return fail(
+        `upstream-guard: ${syncFile} holds no revision.\n` +
+          '    It must contain one commit id on a line of its own.\n',
+      );
+    }
+  }
 
   const present =
-    hasCommit(root, opts.forkPoint) ||
-    (opts.fetch && fetchForkPoint(root, opts.forkPoint));
+    hasCommit(root, syncPoint) ||
+    (opts.fetch && fetchSyncPoint(root, syncPoint));
 
   if (!present) {
-    return {
-      ok: false,
-      report:
-        `upstream-guard: fork point ${opts.forkPoint} is not in this ` +
-        'repository.\n' +
+    return fail(
+      `upstream-guard: sync point ${syncPoint} is not in this repository.\n` +
         '    A shallow clone does not carry it. Fetch it first:\n' +
-        `      git fetch --no-tags --depth=1 origin ${opts.forkPoint}\n`,
-      findings: [],
-      warnings: [],
-    };
+        `      git fetch --no-tags --depth=1 origin ${syncPoint}\n`,
+    );
+  }
+
+  // A sync point off the current history makes every number below
+  // meaningless — the diff would report upstream's own commits as the fork's.
+  // Truncated history cannot answer the question, so shallow clones skip it.
+  if (!isShallow(root) && !isAncestorOfHead(root, syncPoint)) {
+    return fail(
+      `upstream-guard: sync point ${syncPoint.slice(0, 7)} is not an ancestor ` +
+        'of HEAD.\n' +
+        '    Merge that upstream commit before recording it, or record the ' +
+        'one\n' +
+        '    this branch actually descends from.\n',
+    );
   }
 
   const file = allowlistPathFor(opts);
-  const diff = diffAgainst(root, opts.forkPoint);
+  const diff = diffAgainst(root, syncPoint);
   const upstream = upstreamPaths(
     root,
-    opts.forkPoint,
+    syncPoint,
     diff.map((d) => d.path),
   );
 
@@ -310,12 +398,7 @@ export function runGuard(options: GuardOptions): GuardResult {
 
   const parsed = loadAllowlist(file);
   if (!existsSync(file)) {
-    return {
-      ok: false,
-      report: `upstream-guard: allowlist not found at ${file}\n`,
-      findings: [],
-      warnings: [],
-    };
+    return fail(`upstream-guard: allowlist not found at ${file}\n`);
   }
 
   const map = new Map(parsed.entries.map((e) => [e.path, e.reason]));
@@ -330,8 +413,8 @@ export function runGuard(options: GuardOptions): GuardResult {
   const lines: string[] = [];
   if (findings.length > 0) {
     lines.push(
-      `upstream-guard: ${findings.length} violation(s) against fork point ` +
-        `${opts.forkPoint.slice(0, 7)}`,
+      `upstream-guard: ${findings.length} violation(s) against sync point ` +
+        `${syncPoint.slice(0, 7)}`,
       '',
     );
     for (const finding of findings) lines.push(`  ${finding.message}`, '');
@@ -354,6 +437,34 @@ export function runGuard(options: GuardOptions): GuardResult {
     report: lines.join('\n') + '\n',
     findings,
     warnings: result.warnings,
+  };
+}
+
+// @lat: [[fork#The upstream guard#The sync point]]
+function recordSyncPoint(repo: string, file: string, rev: string): GuardResult {
+  const resolved = git(repo, ['rev-parse', `${rev}^{commit}`]);
+  if (resolved.status !== 0) {
+    return fail(`upstream-guard: ${rev} is not a commit in this repository.\n`);
+  }
+  const sha = resolved.stdout.trim();
+
+  if (!isShallow(repo) && !isAncestorOfHead(repo, sha)) {
+    return fail(
+      `upstream-guard: ${sha.slice(0, 7)} is not an ancestor of HEAD.\n` +
+        '    Record a sync point only once its merge has landed.\n',
+    );
+  }
+
+  const previous = existsSync(file) ? readFileSync(file, 'utf-8') : '';
+  writeFileSync(file, renderSyncPoint(previous, sha), 'utf-8');
+  return {
+    ok: true,
+    report:
+      `upstream-guard: sync point is now ${sha}\n` +
+      '  regenerate the allowlist next — the set of files the fork ' +
+      'diverges in has moved.\n',
+    findings: [],
+    warnings: [],
   };
 }
 
@@ -408,18 +519,19 @@ function regenerateInto(
 
 const USAGE = `Usage: node dist/src/fork/upstream-guard-cli.js [options]
 
-  --regenerate          rewrite the allowlist from the current diff
-  --fetch               fetch the fork point from origin if it is absent
-  --fork-point <rev>    default ${FORK_POINT}
-  --repo <dir>          default the current working directory
-  --allowlist <file>    default <repo>/${ALLOWLIST_FILE}
-  -h, --help            this text
+  --regenerate            rewrite the allowlist from the current diff
+  --fetch                 fetch the sync point from origin if it is absent
+  --set-sync-point <rev>  record <rev> as the last merged upstream commit
+  --sync-point <rev>      check against <rev> instead of the recorded one
+  --repo <dir>            default the current working directory
+  --allowlist <file>      default <repo>/${ALLOWLIST_FILE}
+  --sync-point-file <f>   default <repo>/${SYNC_POINT_FILE}
+  -h, --help              this text
 `;
 
 export function parseArgs(argv: string[]): GuardOptions | { help: true } {
   const options: GuardOptions = {
     repo: process.cwd(),
-    forkPoint: FORK_POINT,
     allowlistFile: ALLOWLIST_FILE,
     regenerate: false,
     fetch: false,
@@ -430,7 +542,10 @@ export function parseArgs(argv: string[]): GuardOptions | { help: true } {
     else if (arg === '--regenerate' || arg === '--write')
       options.regenerate = true;
     else if (arg === '--fetch') options.fetch = true;
-    else if (arg === '--fork-point') options.forkPoint = argv[++i] ?? '';
+    else if (arg === '--set-sync-point') options.setSyncPoint = argv[++i] ?? '';
+    else if (arg === '--sync-point') options.syncPoint = argv[++i] ?? '';
+    else if (arg === '--sync-point-file')
+      options.syncPointFile = argv[++i] ?? '';
     else if (arg === '--repo') options.repo = argv[++i] ?? '';
     else if (arg === '--allowlist') options.allowlistFile = argv[++i] ?? '';
     else throw new Error(`unknown argument: ${arg}`);
