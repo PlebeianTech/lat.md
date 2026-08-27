@@ -85,10 +85,59 @@ function indexBody(dir: string): string {
   );
 }
 
-/** Prepend the `require-mode` flag to a root index that has no frontmatter. */
+/**
+ * Turn the gate on in a root index, whatever frontmatter it already has.
+ *
+ * Bailing on any existing frontmatter — the first version of this — produced a
+ * silent no-op: a root index carrying `lat: tags: [...]` could never opt in,
+ * and `lat init` re-offered on every run because the flag it had just written
+ * was not there. Merging is what makes the offer terminate.
+ *
+ * Edited line by line rather than parsed and re-emitted, because re-emitting
+ * reformats the whole block and discards its comments. The one shape that
+ * cannot be edited safely — `lat:` carrying a flow mapping on its own line —
+ * is returned unchanged, and the caller falls back to printing the edit.
+ */
 export function stampRequireMode(content: string): string {
-  if (/^---\n/.test(content)) return content;
-  return `---\nlat:\n  require-mode: true\n---\n\n${content.replace(/^\n+/, '')}`;
+  const fence = content.match(/^---\n([\s\S]*?)\n---[ \t]*(\r?\n|$)/);
+  if (!fence) {
+    return `---\nlat:\n  require-mode: true\n---\n\n${content.replace(/^\n+/, '')}`;
+  }
+
+  const body = fence[1];
+  if (/^\s*require-mode\s*:/m.test(body)) return content;
+
+  const lines = body.split('\n');
+  const latAt = lines.findIndex((line) => /^lat\s*:/.test(line));
+
+  let merged: string[];
+  if (latAt === -1) {
+    merged = [...lines, 'lat:', '  require-mode: true'];
+  } else if (lines[latAt].replace(/^lat\s*:/, '').trim() !== '') {
+    // `lat: {mode: reference}` or `lat: &anchor` — a line-based insert would
+    // corrupt it, so say nothing and let the caller print the edit.
+    return content;
+  } else {
+    // Siblings must share indentation, so take it from the existing first
+    // child rather than assuming two spaces.
+    const child = lines
+      .slice(latAt + 1)
+      .find((line) => line.trim() !== '' && /^\s/.test(line));
+    const indent = child ? (child.match(/^\s+/)?.[0] ?? '  ') : '  ';
+    merged = [
+      ...lines.slice(0, latAt + 1),
+      `${indent}require-mode: true`,
+      ...lines.slice(latAt + 1),
+    ];
+  }
+
+  const end = fence[0].length;
+  return `---\n${merged.join('\n')}\n---${fence[2] || '\n'}${content.slice(end)}`;
+}
+
+/** Whether the gate is on, read straight from a root index's frontmatter. */
+export function requireModeSet(content: string): boolean {
+  return parseFrontmatter(content).raw['require-mode'] !== undefined;
 }
 
 /**
@@ -225,12 +274,7 @@ export async function offerRequireMode(
 ): Promise<void> {
   const rootIndex = join(latDir, indexNameFor(basename(latDir)));
   if (!existsSync(rootIndex)) return;
-  if (
-    parseFrontmatter(readFileSync(rootIndex, 'utf-8')).raw['require-mode'] !==
-    undefined
-  ) {
-    return;
-  }
+  if (requireModeSet(readFileSync(rootIndex, 'utf-8'))) return;
   if (declined(latDir)) return;
 
   const offenders = await unmodedDocuments(latDir);
@@ -293,6 +337,19 @@ export async function offerRequireMode(
   }
 
   writeForkScaffold(latDir);
+
+  // The one frontmatter shape `stampRequireMode` refuses to edit. Saying so
+  // beats re-offering forever on a flag that never lands.
+  if (!requireModeSet(readFileSync(rootIndex, 'utf-8'))) {
+    console.log(
+      '  ' +
+        styleText('yellow', 'Could not edit the frontmatter safely.') +
+        styleText('dim', ' Add this under its `lat:` mapping by hand:'),
+    );
+    console.log('    ' + styleText('cyan', 'require-mode: true'));
+    return;
+  }
+
   if (offenders.length > 0) {
     console.log(
       '  ' +

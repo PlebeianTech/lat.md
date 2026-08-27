@@ -21,11 +21,25 @@ The scaffolded root index gains `require-mode: true` frontmatter and a listing o
 
 The listing is not decoration: without it `lat check index` reports four missing entries on a tree `lat init` has just created.
 
+## The flag merges into frontmatter that already exists
+
+A `lat:` mapping gains `require-mode` as a sibling at the indentation its existing children use; frontmatter with no `lat:` key gains the mapping; a root index that already declares the field, at any value, is untouched.
+
+Bailing on any existing frontmatter — the first version — produced a silent no-op. A root index carrying `lat: tags: [...]` could never opt in, and `lat init` re-offered on every run because the flag it thought it had written was not there. The indentation case matters for the same reason: two-space children under a four-space mapping is a YAML error, not a formatting quibble.
+
+## A flow mapping is refused rather than corrupted
+
+`lat: {tags: [x]}` on one line is returned unchanged, because a line-based insert would break it.
+
+The caller checks whether the flag actually landed and prints the manual edit when it did not, so the refusal is visible rather than a loop.
+
 ## Existing frontmatter and listings are left alone
 
-A root index that already declares frontmatter is returned unchanged, and one that already links a mode directory is not listed a second time.
+A root index that already links a mode directory is not listed a second time, and listing twice is the same as listing once.
 
-Both guards make the scaffold safe to re-run against a tree someone has since edited.
+## Successive runs converge
+
+Three scaffolds over one tree leave the root index byte-identical to what the first produced: one frontmatter block, one `require-mode` line.
 
 ## Re-scaffolding keeps a directory the user changed
 

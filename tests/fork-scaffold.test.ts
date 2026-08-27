@@ -13,6 +13,7 @@ import { checkMode } from '../src/cli/check-mode.js';
 import {
   listModeDirs,
   offerRequireMode,
+  requireModeSet,
   stampRequireMode,
   writeForkScaffold,
 } from '../src/cli/fork-scaffold.js';
@@ -66,13 +67,57 @@ describe('fork Diátaxis scaffold', () => {
     }
   });
 
-  // @lat: [[tests/fork-scaffold#Fork Scaffold#Existing frontmatter and listings are left alone]]
-  it('never rewrites a root index that already has frontmatter or the listing', () => {
-    const withFm = '---\nlat:\n  tags: [x]\n---\n\nLead.\n';
-    expect(stampRequireMode(withFm)).toBe(withFm);
+  // @lat: [[tests/fork-scaffold#Fork Scaffold#The flag merges into frontmatter that already exists]]
+  it('merges into every frontmatter shape it can edit safely', () => {
+    // A `lat:` mapping already there — insert a sibling, keeping its keys.
+    expect(stampRequireMode('---\nlat:\n  tags: [x]\n---\n\nLead.\n')).toBe(
+      '---\nlat:\n  require-mode: true\n  tags: [x]\n---\n\nLead.\n',
+    );
 
+    // Siblings must share indentation, so take it from the existing child.
+    expect(
+      stampRequireMode('---\nlat:\n    tags: [x]\n---\n\nLead.\n'),
+    ).toBe('---\nlat:\n    require-mode: true\n    tags: [x]\n---\n\nLead.\n');
+
+    // Frontmatter with no `lat:` key at all — add the mapping.
+    expect(stampRequireMode('---\ntitle: X\n---\n\nLead.\n')).toBe(
+      '---\ntitle: X\nlat:\n  require-mode: true\n---\n\nLead.\n',
+    );
+
+    // Already set, in any position — untouched.
+    const set = '---\nlat:\n  require-mode: false\n---\n\nLead.\n';
+    expect(stampRequireMode(set)).toBe(set);
+  });
+
+  // @lat: [[tests/fork-scaffold#Fork Scaffold#A flow mapping is refused rather than corrupted]]
+  it('leaves a flow-mapping lat: key alone', () => {
+    const flow = '---\nlat: {tags: [x]}\n---\n\nLead.\n';
+    expect(stampRequireMode(flow)).toBe(flow);
+    expect(requireModeSet(flow)).toBe(false);
+  });
+
+  // @lat: [[tests/fork-scaffold#Fork Scaffold#Existing frontmatter and listings are left alone]]
+  it('does not list the mode directories twice', () => {
     const listed = 'Lead.\n\n- [Reference](reference/reference.md) — facts.\n';
     expect(listModeDirs(listed)).toBe(listed);
+    expect(listModeDirs(listModeDirs('Lead.\n'))).toBe(listModeDirs('Lead.\n'));
+  });
+
+  // @lat: [[tests/fork-scaffold#Fork Scaffold#Successive runs converge]]
+  it('is idempotent over repeated scaffolds', () => {
+    const { root, latDir } = makeTree();
+    try {
+      scaffold(latDir);
+      const once = readFileSync(join(latDir, 'lat.md'), 'utf-8');
+      scaffold(latDir);
+      scaffold(latDir);
+      const thrice = readFileSync(join(latDir, 'lat.md'), 'utf-8');
+      expect(thrice).toBe(once);
+      expect(thrice.match(/^---$/gm)).toHaveLength(2);
+      expect(thrice.match(/require-mode/g)).toHaveLength(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   // @lat: [[tests/fork-scaffold#Fork Scaffold#Re-scaffolding keeps a directory the user changed]]
