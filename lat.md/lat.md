@@ -2,12 +2,15 @@ This directory defines the high-level concepts, business logic, and architecture
 
 **Markdown-first.** This project is built around markdown and its output should reflect that. CLI error messages, diagnostics, and reports use structured, readable formatting — bullet-point lists, indented context, and clear spacing between items — so output is scannable both by humans and by LLM-based agents consuming it.
 
-- [[cli]] — CLI commands, options, and output formats for the `lat` tool
-- [[dev-process]] — Development tooling, testing, formatting, and publishing conventions
-- [[knowledge]] — Federated lookup of related knowledge from external stores via section tags
-- [[markdown]] — Markdown extensions (wiki links, frontmatter) used in lat.md files
-- [[parser]] — Markdown parsing architecture, section tree construction, and ref extraction
-- [[tests]] — High-level test specifications mapped to code via require-code-mention
-- [[untrusted-content]] — Framing and sanitization for repository text placed in front of a model
-- [[view]] — Local browser architecture and test specifications
-- [[website]] — Standalone Next.js marketing site deployed to Vercel
+<!-- lat:index:begin -->
+- [CLI](cli.md) — The \`lat\` command line tool. Entry point: \[\[src/cli/index.ts\]\].
+- [Dev Process](dev-process.md) — Development workflow, tooling, and conventions for the lat.md project.
+- [Fork](fork.md) — How this fork of \[vercel-labs/lat.md\]\(https://github.com/vercel-labs/lat.md\) diverges from upstream, and the rules that keep those divergences cheap to carry.
+- [Knowledge Federation](knowledge.md) — Looks up related knowledge from external stores when a tagged section is surfaced to an agent, and folds the results into the \[\[cli#hook#UserPromptSubmit\]\] payload. Driven by the \[\[markdown#Frontmatter#tags\]\] field. Entry point: \[\[src/knowledge/index.ts#federateTags\]\].
+- [Markdown](markdown.md) — Extensions to standard markdown used in \`lat.md\` files.
+- [Parser](parser.md) — Markdown parsing built on unified/remark v11. Entry point: \[\[src/parser.ts\]\]. Parse → render fidelity is verified by \[\[tests/roundtrip\]\].
+- [Tests](tests/tests.md) — High-level test descriptions. Actual test code lives in \`tests/\`.
+- [Untrusted Content](untrusted-content.md) — Framing and sanitization for repository text placed in front of a model. Implementation: \[\[src/untrusted.ts\]\].
+- [View](view/view.md) — The local browser turns a \`lat.md\` vault into navigable rendered documentation while keeping the installed runtime small.
+- [Website](website.md) — Standalone Next.js app in \`website/\`. Deployed to Vercel at \`lat.md\`.
+<!-- lat:index:end -->

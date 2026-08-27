@@ -1,0 +1,25 @@
+name: lat check
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  lat-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Upstream used lars20070/lat-check-action@v1, which hardcodes
+      # `npm install -g lat.md`. Upstream's index parser matches only
+      # `- [[name]]`; this fork writes `- [Label](dest.md)` and reads both, so
+      # upstream's sees zero entries here and calls every index file incomplete.
+      # Only a fork build can validate this tree. Rationale: lat.md/fork.md.
+      #
+      # This also smoke-tests the published tarball against a real repository,
+      # which the source-built check in ci.yml cannot do.
+      - run: npm install -g @plebeiantech/lat.md
+      - run: lat check
