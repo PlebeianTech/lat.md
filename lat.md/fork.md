@@ -64,6 +64,62 @@ Before editing anything, resolve whether upstream owns it. The fork point is `65
 git cat-file -e 65d2f5b:<path> && echo UPSTREAM || echo fork-owned
 ```
 
+## The upstream guard
+
+A checker that compares the working tree against the fork point and fails when the diff touches an upstream file that `fork-upstream-allowlist.tsv` does not name. It is what turns [[fork#Keeping the diff small]] from prose into a build step.
+
+The rule was broken twice in one session by agents who did not disagree with it — they were moving fast, and prose does not stop that. Mechanism does.
+
+```
+node dist/src/fork/upstream-guard-cli.js
+pnpm exec tsx src/fork/upstream-guard-cli.ts
+```
+
+Both lines run the same program. The first needs `pnpm build` to have run; the second needs only `pnpm install`. `--repo`, `--fork-point`, and `--allowlist` override the defaults, which are the working directory, `65d2f5b`, and the allowlist at the repository root.
+
+A path is upstream when `git cat-file -e 65d2f5b:<path>` resolves to a blob, so every file the fork added is invisible to the check and costs nothing. The diff is taken with `--no-renames`, which makes a renamed upstream file read as a deletion plus an addition — and a deletion is refused.
+
+### The allowlist
+
+`fork-upstream-allowlist.tsv` holds one entry per line: the repository-relative path, a tab, then the reason the fork must diverge in that file. Blank lines and `#` comments are ignored.
+
+```
+src/cli/check.ts	Registration point for check subcommands. Each fork-owned check module reaches it as one import plus one appended line; the logic itself is in the fork-owned file.
+```
+
+The reason is the point of the file. A path with no reason, or one still carrying the `TODO` marker the generator writes, fails the check exactly as an unlisted path does — an allowlist nobody explained is a list of unexplained conflicts.
+
+To add an entry, regenerate rather than hand-editing:
+
+```
+node dist/src/fork/upstream-guard-cli.js --regenerate
+```
+
+Regenerating rewrites the list from the current diff, keeps the reason already recorded against a path, drops paths nothing modifies any more, and marks anything new as needing a reason. Then replace each marker with why that file must diverge. A stale entry — allowlisted but no longer modified — is reported as a warning rather than a failure, so regenerating is a tidy-up, never a gate.
+
+### Deletions are not allowlistable
+
+Any deletion of an upstream file fails the check, allowlisted or not. There is no flag, no entry, and no override.
+
+The asymmetry is the whole reason: a file this fork deletes produces a delete/modify conflict on **every** future merge that touches it upstream, while a file this fork modifies conflicts once and stays resolved. See [[fork#Keeping the diff small#Never delete an upstream file]] for what to do instead.
+
+The regenerate path honours the same rule. It refuses to write a deletion into the list and reports it, so a deletion cannot be laundered into an exception by running the generator.
+
+### Running it in CI
+
+`ci.yml` runs the guard in one step, immediately after `pnpm install --frozen-lockfile` and before the build.
+
+```
+- name: Upstream guard
+  run: pnpm exec tsx src/fork/upstream-guard-cli.ts --fetch
+```
+
+`actions/checkout@v4` clones with `fetch-depth: 1`, so the fork-point commit is **not** in the runner's object store and every git command against it fails. `--fetch` runs `git fetch --no-tags --depth=1 origin 65d2f5b...` when the commit is absent, which GitHub serves for an arbitrary reachable SHA. Keeping the SHA inside the checker rather than in the workflow leaves one place for it to be wrong.
+
+Without `--fetch` the guard does not silently pass: it exits non-zero and prints the fetch command. That is the deliberate half of the design — the two failure modes worth avoiding are a check that always passes and a check that always fails, and a missing fork point produces neither silence nor a false accusation.
+
+The step runs before the build so the fork point is already fetched by the time `vitest` runs, which is what lets the suite assert that this repository itself passes the guard.
+
 ## Publishing
 
 The fork publishes **`@plebeiantech/lat.md`** to public npm and attaches the same tarball to a GitHub Release. It never publishes under the name `lat.md`, which is upstream's.
