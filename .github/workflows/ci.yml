@@ -41,6 +41,10 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # @lat: [[fork#The upstream guard#Running it in CI]]
+      - name: Upstream guard
+        run: pnpm exec tsx src/fork/upstream-guard-cli.ts --fetch
+
       # buildall = packages (WASM engine + fp16 weights + tsc) then top-level lat.
       - run: pnpm buildall
       - run: pnpm vitest run --reporter=verbose
