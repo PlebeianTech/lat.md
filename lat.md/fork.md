@@ -78,6 +78,12 @@ An opt-in flag in the root index, rather than a CLI flag or an environment varia
 
 This repository's own `lat.md/` is eleven flat documents. Gating every tree would fail it on the commit that introduced the gate, and the honest repair — assigning modes and then splitting the documents that fail them — is real restructuring work that has nothing to do with shipping the rule. A flag read from the tree makes adoption a decision each project makes once.
 
+### Adopting it in a tree that already exists
+
+`writeForkScaffold` runs only on the branch that creates `lat.md/`, so `lat init` offers the flag separately to every tree it did not create.
+
+The first version had no such offer, which left the gate unreachable for exactly the projects that needed it: a re-run on an existing project picked up the instruction block and the conventions skill and silently skipped the flag. Restructuring someone's tree unasked is still wrong, so the offer prints how many documents would need a mode, then asks. A refusal is recorded in a fork-owned `lat.md/.cache/lat_fork.json` and never asked again; a run with no TTY prints the frontmatter to paste and records nothing, because the shared `ask` returns true whenever readline is absent and a silent yes is the one answer this must not give.
+
 ### What the scaffold writes
 
 Four directories, four indexes, and two additions to the root index.

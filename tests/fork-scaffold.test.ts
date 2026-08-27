@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { checkMode } from '../src/cli/check-mode.js';
 import {
   listModeDirs,
+  offerRequireMode,
   stampRequireMode,
   writeForkScaffold,
 } from '../src/cli/fork-scaffold.js';
@@ -140,6 +141,100 @@ describe('require-mode gate', () => {
     try {
       writeFileSync(join(latDir, 'thermostats.md'), '# Thermostats\n\nState.\n');
       expect(await checkMode(latDir, root)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('adopting the gate in an existing tree', () => {
+  function existingTree(): { root: string; latDir: string } {
+    const { root, latDir } = makeTree();
+    writeFileSync(join(latDir, 'thermostats.md'), '# Thermostats\n\nState.\n');
+    writeFileSync(join(latDir, 'decisions.md'), '# Decisions\n\nRationale.\n');
+    return { root, latDir };
+  }
+
+  async function offer(
+    latDir: string,
+    interactive: boolean,
+    answer: boolean,
+  ): Promise<string[]> {
+    const logs: string[] = [];
+    const spy = vi
+      .spyOn(console, 'log')
+      .mockImplementation((...a: unknown[]) => {
+        logs.push(a.join(' '));
+      });
+    try {
+      await offerRequireMode(latDir, interactive, async () => answer);
+    } finally {
+      spy.mockRestore();
+    }
+    return logs;
+  }
+
+  // @lat: [[tests/fork-scaffold#Fork Scaffold#An existing tree is offered the gate]]
+  it('turns the gate on and scaffolds when the answer is yes', async () => {
+    const { root, latDir } = existingTree();
+    try {
+      const logs = await offer(latDir, true, true);
+      expect(logs.join('\n')).toContain('2 document(s) would need a mode');
+      const index = readFileSync(join(latDir, 'lat.md'), 'utf-8');
+      expect(index).toContain('require-mode: true');
+      expect(existsSync(join(latDir, 'reference', 'reference.md'))).toBe(true);
+      expect((await checkMode(latDir, root)).length).toBe(2);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // @lat: [[tests/fork-scaffold#Fork Scaffold#Declining is remembered]]
+  it('records a refusal and never asks again', async () => {
+    const { root, latDir } = existingTree();
+    try {
+      await offer(latDir, true, false);
+      expect(readFileSync(join(latDir, 'lat.md'), 'utf-8')).not.toContain(
+        'require-mode',
+      );
+
+      const secondRun = await offer(latDir, true, true);
+      expect(secondRun).toEqual([]);
+      expect(readFileSync(join(latDir, 'lat.md'), 'utf-8')).not.toContain(
+        'require-mode',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // @lat: [[tests/fork-scaffold#Fork Scaffold#Without a TTY the offer prints the edit instead]]
+  it('prints the manual edit and records nothing when non-interactive', async () => {
+    const { root, latDir } = existingTree();
+    try {
+      const logs = await offer(latDir, false, true);
+      expect(logs.join('\n')).toContain('require-mode: true');
+      expect(readFileSync(join(latDir, 'lat.md'), 'utf-8')).not.toContain(
+        'require-mode',
+      );
+
+      // Nothing recorded, so a later interactive run still offers.
+      const later = await offer(latDir, true, true);
+      expect(later.length).toBeGreaterThan(0);
+      expect(readFileSync(join(latDir, 'lat.md'), 'utf-8')).toContain(
+        'require-mode: true',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // @lat: [[tests/fork-scaffold#Fork Scaffold#A tree that already opted in is not asked]]
+  it('stays silent when the flag is already set', async () => {
+    const { root, latDir } = existingTree();
+    try {
+      scaffold(latDir);
+      expect(await offer(latDir, true, true)).toEqual([]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

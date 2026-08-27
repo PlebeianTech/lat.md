@@ -46,3 +46,26 @@ The root index and every subdirectory index pass regardless of the flag, because
 ## A tree without the flag is unchanged
 
 A root index with no `require-mode` line leaves flat documents passing, which is what keeps this repository's own flat tree green and lets an existing project adopt the rule when it chooses.
+
+## An existing tree is offered the gate
+
+A tree `lat init` did not create is asked whether to turn `require-mode` on, and answering yes stamps the flag, creates the missing mode directories, and leaves both existing documents reported by [[cli#check#mode]].
+
+The count is shown before the question. Turning the gate on is a decision about how much restructuring to take on, and it cannot be made without knowing the number.
+
+## Declining is remembered
+
+A refusal is recorded in `lat.md/.cache/lat_fork.json`, and a later run neither asks nor prints anything.
+
+The marker is fork-owned rather than a field on upstream's `lat_init.json`, which keeps the record free of an edit to `src/init-version.ts`. `.cache/` is already ignored by the scaffolded `.gitignore`.
+
+## Without a TTY the offer prints the edit instead
+
+A non-interactive run prints the frontmatter block to paste and changes nothing, and — unlike a refusal — records nothing, so a later interactive run still offers.
+
+A prompt with no terminal to answer it would be taken as a yes by the caller's `ask`, which returns true whenever readline is absent.
+
+## A tree that already opted in is not asked
+
+A root index that already declares `require-mode`, whatever its value, produces no output at all.
+

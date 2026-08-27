@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { listLatticeFiles, parseFrontmatter } from '../lattice.js';
+import { basename, join, relative, sep } from 'node:path';
 import { styleText } from 'node:util';
 import { DIATAXIS_MODES, MODE_DIRS, indexNameFor } from './check-mode.js';
 
@@ -142,6 +143,162 @@ export function writeForkScaffold(latDir: string): void {
         ' — ' +
         created.join(' ') +
         styleText('dim', ' (every document belongs in one of these)'),
+    );
+  }
+}
+
+// ── Adopting the gate in a tree that already exists ──────────────────
+
+/**
+ * Where a declined offer is remembered.
+ *
+ * Fork-owned rather than a field on upstream's `lat_init.json`, so recording
+ * it costs no edit to `src/init-version.ts`. `lat.md/.cache/` is already in
+ * the scaffolded `.gitignore`, so the marker stays out of the repository.
+ */
+function declinePath(latDir: string): string {
+  return join(latDir, '.cache', 'lat_fork.json');
+}
+
+function declined(latDir: string): boolean {
+  try {
+    const raw: unknown = JSON.parse(readFileSync(declinePath(latDir), 'utf-8'));
+    return (
+      typeof raw === 'object' &&
+      raw !== null &&
+      (raw as Record<string, unknown>)['require_mode_declined'] === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+function recordDecline(latDir: string): void {
+  mkdirSync(join(latDir, '.cache'), { recursive: true });
+  writeFileSync(
+    declinePath(latDir),
+    JSON.stringify({ require_mode_declined: true }, null, 2) + '\n',
+  );
+}
+
+/** Documents the gate would reject today: not an index, no mode either way. */
+async function unmodedDocuments(latDir: string): Promise<string[]> {
+  const modeDirs = new Set<string>(
+    DIATAXIS_MODES.map((mode) => MODE_DIRS[mode]),
+  );
+  const files = await listLatticeFiles(latDir);
+  const offenders: string[] = [];
+
+  for (const file of files) {
+    const rel = relative(latDir, file).split(sep).join('/');
+    const segments = rel.split('/');
+    const fileName = segments.pop()!;
+    const holder = segments.length === 0 ? basename(latDir) : segments.at(-1)!;
+    if (fileName === indexNameFor(holder)) continue;
+    if (segments.length > 0 && modeDirs.has(segments[0])) continue;
+    const declaredMode = parseFrontmatter(readFileSync(file, 'utf-8')).raw[
+      'mode'
+    ];
+    if (typeof declaredMode === 'string') continue;
+    offenders.push(rel);
+  }
+  return offenders;
+}
+
+/**
+ * Offer the gate to a tree `lat init` did not create.
+ *
+ * `writeForkScaffold` runs only on the branch that creates `lat.md/`, which
+ * left the flag unreachable for every project that already had one — that is,
+ * for every project that needs it. Restructuring someone's tree without asking
+ * is still wrong, so this asks.
+ *
+ * Silent when the flag is already set, when a previous run was told no, and
+ * when there is no TTY to ask — the non-interactive path prints the count and
+ * the manual edit instead, and records nothing, so a later interactive run
+ * still offers.
+ */
+export async function offerRequireMode(
+  latDir: string,
+  interactive: boolean,
+  ask: (message: string) => Promise<boolean>,
+): Promise<void> {
+  const rootIndex = join(latDir, indexNameFor(basename(latDir)));
+  if (!existsSync(rootIndex)) return;
+  if (
+    parseFrontmatter(readFileSync(rootIndex, 'utf-8')).raw['require-mode'] !==
+    undefined
+  ) {
+    return;
+  }
+  if (declined(latDir)) return;
+
+  const offenders = await unmodedDocuments(latDir);
+
+  console.log('');
+  console.log(styleText('bold', 'Diátaxis modes'));
+  console.log(
+    '  ' +
+      styleText('dim', 'Every document belongs in one of four modes. Without') +
+      ' require-mode ' +
+      styleText('dim', 'a document'),
+  );
+  console.log(
+    '  ' +
+      styleText(
+        'dim',
+        'placed outside a mode directory is checked against no shape rule at all.',
+      ),
+  );
+
+  if (offenders.length > 0) {
+    console.log('');
+    console.log(
+      `  ${styleText('yellow', String(offenders.length))} document(s) would need a mode:`,
+    );
+    for (const name of offenders.slice(0, 5)) {
+      console.log('    ' + styleText('dim', name));
+    }
+    if (offenders.length > 5) {
+      console.log(
+        '    ' + styleText('dim', `... and ${offenders.length - 5} more`),
+      );
+    }
+  }
+
+  if (!interactive) {
+    console.log('');
+    console.log(
+      '  ' +
+        styleText('dim', 'To turn it on, add this to the top of') +
+        ` ${basename(latDir)}/${indexNameFor(basename(latDir))}:`,
+    );
+    console.log('');
+    for (const line of ['---', 'lat:', '  require-mode: true', '---']) {
+      console.log('    ' + styleText('cyan', line));
+    }
+    return;
+  }
+
+  console.log('');
+  if (!(await ask('  Turn require-mode on for this project?'))) {
+    recordDecline(latDir);
+    console.log(
+      '  ' +
+        styleText('dim', 'Skipped. Add') +
+        ' require-mode: true ' +
+        styleText('dim', 'to the root index whenever you want it.'),
+    );
+    return;
+  }
+
+  writeForkScaffold(latDir);
+  if (offenders.length > 0) {
+    console.log(
+      '  ' +
+        styleText('dim', 'Run') +
+        ' lat check ' +
+        styleText('dim', 'to see which documents need placing.'),
     );
   }
 }

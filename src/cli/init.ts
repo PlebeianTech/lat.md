@@ -34,7 +34,7 @@ import { getLocalVersion, fetchLatestVersion } from '../version.js';
 import { selectMenu, type SelectOption } from './select-menu.js';
 import { checklistMenu } from './checklist-menu.js';
 import { writeForkInstructions } from './fork-instructions.js';
-import { writeForkScaffold } from './fork-scaffold.js';
+import { offerRequireMode, writeForkScaffold } from './fork-scaffold.js';
 
 async function confirm(
   rl: ReturnType<typeof createInterface>,
@@ -1498,6 +1498,8 @@ export async function initCmd(targetDir?: string): Promise<void> {
         output: process.stdout,
       });
     }
+
+    await offerRequireMode(latDir, interactive, ask);
 
     if (!anySelected) {
       // Embedding setup is complete even when the user does not configure an
