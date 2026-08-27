@@ -319,10 +319,11 @@ The suffix is also load-bearing at runtime: [[fork#Publishing#Plugin distributio
 
 Cutting a release is a deliberate act, triggered by a tag rather than by a merge.
 
-1. **Bump the version** — `version` in the root `package.json`, keeping the `-fork.N` suffix. Commit message: `Bump to X.Y.Z-fork.N`
-2. **Verify green** — `pnpm buildall && pnpm test`, and `lat check` on this repository's own `lat.md/`
-3. **Tag** — `git tag vX.Y.Z-fork.N` and push the tag. The tag must match `package.json` exactly; [[fork#Publishing#Release Workflow]] refuses the release otherwise
-4. **Install anywhere** — `npm i -g` against the release asset URL
+1. **Write the notes** — `.github/release-notes/vX.Y.Z-fork.N.md`, saying what changed and why. Optional but expected; see [[fork#Publishing#Release notes]]
+2. **Bump the version** — `version` in the root `package.json`, keeping the `-fork.N` suffix. Commit message: `Bump to X.Y.Z-fork.N`
+3. **Verify green** — `pnpm buildall && pnpm test`, and `lat check` on this repository's own `lat.md/`
+4. **Tag** — `git tag vX.Y.Z-fork.N` and push the tag. The tag must match `package.json` exactly; [[fork#Publishing#Release Workflow]] refuses the release otherwise
+5. **Install anywhere** — `npm i -g` against the release asset URL
 
 Each release carries the tarball twice: under its versioned name, and again as `lat.md-latest.tgz`. GitHub's `/releases/latest/` redirect resolves the release but not an asset name, so a version-free URL needs a version-free asset to point at:
 
@@ -333,6 +334,18 @@ npm i -g https://github.com/PlebeianTech/lat.md/releases/latest/download/lat.md-
 The versioned URL stays available for pinning. `latest` follows whichever release GitHub considers current, which excludes any release marked as a prerelease — the `-fork.N` suffix in the version does not itself mark one.
 
 The two `@lat.md/*` packages are never bumped or published here. They are upstream's, unmodified, and already released.
+
+#### Release notes
+
+Every release carries notes. The workflow uses `.github/release-notes/vX.Y.Z-fork.N.md` when that file exists, and derives the section from the commit range since the previous tag when it does not.
+
+Two failure modes are worth avoiding and the fallback avoids both. A release blocked on notes nobody wrote is a release that does not happen; notes that live only in a file someone must remember to update are notes that go stale silently. A derived default is always accurate and never blocking, and prose replaces it whenever prose is worth writing.
+
+The previous tag comes from `git describe --tags --abbrev=0 "v$VER^"` rather than a sorted tag list, so the answer follows ancestry and does not depend on how `-fork.N` suffixes sort. That needs history, which is why the release job checks out with `fetch-depth: 0` where every other job in this repository does not.
+
+Notes are attached on create **and** on re-run: the workflow calls `gh release edit --notes-file` when the release already exists, so a re-triggered build corrects them rather than leaving the first attempt's text in place.
+
+Releases `fork.1` through `fork.6` were backfilled by hand after the fact.
 
 #### Release Workflow
 

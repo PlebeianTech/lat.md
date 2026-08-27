@@ -26,7 +26,11 @@ jobs:
       # signs with.
       id-token: write
     steps:
+      # fetch-depth: 0 because the release notes are derived from the commit
+      # range since the previous tag, which a shallow clone cannot see.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -96,9 +100,33 @@ jobs:
           cp "release/${TGZ}" release/lat.md-latest.tgz
           ls -l release
 
+      # Prose when someone wrote it, the commit range when nobody did. A
+      # release must never be blocked on notes, and notes must never be a
+      # file someone forgot to update — so the fallback is derived, not typed.
       - name: Write the release notes
         run: |
+          NOTES_FILE=".github/release-notes/v${VER}.md"
+          PREV=$(git describe --tags --abbrev=0 "v${VER}^" 2>/dev/null || true)
           {
+            if [ -f "$NOTES_FILE" ]; then
+              cat "$NOTES_FILE"
+            else
+              echo "## What changed"
+              echo
+              if [ -n "$PREV" ]; then
+                git log --no-merges --pretty='- %s' "${PREV}..v${VER}" \
+                  | grep -v '^- Bump to ' || echo "- No commits since ${PREV}."
+              else
+                echo "- First release of the fork."
+              fi
+            fi
+            echo
+            if [ -n "$PREV" ]; then
+              echo "[Full diff](https://github.com/${GITHUB_REPOSITORY}/compare/${PREV}...v${VER})"
+              echo
+            fi
+            echo "---"
+            echo
             echo "Fork build of lat.md."
             echo
             echo "Install the CLI:"
@@ -111,6 +139,13 @@ jobs:
             echo
             echo '```'
             echo "npm i -g --prefix ~/.local/lat https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VER}/${TGZ}"
+            echo '```'
+            echo
+            echo "Or through mise:"
+            echo
+            echo '```'
+            echo "mise settings add minimum_release_age_excludes npm:@plebeiantech/lat.md"
+            echo "mise use -g npm:@plebeiantech/lat.md@latest"
             echo '```'
             echo
             echo "Install the Claude Code plugin (no build needed):"
@@ -128,6 +163,7 @@ jobs:
         run: |
           if gh release view "v$VER" >/dev/null 2>&1; then
             gh release upload "v$VER" release/*.tgz --clobber
+            gh release edit "v$VER" --notes-file release-notes.md
           else
             gh release create "v$VER" release/*.tgz \
               --title "v$VER" \
