@@ -1,0 +1,22 @@
+# Merging upstream
+
+Merging is cheap when the fork's own rules have been kept. Most of the procedure is moving the sync point and re-deriving the allowlist from it.
+
+1. **Look before merging** — `git fetch upstream`, then `git merge-tree --write-tree --name-only HEAD upstream/main` names every conflict without touching the working tree
+2. **Merge** — `git merge upstream/main`, resolving what git reports
+3. **Install** — `pnpm install`, since upstream may have added dependencies
+4. **Move the sync point** — `--set-sync-point <the upstream commit just merged>`
+5. **Regenerate the allowlist** — the baseline moved, so the set of files the fork diverges in moved with it; replace any `TODO` marker the generator writes
+6. **Check the whole tree** — `pnpm typecheck`, `pnpm build`, `pnpm vitest run --dir tests`, and `lat check`
+
+Steps 4 and 5 belong in the merge commit or the one right after it. Between the merge and the new sync point, the guard is measuring against a baseline that no longer describes anything.
+
+## What a clean merge still breaks
+
+A merge git calls clean is not the same as a merged tree that works, and the 0.12.2 merge produced one instance of each failure this fork has seen.
+
+A **type widened underneath us**. Upstream added a field to what `searchSections` returns, and a fork-owned test's fixture no longer satisfied it. `pnpm typecheck` catches this; the merge itself cannot.
+
+A **name collided**. Upstream added `lat.md/view/graph.md` while the fork already had `lat.md/tests/graph.md`. Two additions, no textual overlap, and every short-form `[[graph#...]]` reference became ambiguous — 32 `lat check` errors, two of them inside upstream's own documents, which this fork's filename had broken. Renaming the fork-owned file fixed all 32 and left upstream's links alone. See [[fork#Keeping the diff small#Name a new file something upstream would not reach for]].
+
+Neither is visible to the upstream guard, which reads paths rather than contents. The suite and `lat check` are what close that gap, which is why step 6 runs the whole tree rather than the files the merge touched.

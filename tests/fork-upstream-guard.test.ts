@@ -274,7 +274,7 @@ describe('upstream guard', () => {
   });
 });
 
-// @lat: [[fork#The upstream guard#The sync point]]
+// @lat: [[upstream-guard#The upstream guard#The sync point]]
 describe('the sync point', () => {
   it('stops reporting upstream churn once it is advanced past it', () => {
     // Stand in for an upstream commit landing on top of the recorded point.

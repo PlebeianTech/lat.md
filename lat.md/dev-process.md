@@ -102,7 +102,7 @@ Every test run includes a full `tsc --noEmit` pass over the entire codebase. If 
 
 ### Continuous Integration
 
-CI runs `pnpm buildall`, the `vitest` suite, and `lat check` on `ubuntu-latest`. Fork-specific workflow detail — why the check runs a source-built binary, and why Windows left the matrix — is in [[fork#Continuous integration]].
+CI runs `pnpm buildall`, the `vitest` suite, and `lat check` on `ubuntu-latest`. Fork-specific workflow detail — why the check runs a source-built binary, and why Windows left the matrix — is in [[fork#Fork#Continuous integration]].
 
 Cross-platform conventions still hold: stored paths are always POSIX ([[src/walk.ts#toPosix]]), and a repo-root `.gitattributes` (`eol=lf`) keeps a Windows checkout from rewriting line endings and breaking the markdown roundtrip.
 
@@ -138,4 +138,4 @@ Prettier with no semicolons, single quotes, trailing commas. Run `pnpm format` b
 
 ## Publishing
 
-Release, registry, and distribution are fork-specific. See [[fork#Publishing]].
+Release, registry, and distribution are fork-specific. See [[fork-publishing#Publishing]].

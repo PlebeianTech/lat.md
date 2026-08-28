@@ -88,7 +88,7 @@ export function fetchUpstream(repo: string, url: string, ref: string): void {
   }
 }
 
-// @lat: [[fork#Watching the drift]]
+// @lat: [[upstream-guard#The upstream guard#Watching the drift]]
 export function analyzeDrift(opts: {
   repo: string;
   syncPoint: string;

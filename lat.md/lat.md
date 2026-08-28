@@ -5,7 +5,8 @@ This directory defines the high-level concepts, business logic, and architecture
 <!-- lat:index:begin -->
 - [CLI](cli.md) — The \`lat\` command line tool. Entry point: \[\[src/cli/index.ts\]\].
 - [Dev Process](dev-process.md) — Development workflow, tooling, and conventions for the lat.md project.
-- [Fork](fork.md) — How this fork of \[vercel-labs/lat.md\]\(https://github.com/vercel-labs/lat.md\) diverges from upstream, and the rules that keep those divergences cheap to carry.
+- [Explanation](explanation/explanation.md) — Why this system is shaped the way it is, and what the alternatives cost.
+- [How-to](how-to/how-to.md) — Recipes for tasks that recur, written for someone who already knows what they want.
 - [Knowledge Federation](knowledge.md) — Looks up related knowledge from external stores when a tagged section is surfaced to an agent, and folds the results into the \[\[cli#hook#UserPromptSubmit\]\] payload. Driven by the \[\[markdown#Frontmatter#tags\]\] field. Entry point: \[\[src/knowledge/index.ts#federateTags\]\].
 - [Markdown](markdown.md) — Extensions to standard markdown used in \`lat.md\` files.
 - [Parser](parser.md) — Markdown parsing built on unified/remark v11. Entry point: \[\[src/parser.ts\]\]. Parse → render fidelity is verified by \[\[tests/roundtrip\]\].

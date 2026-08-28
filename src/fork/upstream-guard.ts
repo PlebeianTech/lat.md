@@ -2,17 +2,17 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 
-// @lat: [[fork#The upstream guard]]
+// @lat: [[upstream-guard#The upstream guard]]
 export const SYNC_POINT_FILE = 'fork-upstream-sync-point';
 
 /**
  * The commit this fork was originally cut from. It is not the guard's
- * baseline — see [[fork#The upstream guard#The sync point]] for why a frozen
+ * baseline — see [[upstream-guard#The upstream guard#The sync point]] for why a frozen
  * one cannot tell the fork's changes from upstream's.
  */
 export const ORIGINAL_FORK_POINT = '65d2f5b220853b2b10dca3de18d511f575bc12c7';
 
-// @lat: [[fork#The upstream guard#The allowlist]]
+// @lat: [[upstream-guard#The upstream guard#The allowlist]]
 export const ALLOWLIST_FILE = 'fork-upstream-allowlist.tsv';
 
 export const REASON_PLACEHOLDER = 'TODO';
@@ -253,7 +253,7 @@ export function upstreamPaths(
   return out;
 }
 
-// @lat: [[fork#The upstream guard#The sync point]]
+// @lat: [[upstream-guard#The upstream guard#The sync point]]
 export function parseSyncPoint(text: string): string | undefined {
   for (const raw of text.split('\n')) {
     const line = raw.replace(/\r$/, '').trim();
@@ -295,7 +295,7 @@ export type GuardOptions = {
   setSyncPoint?: string;
 };
 
-// @lat: [[fork#The upstream guard#Running it in CI]]
+// @lat: [[upstream-guard#The upstream guard#Running it in CI]]
 export function fetchSyncPoint(repo: string, rev: string): boolean {
   const result = git(repo, ['fetch', '--no-tags', '--depth=1', 'origin', rev]);
   return result.status === 0 && hasCommit(repo, rev);
@@ -440,7 +440,7 @@ export function runGuard(options: GuardOptions): GuardResult {
   };
 }
 
-// @lat: [[fork#The upstream guard#The sync point]]
+// @lat: [[upstream-guard#The upstream guard#The sync point]]
 function recordSyncPoint(repo: string, file: string, rev: string): GuardResult {
   const resolved = git(repo, ['rev-parse', `${rev}^{commit}`]);
   if (resolved.status !== 0) {

@@ -58,7 +58,7 @@ afterAll(() => {
   rmSync(repo, { recursive: true, force: true });
 });
 
-// @lat: [[fork#Watching the drift]]
+// @lat: [[upstream-guard#The upstream guard#Watching the drift]]
 describe('upstream drift', () => {
   it('reports nothing to do when upstream has not moved', () => {
     const result = drift();
