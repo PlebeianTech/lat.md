@@ -78,7 +78,19 @@ Two halves, and the order matters. [[src/cli/fork-scaffold.ts#writeForkScaffold]
 
 An opt-in flag in the root index, rather than a CLI flag or an environment variable, is what lets the rule ship without breaking anything.
 
-This repository's own `lat.md/` is eleven flat documents. Gating every tree would fail it on the commit that introduced the gate, and the honest repair — assigning modes and then splitting the documents that fail them — is real restructuring work that has nothing to do with shipping the rule. A flag read from the tree makes adoption a decision each project makes once.
+This repository's own `lat.md/` predates the gate. Gating every tree would fail it on the commit that introduced the gate, and the honest repair — assigning modes and then splitting the documents that fail them — is real restructuring work that has nothing to do with shipping the rule. A flag read from the tree makes adoption a decision each project makes once.
+
+### Why this repository classifies but does not gate
+
+`require-mode` is not set here, and the documents this fork owns still declare a mode.
+
+The flag does not gate enforcement. [[cli#check#mode]] checks any document that declares a `mode`, whether or not the flag is set — verified by declaring `mode: reference` on a document in an ungated tree and watching the check report 28 errors. What the flag adds is the second half of the rule: every document that declares *no* mode becomes an error too.
+
+That second half is what this tree cannot afford. It is tree-wide by design, and 29 of the documents it would flag are upstream's — 23 of them files the fork does not touch at all today. Setting it would add 23 entries to [[upstream-guard#The upstream guard#The allowlist]] and a merge surface in 23 files, to state a mode for documents upstream writes and this fork only reads.
+
+So the fork classifies what it owns and claims nothing about what it does not. Every fork-owned document is enforced against its declared mode; an upstream document is left alone. Declaring a mode costs nothing at read time either — frontmatter sits above the first heading, outside every section range, so it never reaches `lat search`, `lat section`, `lat expand` or the hook.
+
+The `lat.md/tests/` specs are deliberately left undeclared. Their genre is closest to `reference`, and most are one or two paragraphs away from passing it, but the paragraph that would have to go is the one saying *why* a test exists — which [[cli#check#code-refs]] coverage rules ask for. Picking `explanation` instead because it passes would be choosing a label over a description, which is the repair this project tells everyone else not to make.
 
 ### Adopting it in a tree that already exists
 
