@@ -45,6 +45,12 @@ The template names the four mode directories, the `require-mode` flag, the comme
 
 Asserting on the text is unusual, but the template is the deliverable here. A silent edit that dropped the exemption paragraph would leave every other test passing.
 
+## The block demands one specialty per document
+
+The template states all three halves of the rule — that a document is small, that it is discrete, and that it does not conflict — and names `[[section]]` linking as the alternative to restating a fact another document owns.
+
+Stating one or two halves is the likely silent regression: "keep documents small" alone reads as advice about length and leaves the overlap and contradiction cases unaddressed, which are the two that actually corrupt a documentation set.
+
 ## The block tells the agent to read sections rather than files
 
 The template names `lat section` and `lat expand` as the way to reach a section found by `lat search`, and says in as many words not to open the whole file.

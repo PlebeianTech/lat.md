@@ -191,6 +191,16 @@ describe('fork instruction block', () => {
     expect(spliceForkBlock('', body)).toContain('%% lat-fork:begin %%');
   });
 
+  // @lat: [[fork-instructions#Fork Instructions#The block demands one specialty per document]]
+  it('demands one specialty per document, discrete and non-conflicting', () => {
+    const body = readForkConventions();
+    expect(body).toContain('One specialty per document');
+    expect(body).toContain('Small');
+    expect(body).toContain('Discrete');
+    expect(body).toContain('Does not conflict');
+    expect(body).toContain('Link to it');
+  });
+
   // @lat: [[fork-instructions#Fork Instructions#The block tells the agent to read sections rather than files]]
   it('tells the agent to reach a section without opening its file', () => {
     const body = readForkConventions();

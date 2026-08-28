@@ -1,7 +1,7 @@
 # lat.md conventions this project enforces
 
-`lat check` fails on every rule below except the last, which is a reading
-practice no check can see. None of them are style preferences. This block is
+`lat check` fails on the first three rules below. The last two it cannot see,
+and they matter as much. None of the five are style preferences. This block is
 generated and a later `lat init` replaces it — record project guidance in
 `lat.md/`, never here.
 
@@ -95,6 +95,38 @@ covers it, and every section needs at least one sentence saying what it
 verifies and why. `lat check` reports any spec section no test claims, and any
 ref pointing at no section.
 
+## One specialty per document
+
+A document is **small**, **discrete**, and does **not conflict** with any
+other. Those are three demands on the same thing: a reader must be able to
+find the one place a fact is written down, and trust it.
+
+**Small — a document covers one specialty.** Not one topic area; one
+specialty. When a document covers two, it is two documents. Past roughly forty
+sections it has almost certainly become several, and an agent then loads all of
+it to reach one part.
+
+**Discrete — each document covers its own specialty.** Before writing a new
+document, search for the specialty first:
+
+```
+lat search "the thing you are about to document"
+```
+
+An overlap has two honest repairs, and picking neither is what produces the
+third copy. Either the two are one document and belong merged, or the part they
+share is its own document that both link. Deciding they are "mostly different"
+and writing anyway is how the set rots.
+
+**Does not conflict — two documents never say different things about the same
+specialty.** Never restate a fact another document owns. Link to it with
+`[[section]]`. A restatement is a second copy, a second copy drifts, and drift
+is how document B ends up contradicting document A while both look maintained.
+
+The mode rule above is the sharpest available test of "one specialty": a
+document that fails its mode is usually two documents. Split it. Do not soften
+the prose until the check passes.
+
 ## Read sections, not files
 
 `lat search` prints a section id and the exact lines that section occupies.
@@ -113,7 +145,3 @@ asked about.
 
 Use `lat expand` on a prompt carrying `[[refs]]` for the same reason: it
 resolves each ref to a location and a preview rather than to a file.
-
-The authoring half of the same rule: when a document passes roughly forty
-sections, it has usually become several documents. Split it before an agent
-has to load all of it to reach one part.
