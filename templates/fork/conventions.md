@@ -1,8 +1,9 @@
 # lat.md conventions this project enforces
 
-`lat check` fails on every rule below. They are not style preferences. This
-block is generated and a later `lat init` replaces it — record project guidance
-in `lat.md/`, never here.
+`lat check` fails on every rule below except the last, which is a reading
+practice no check can see. None of them are style preferences. This block is
+generated and a later `lat init` replaces it — record project guidance in
+`lat.md/`, never here.
 
 ## Every document goes in a Diátaxis mode directory
 
@@ -93,3 +94,26 @@ Every leaf section then needs exactly one `@lat:` comment at the test that
 covers it, and every section needs at least one sentence saying what it
 verifies and why. `lat check` reports any spec section no test claims, and any
 ref pointing at no section.
+
+## Read sections, not files
+
+`lat search` prints a section id and the exact lines that section occupies.
+Resolve it with `lat section`, or read only that line range. Opening the whole
+file is the reflex to break, and it is the expensive one:
+
+```
+lat search "how does backend selection work"
+lat section "cli#CLI#search#Backend selection"
+```
+
+not a `read` of `lat.md/cli.md`. Measured on lat.md's own graph, the section
+costs 4 KB against the file's 44 KB — eleven times the context for the same
+answer, and the answer arrives buried in forty-one sections that were not
+asked about.
+
+Use `lat expand` on a prompt carrying `[[refs]]` for the same reason: it
+resolves each ref to a location and a preview rather than to a file.
+
+The authoring half of the same rule: when a document passes roughly forty
+sections, it has usually become several documents. Split it before an agent
+has to load all of it to reach one part.

@@ -45,6 +45,12 @@ The template names the four mode directories, the `require-mode` flag, the comme
 
 Asserting on the text is unusual, but the template is the deliverable here. A silent edit that dropped the exemption paragraph would leave every other test passing.
 
+## The block tells the agent to read sections rather than files
+
+The template names `lat section` and `lat expand` as the way to reach a section found by `lat search`, and says in as many words not to open the whole file.
+
+This is the one rule in the block that no check enforces, which is exactly why it is asserted here. A silent edit dropping it would cost every consumer project an order of magnitude of context per lookup and break no test otherwise.
+
 ## A real init lands the block and the scaffold together
 
 A full `initCmd` run with Claude Code selected produces a `CLAUDE.md` carrying both marker blocks, a `lat-md-conventions` skill beside upstream's `lat-md`, and a `lat.md/` with the four mode directories and `require-mode: true`.

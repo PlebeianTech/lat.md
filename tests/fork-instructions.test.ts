@@ -190,4 +190,12 @@ describe('fork instruction block', () => {
     expect(body).toContain('not a language allowlist');
     expect(spliceForkBlock('', body)).toContain('%% lat-fork:begin %%');
   });
+
+  // @lat: [[fork-instructions#Fork Instructions#The block tells the agent to read sections rather than files]]
+  it('tells the agent to reach a section without opening its file', () => {
+    const body = readForkConventions();
+    expect(body).toContain('Read sections, not files');
+    expect(body).toContain('lat section');
+    expect(body).toContain('lat expand');
+  });
 });

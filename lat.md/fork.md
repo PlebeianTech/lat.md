@@ -60,9 +60,11 @@ Appending to that file changes the whole-file hash, so every later `lat init` wo
 
 ### What the template demands
 
-Three rules, each written because an agent was observed to miss it.
+Four rules, each written because an agent was observed to miss it.
 
 Every document goes in a Diátaxis mode directory, and a document that would fail its mode is two documents rather than one softened one. Every project carries at least one `@lat:` ref, starting at the application entrypoint and pointing at the root index. An `@lat:` pointer is a machine directive and is exempt from any project convention that minimises comments — and the marker is a comment syntax, not a language allowlist, so no example list should be read as an exclusion.
+
+The fourth is the only one no check can enforce: reach a section with `lat section` or `lat expand`, never by opening the file it lives in. A `lat.md/` file holds tens of unrelated sections, so the file costs roughly an order of magnitude more context than the section that answers the question. The template carries the measurement rather than the assertion, because an agent that has seen 4 KB against 44 KB stops reflexively opening files.
 
 ## The Diátaxis gate
 
