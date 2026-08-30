@@ -132,6 +132,14 @@ Two of the three paragraphs in the failure exist to answer an objection the read
 
 An agent working in a repository whose convention is that comments are untrusted input — subtractive, budgeted, justified — is right about prose comments and will apply that rule here unless told the boundary. So the message says what an `@lat:` line is: a machine directive in the same class as `# frozen_string_literal:` or `// eslint-disable`, carrying no rationale and unable to rot quietly, because `lat check` fails the moment its target moves. The other paragraph corrects the language-allowlist reading directly, at the moment it matters.
 
+## Working against two remotes
+
+A clone carries `origin` at PlebeianTech/lat.md and `upstream` at vercel-labs/lat.md, a repository this project must never write to. The tooling does not default to the safe one.
+
+`gh` chooses its repository from the git remotes and ranks the name `upstream` above `origin`, so in a fresh clone every `gh` command resolves to vercel-labs. `gh run list` reads their workflow runs rather than ours, which is merely confusing; `gh issue create` or `gh pr create` would post to a repository we do not own, which is prohibited outright.
+
+`gh repo set-default PlebeianTech/lat.md` settles it by writing `remote.origin.gh-resolved = base` into `.git/config`. That file is untracked, so the setting does not survive a fresh clone — every new checkout starts pointed at upstream. An explicit `--repo`, as in [[fork#Fork#Turning a workflow off without editing it]], is the form that depends on no local configuration at all.
+
 ## Turning a workflow off without editing it
 
 Whether a GitHub Actions workflow runs is repository **state**, not file content, so a workflow can be disabled without appearing in the diff at all.
