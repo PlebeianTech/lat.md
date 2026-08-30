@@ -107,11 +107,45 @@ function inlineTextOf(node: { children: RootContent[] }): string {
 }
 
 /**
+ * A GFM table that the parser handed back as a paragraph.
+ *
+ * `src/parser.ts` runs remark without `remark-gfm`, so a pipe table is never a
+ * `table` node — its rows arrive as one paragraph and every reference document
+ * containing a table failed with "this is a second paragraph", while the error
+ * text told the author to use a table. Adding the plugin would mean editing an
+ * upstream file and changing what `remarkStringify` emits for the whole tool,
+ * which `tests/roundtrip` pins; recognising the shape here costs nothing
+ * outside this check.
+ *
+ * The signature is a delimiter row — `| --- | :--: |` — under a line that opens
+ * a row. Both are required, because a delimiter row is what separates a table
+ * from prose that merely contains pipes.
+ */
+function isPipeTable(node: Paragraph, lines: string[]): boolean {
+  const start = node.position?.start.line;
+  const end = node.position?.end.line;
+  if (!start || !end || end - start < 1) return false;
+  const rows = lines.slice(start - 1, end);
+  return rows.some(
+    (row, i) =>
+      i > 0 &&
+      /^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/.test(row) &&
+      rows[i - 1].trimStart().startsWith('|'),
+  );
+}
+
+/**
  * Extra top-level paragraphs found under headings, beyond the one
  * `checkSections` already permits as the leading summary. A paragraph
  * before the first heading is the document lead, not narrative prose.
+ *
+ * A pipe table is not prose and never counts, in either position: it is
+ * neither the leading summary a reference is allowed nor an offender.
  */
-function extraParagraphs(tree: Root): { line: number; heading: string }[] {
+function extraParagraphs(
+  tree: Root,
+  lines: string[],
+): { line: number; heading: string }[] {
   const offenders: { line: number; heading: string }[] = [];
   let currentHeading: string | null = null;
   let seenParagraphUnderHeading = false;
@@ -123,6 +157,7 @@ function extraParagraphs(tree: Root): { line: number; heading: string }[] {
       continue;
     }
     if (node.type === 'paragraph') {
+      if (isPipeTable(node as Paragraph, lines)) continue;
       if (currentHeading === null) {
         // Document lead paragraph before any heading — allowed.
         continue;
@@ -387,7 +422,7 @@ export async function checkMode(
     }
 
     if (mode === 'reference') {
-      for (const offender of extraParagraphs(tree)) {
+      for (const offender of extraParagraphs(tree, content.split('\n'))) {
         errors.push({
           file: relPath,
           line: offender.line,

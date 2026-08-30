@@ -45,6 +45,12 @@ The template names the four mode directories, the `require-mode` flag, the comme
 
 Asserting on the text is unusual, but the template is the deliverable here. A silent edit that dropped the exemption paragraph would leave every other test passing.
 
+## The block gives both routes to a declared mode
+
+The template states that a mode can be declared in frontmatter as well as taken from a directory, and that both are enforced the same way.
+
+The first version described only the directory, and said a top-level document was where "no check can see it". That is false — [[cli#check#mode]] checks any document declaring a mode with or without `require-mode` — and it cost a consumer project a restructure it did not need: moving narrative documents into `reference/` produced 68 errors that declaring a mode in place would not have. A tree holding files it does not own, or one other agents are writing to, needs the route that does not move anything.
+
 ## The block demands one specialty per document
 
 The template states all three halves of the rule — that a document is small, that it is discrete, and that it does not conflict — and names `[[section]]` linking as the alternative to restating a fact another document owns.

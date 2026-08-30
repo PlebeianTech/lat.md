@@ -191,6 +191,16 @@ describe('fork instruction block', () => {
     expect(spliceForkBlock('', body)).toContain('%% lat-fork:begin %%');
   });
 
+  // @lat: [[fork-instructions#Fork Instructions#The block gives both routes to a declared mode]]
+  it('offers frontmatter declaration as well as a mode directory', () => {
+    const body = readForkConventions();
+    expect(body).toContain('mode: explanation');
+    expect(body).toContain('whether or not the root index carries');
+    expect(body).toContain('Prefer the declaration when');
+    // The claim this replaced was false and cost a consumer a restructure.
+    expect(body).not.toContain('where no check can see it');
+  });
+
   // @lat: [[fork-instructions#Fork Instructions#The block demands one specialty per document]]
   it('demands one specialty per document, discrete and non-conflicting', () => {
     const body = readForkConventions();

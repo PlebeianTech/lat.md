@@ -1,8 +1,3 @@
----
-lat:
-  mode: explanation
----
-
 # Untrusted Content
 
 Framing and sanitization for repository text placed in front of a model. Implementation: [[src/untrusted.ts]].

@@ -122,6 +122,29 @@ describe('mode-reference-prose', () => {
   });
 });
 
+describe('mode-reference-table', () => {
+  // @lat: [[tests/mode#Diátaxis Mode Check#Does not flag a GFM table in a reference document]]
+  it('does not flag a pipe table, aligned or not', async () => {
+    const errors = await checkMode(
+      latDir('mode-reference-table'),
+      caseDir('mode-reference-table'),
+    );
+    expect(errors.some((e) => e.message.includes('Tables'))).toBe(false);
+    expect(errors.some((e) => e.message.includes('Aligned'))).toBe(false);
+  });
+
+  // @lat: [[tests/mode#Diátaxis Mode Check#Still flags prose that merely contains pipes]]
+  it('still flags a second paragraph after prose containing pipes', async () => {
+    const errors = await checkMode(
+      latDir('mode-reference-table'),
+      caseDir('mode-reference-table'),
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0].line).toBe(22);
+    expect(errors[0].message).toContain('Pipes without a delimiter');
+  });
+});
+
 describe('mode-howto-steps', () => {
   it('flags a how-to with no numbered list', async () => {
     const errors = await checkMode(

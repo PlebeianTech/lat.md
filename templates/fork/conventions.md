@@ -17,15 +17,41 @@ enforces one shape rule for each:
 | `lat.md/reference/` | lookup facts: fields, states, limits, names | no narrative prose — no second paragraph under a heading |
 | `lat.md/explanation/` | why the design is what it is | no imperative commands |
 
-Do not write documents at the top of `lat.md/`. The root index is the only file
-that belongs there. When it carries `require-mode: true`, a document with no
-declared mode and no mode directory is a `lat check` error.
+A document is classified either by the directory it sits in, or by declaring
+the mode in its own frontmatter:
+
+```markdown
+---
+lat:
+  mode: explanation
+---
+```
+
+Both are enforced identically — `lat check mode` applies the shape rule to any
+document that declares a mode, whether or not the root index carries
+`require-mode: true`. That flag adds a separate rule: a document declaring *no*
+mode, in no mode directory, becomes an error too.
+
+Prefer the directory in a tree you own outright. Prefer the declaration when
+the file cannot move — a document another project maintains, or a tree other
+agents are writing to while you work. Moving costs every reference to the file;
+declaring costs nothing at read time, because frontmatter sits above the first
+heading and outside every section.
 
 **A document that fails its mode is usually two documents.** A file that lists
 the states *and* argues for the design is mixed: the lookup half goes in
 `reference/`, the reasoning half in `explanation/`, and each links the other.
 Filing it under one mode and softening the prose until the check passes is the
-wrong repair. So is leaving it at the top level where no check can see it.
+wrong repair.
+
+Classifying a mixed document does not make it pass. Narrative prose put under
+`reference/` fails on contact, because a reference may not carry a second
+paragraph under a heading — so a move is not a way to adopt the rule cheaply.
+Split first, then place. And `explanation` is not the safe default: it bans
+only imperative commands, so nearly any prose passes it. Declaring it is a
+claim about the document, not somewhere to put whatever is left over. A
+document you cannot honestly classify is better left undeclared than
+mislabelled.
 
 Classify before writing, not after. If a `diataxis` skill is available, use it.
 

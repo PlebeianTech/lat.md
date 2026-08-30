@@ -1,8 +1,3 @@
----
-lat:
-  mode: explanation
----
-
 # Knowledge Federation
 
 Looks up related knowledge from external stores when a tagged section is surfaced to an agent, and folds the results into the [[cli#hook#UserPromptSubmit]] payload. Driven by the [[markdown#Frontmatter#tags]] field. Entry point: [[src/knowledge/index.ts#federateTags]].

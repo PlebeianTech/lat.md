@@ -88,7 +88,7 @@ The flag does not gate enforcement. [[cli#check#mode]] checks any document that 
 
 That second half is what this tree cannot afford. It is tree-wide by design, and 29 of the documents it would flag are upstream's — 23 of them files the fork does not touch at all today. Setting it would add 23 entries to [[upstream-guard#The upstream guard#The allowlist]] and a merge surface in 23 files, to state a mode for documents upstream writes and this fork only reads.
 
-So the fork classifies what it owns and claims nothing about what it does not. Every fork-owned document is enforced against its declared mode; an upstream document is left alone. Declaring a mode costs nothing at read time either — frontmatter sits above the first heading, outside every section range, so it never reaches `lat search`, `lat section`, `lat expand` or the hook.
+So the fork classifies what it owns and claims nothing about what it does not. Every fork-owned document that can move sits in a mode directory; the upstream documents are left where they are, unclassified. Where a document cannot move, declaring the mode in its frontmatter is equivalent and costs nothing at read time — frontmatter sits above the first heading, outside every section range, so it never reaches `lat search`, `lat section`, `lat expand` or the hook.
 
 The `lat.md/tests/` specs are deliberately left undeclared. Their genre is closest to `reference`, and most are one or two paragraphs away from passing it, but the paragraph that would have to go is the one saying *why* a test exists — which [[cli#check#code-refs]] coverage rules ask for. Picking `explanation` instead because it passes would be choosing a label over a description, which is the repair this project tells everyone else not to make.
 

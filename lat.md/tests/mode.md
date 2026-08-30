@@ -32,6 +32,18 @@ A second document in the same fixture repeats, as ordinary prose, the exact sent
 
 Without this pair, every exemption test is satisfied by a detector that simply never fires on those sentences — dropping `Run` from `IMPERATIVE_VERBS` would leave the fence and frontmatter tests green. The pair pins the exemption to position rather than to wording.
 
+## Does not flag a GFM table in a reference document
+
+A pipe table under a heading in a `reference` document is not reported, and a table carrying alignment colons in its delimiter row is not reported either.
+
+`src/parser.ts` runs remark without `remark-gfm`, so a table's rows reach the check as one paragraph rather than a `table` node. Every reference document holding a table failed with "this is a second paragraph" while the same message recommended using a table. The parser is upstream and its stringify output is pinned by [[roundtrip]], so the shape is recognised in the fork-owned check instead.
+
+## Still flags prose that merely contains pipes
+
+A paragraph containing `|` characters with no delimiter row beneath it counts as an ordinary paragraph, so a second paragraph after it is still reported.
+
+A delimiter row is the whole signal. Without this the exemption would swallow any sentence that happens to use a pipe, which is how a narrowing fix becomes a silent hole in the check.
+
 ## Does not treat an Object.prototype key as a mode directory
 
 A document under a directory named for an inherited `Object.prototype` member — `constructor`, `toString` — is not matched against a Diátaxis mode by that name.
