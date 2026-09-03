@@ -122,7 +122,6 @@ async function withDb<T>(
   }
 }
 
-
 /**
  * Run a semantic search across lat.md sections.
  * Handles indexing (with optional progress callback). Returns matched sections.

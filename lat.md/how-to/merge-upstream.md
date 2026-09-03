@@ -19,4 +19,10 @@ A **type widened underneath us**. Upstream added a field to what `searchSections
 
 A **name collided**. Upstream added `lat.md/view/graph.md` while the fork already had `lat.md/tests/graph.md`. Two additions, no textual overlap, and every short-form `[[graph#...]]` reference became ambiguous — 32 `lat check` errors, two of them inside upstream's own documents, which this fork's filename had broken. Renaming the fork-owned file fixed all 32 and left upstream's links alone. See [[fork#Keeping the diff small#Name a new file something upstream would not reach for]].
 
-Neither is visible to the upstream guard, which reads paths rather than contents. The suite and `lat check` are what close that gap, which is why step 6 runs the whole tree rather than the files the merge touched.
+The de75b80 merge added two more, both from upstream rewriting a function the fork had changed rather than the fork's own lines.
+
+A **fork behaviour was dropped**. Upstream replaced the TypeScript scanner's read loop with a parallel one that calls `LAT_REF_RE` directly, where the fork's version called `extractRefsFromLine`. Git resolved that hunk cleanly and the tree compiled, but `lat:ignore` and the literal-example exclusion stopped applying whenever ripgrep was absent, so the two scan paths silently disagreed. Only the suite sees this: `tests/code-refs-ignore.test.ts` exercises the fallback under `_LAT_DISABLE_RG=1`.
+
+A **fork behaviour became unsafe where it had been safe**. `lat check` used to run its validators in sequence, which is what made `--fix` rewriting index files harmless. Upstream made them concurrent over a shared parse cache, and the fork's write then raced readers holding pre-fix text. Nothing conflicted and nothing failed to compile; the merged code was simply wrong in a way that depends on scheduling. Whenever upstream changes how something runs, check what the fork put inside it.
+
+None of the four is visible to the upstream guard, which reads paths rather than contents. The suite and `lat check` are what close that gap, which is why step 6 runs the whole tree rather than the files the merge touched.

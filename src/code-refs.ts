@@ -276,7 +276,14 @@ async function findGitTrackedSourceFiles(
 async function findGeneratedOutputs(projectRoot: string): Promise<string[]> {
   const out = await tryExec(
     'rg',
-    ['--files', '--hidden', ...RG_IGNORE_ARGS, '--glob', '**/.lat-ui-build', '.'],
+    [
+      '--files',
+      '--hidden',
+      ...RG_IGNORE_ARGS,
+      '--glob',
+      '**/.lat-ui-build',
+      '.',
+    ],
     projectRoot,
   );
   if (!out) return [];
