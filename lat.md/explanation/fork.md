@@ -140,6 +140,18 @@ A clone carries `origin` at PlebeianTech/lat.md and `upstream` at vercel-labs/la
 
 `gh repo set-default PlebeianTech/lat.md` settles it by writing `remote.origin.gh-resolved = base` into `.git/config`. That file is untracked, so the setting does not survive a fresh clone — every new checkout starts pointed at upstream. An explicit `--repo`, as in [[fork#Fork#Turning a workflow off without editing it]], is the form that depends on no local configuration at all.
 
+## Upstream's commits must keep their hashes
+
+Rewriting history here is safe only if every commit that came from upstream survives byte-identical. Their hashes are the fork's link to upstream, and a tool that changes them severs it.
+
+71 of the commits in this history are signed — GitHub signs what it merges through the web UI, so most of upstream's carry a `gpgsig` header. That header is part of the commit object, so anything that drops it changes the hash.
+
+`git filter-repo` drops it. It round-trips history through `fast-export`/`fast-import`, which has no way to carry a signature it cannot re-make, and the new hash cascades to every descendant. Running it over the whole history moved `v0.12.2` and erased the commit named in `fork-upstream-sync-point` — which leaves [[upstream-guard#The upstream guard#The sync point]] with nothing to measure against, and leaves `git merge upstream/main` with no common ancestor to merge from.
+
+Nothing about the fork's own commits requires that. None of them is signed, and no upstream commit descends from one, so the set that needs a new hash is exactly the set being changed. Editing each of those raw commit objects and re-hashing only those leaves every other object exactly as it was.
+
+The check that catches a rewrite gone wrong is that the sync point is still an ancestor of `main`, and that the upstream tags still name the commits they named before.
+
 ## Turning a workflow off without editing it
 
 Whether a GitHub Actions workflow runs is repository **state**, not file content, so a workflow can be disabled without appearing in the diff at all.
