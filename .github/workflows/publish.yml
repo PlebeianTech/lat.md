@@ -105,6 +105,31 @@ jobs:
           cp "release/${TGZ}" release/lat.md-latest.tgz
           ls -l release
 
+      # The gate that would have caught 0.12.3-fork.14, which packed cleanly,
+      # tested green, published, and then failed for every user with a 404 on
+      # @lat.md/server. Nothing before this point can see that: the workspace
+      # satisfies the dependency locally, so only an install that resolves
+      # from the registry proves the tarball is installable at all.
+      #
+      # A --prefix outside the repo is what makes it a real test. Installing
+      # in place would find the workspace links again and pass regardless.
+      - name: Install the packed tarball and run it
+        run: |
+          npm install --prefix "$RUNNER_TEMP/smoke" --no-audit --no-fund "./release/${TGZ}"
+          LAT="$RUNNER_TEMP/smoke/node_modules/.bin/lat"
+          GOT=$("$LAT" --version)
+          if [ "$GOT" != "$VER" ]; then
+            echo "Installed CLI reports $GOT, expected $VER." >&2
+            exit 1
+          fi
+          # The view server is the only importer of the vendored Express
+          # runtime, and nothing else in the CLI would notice it missing.
+          node --input-type=module -e "
+            await import('$RUNNER_TEMP/smoke/node_modules/@plebeiantech/lat.md/dist/src/view/server.js');
+            console.log('view server module loads');
+          "
+          "$LAT" check
+
       # Prose when someone wrote it, the commit range when nobody did. A
       # release must never be blocked on notes, and notes must never be a
       # file someone forgot to update — so the fallback is derived, not typed.

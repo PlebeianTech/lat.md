@@ -26,6 +26,20 @@ The published package carries a built `dist/` and `templates/`; there is no `pos
 
 The package ships only `dist/src` and `templates`, so there would be nothing to build from. Even shipping sources would put Rust, the exact `wasm-bindgen-cli`, a working C linker and a 90 MB weights fetch on every install, and install scripts are widely disabled anyway — pnpm blocks them by default. The WASM engine and the weights arrive as ordinary npm dependencies instead.
 
+## The vendored UI server
+
+`@lat.md/server` is a workspace package upstream depends on but has never published, so the fork vendors its build into the tarball instead of declaring it as a dependency.
+
+Upstream split the UI's Express runtime out into `packages/server` and made it a plain `dependencies` entry. Their own latest release predates the split, so nothing of theirs installs it either — but the fork released first, and `pnpm pack` turned `workspace:*` into a literal `0.1.0` no registry can serve. Every install of `0.12.3-fork.14` failed with a 404, by every route.
+
+The published dependency graph has to be made only of plain registry packages at plain semver ranges, because that is the one shape every installer agrees on. An npm alias or a tarball URL would satisfy npm and pnpm, but mise resolves the graph with a resolver of its own and is a documented install route here. `bundledDependencies` is refused outright by pnpm under the isolated node linker.
+
+So [[scripts/fork-vendor-ui-server.ts]] copies the compiled server into `dist/vendor/lat.md-server` after `tsc`, and rewrites the bare specifier in the emitted output to a relative path. `express`, its only external import, moves up into the fork's own dependencies. `@lat.md/server` stays a workspace `devDependency`, which is all the tests and the typecheck ever needed.
+
+The script walks the whole of `dist/src` rather than naming the single importer, so a second importer needs no edit and a second run finds nothing left to rewrite. An occurrence surviving the rewrite fails the build rather than shipping.
+
+This is temporary by construction. The day upstream publishes `@lat.md/server`, the script and its call in `build` come out and the workspace dependency alone works again.
+
 ## Fork versioning
 
 The fork's version is a `-fork.N` prerelease of the *next* upstream patch — `0.12.3-fork.1`, not `0.12.2-fork.2`.
@@ -53,11 +67,20 @@ GitHub Actions workflow at `.github/workflows/publish.yml`, triggered by a `v*` 
 1. **Toolchain setup** — Node 22 + pnpm and a Rust toolchain with the `wasm32-unknown-unknown` target, plus ripgrep so both code-ref scan paths are exercised
 2. **Build and tests** — `pnpm install --frozen-lockfile`, `pnpm buildall`, then `pnpm vitest run`
 3. **Release guards** — three guards, each failing the run rather than cutting a bad release: the package name must be exactly `@plebeiantech/lat.md`, the version must carry a `-fork.` suffix, and a tag must equal `v$VERSION`
-4. **Packing** — `pnpm pack`, which rewrites the `workspace:*` deps to their published versions
-5. **Publishing to npm** — `npm publish --provenance --access public --tag fork-N`, then `npm dist-tag add ... latest`. Last so it cannot block the release; skipped when the version is already on npm, or when neither an OIDC credential nor an `NPM_TOKEN` is available
-6. **The GitHub Release** — creates the `vX.Y.Z-fork.N` release with both asset names attached, or uploads to an existing one with `--clobber`. Runs before the publish step above
+4. **Packing** — `pnpm pack`, which rewrites the `workspace:*` deps to their published versions. That rewrite is also a hazard; see [[fork-publishing#Publishing#The vendored UI server]]
+5. **Installability** — the tarball is installed into a prefix outside the repository and run from there, so a package that cannot be installed fails the release instead of reaching npm
+6. **Publishing to npm** — `npm publish --provenance --access public --tag fork-N`, then `npm dist-tag add ... latest`. Last so it cannot block the release; skipped when the version is already on npm, or when neither an OIDC credential nor an `NPM_TOKEN` is available
+7. **The GitHub Release** — creates the `vX.Y.Z-fork.N` release with both asset names attached, or uploads to an existing one with `--clobber`. Runs before the publish step above
 
 The job holds only `contents: write`; with no `NPM_TOKEN` set, nothing in it contacts a registry at all.
+
+## The installability gate
+
+CI and the release workflow both install the packed tarball into a prefix outside the repository and run the CLI from there, because nothing else in either pipeline can tell whether the package installs at all.
+
+A build, a full test run and `pnpm pack` all succeed against the workspace, where every `workspace:*` link resolves locally. The packed tarball is a different artifact: its dependencies are bare versions fetched from the registry. `0.12.3-fork.14` passed every gate that existed and was uninstallable.
+
+Installing in place would find the workspace links again and prove nothing, which is why the prefix sits outside the tree. The check also imports the view server module — the only consumer of the vendored Express runtime, and the one thing `lat --version` leaves unexercised.
 
 ## Authenticating the publish
 

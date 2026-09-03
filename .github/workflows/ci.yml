@@ -57,3 +57,21 @@ jobs:
       # upstream's are wiki links, so upstream's `lat` reports every index file
       # as malformed. Only this tree's own CLI is a valid checker for this tree.
       - run: node dist/src/cli/index.js check
+
+      # Prove the tarball is installable before a tag exists, not after it is
+      # on npm. `pnpm pack` rewrites every `workspace:*` to a bare version, so
+      # a workspace package upstream has not published turns into a dependency
+      # that 404s for every user while resolving fine in this tree — which is
+      # exactly how 0.12.3-fork.14 shipped broken. The --prefix has to be
+      # outside the repo or npm finds the workspace links and proves nothing.
+      - name: Install the packed tarball and run it
+        run: |
+          pnpm pack --pack-destination "$RUNNER_TEMP/pack"
+          npm install --prefix "$RUNNER_TEMP/smoke" --no-audit --no-fund "$RUNNER_TEMP"/pack/*.tgz
+          "$RUNNER_TEMP/smoke/node_modules/.bin/lat" --version
+          # The view server is the only importer of the vendored Express
+          # runtime, and nothing else in the CLI would notice it missing.
+          node --input-type=module -e "
+            await import('$RUNNER_TEMP/smoke/node_modules/@plebeiantech/lat.md/dist/src/view/server.js');
+            console.log('view server module loads');
+          "

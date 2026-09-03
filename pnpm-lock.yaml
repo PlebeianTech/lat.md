@@ -20,9 +20,6 @@ importers:
       '@lat.md/embed-minilm-fp16':
         specifier: workspace:*
         version: link:packages/embed-minilm-fp16
-      '@lat.md/server':
-        specifier: workspace:*
-        version: link:packages/server
       '@libsql/client':
         specifier: ^0.17.0
         version: 0.17.0
@@ -38,6 +35,9 @@ importers:
       diff:
         specifier: ^8.0.4
         version: 8.0.4
+      express:
+        specifier: ^5.2.1
+        version: 5.2.1
       github-slugger:
         specifier: ^2.0.0
         version: 2.0.0
@@ -144,6 +144,9 @@ importers:
       '@codemirror/view':
         specifier: ^6.43.9
         version: 6.43.9
+      '@lat.md/server':
+        specifier: workspace:*
+        version: link:packages/server
       '@lezer/highlight':
         specifier: ^1.2.3
         version: 1.2.3
