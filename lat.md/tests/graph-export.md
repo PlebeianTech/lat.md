@@ -62,6 +62,8 @@ Git's default `core.quotePath` C-quotes such a path, producing a name that ends 
 
 A committed document over 1 MB is read back without `git show` failing with `ENOBUFS` from `execFile`'s 1 MB default `maxBuffer`.
 
+The fixture's bytes are split into short paragraphs, and that shape is load-bearing. Parsing 1.8 MB as one paragraph costs about 35 times what the same bytes cost split up — 46s against 1.3s — because the Markdown extensions added upstream in 0.12.x scan superlinearly within a single paragraph. Only the byte count matters to what this test checks, so the fixture avoids a cost it was never measuring. The parser behaviour itself is an upstream defect, recorded and taken no further.
+
 ## graph-export unit tests
 
 Low-level tests against `buildGraph`, `diffGraphs`, and the three formatters directly, without going through the CLI.

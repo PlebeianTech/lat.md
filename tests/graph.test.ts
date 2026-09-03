@@ -362,9 +362,15 @@ describe('git history', () => {
       run(['init', '-q']);
       run(['config', 'user.email', 'test@example.com']);
       run(['config', 'user.name', 'Test']);
-      const filler = 'Prose line that exists only to take up bytes.\n'.repeat(
-        40_000,
-      );
+      // Blank lines every fifth line, deliberately. The byte count is what
+      // this test is about, but a single 1.8 MB paragraph takes the Markdown
+      // parser ~35x longer than the same bytes split into paragraphs, which
+      // pushed this past the 30s timeout for a reason having nothing to do
+      // with exec buffers. See [[graph-export#Reads a document larger than
+      // the default pipe buffer]].
+      const paragraph =
+        'Prose line that exists only to take up bytes.\n'.repeat(5) + '\n';
+      const filler = paragraph.repeat(8_000);
       writeFileSync(
         join(dir, 'lat.md', 'big.md'),
         `# Big\n\nOverview.\n\n${filler}`,
