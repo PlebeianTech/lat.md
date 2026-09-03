@@ -5,11 +5,11 @@ import { toPosix, walkEntries } from './walk.js';
 
 /** Glob patterns used to exclude directories/files from code-ref scanning.
  *  Shared between rg args and the TS fallback's walkFiles filter. */
-const EXCLUDE_DIRS = ['lat.md', '.claude'];
+const EXCLUDE_DIRS = ['lat.md', '.claude', '.gemini', '.agents'];
 const EXCLUDE_GLOBS = ['*.md'];
 
 /** Walk project files for code-ref scanning. Uses walkEntries for .gitignore
- *  support, then additionally skips .md files, lat.md/, .claude/, and sub-projects. */
+ *  support, then additionally skips .md files, lat.md/, .claude/, .gemini/, .agents/, and sub-projects. */
 export async function walkFiles(dir: string): Promise<string[]> {
   const entries = (await walkEntries(dir)).map(toPosix);
   const generatedOutputs = new Set(
@@ -29,8 +29,7 @@ export async function walkFiles(dir: string): Promise<string[]> {
     .filter(
       (e) =>
         !e.endsWith('.md') &&
-        !e.startsWith('lat.md/') &&
-        !e.startsWith('.claude/') &&
+        !EXCLUDE_DIRS.some((d) => e === d || e.startsWith(`${d}/`)) &&
         ![...generatedOutputs].some((prefix) => e.startsWith(prefix)) &&
         ![...subProjects].some((prefix) => e.startsWith(prefix)),
     )

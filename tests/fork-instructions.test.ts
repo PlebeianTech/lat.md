@@ -54,6 +54,25 @@ describe('fork instruction block', () => {
     }
   });
 
+  it('appends its block to GEMINI.md when present', async () => {
+    const root = makeRoot();
+    try {
+      const gemini = '# Gemini Instructions\n\n%% lat:begin %%\nupstream template\n%% lat:end %%\n';
+      writeFileSync(join(root, 'GEMINI.md'), gemini);
+
+      await quiet(() =>
+        writeForkInstructions(root, join(root, 'lat.md'), {}, alwaysYes),
+      );
+
+      const after = readFileSync(join(root, 'GEMINI.md'), 'utf-8');
+      expect(after.startsWith(gemini)).toBe(true);
+      expect(after).toContain('%% lat-fork:begin %%');
+      expect(extractForkBlock(after)).toBe(readForkConventions());
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   // @lat: [[fork-instructions#Fork Instructions#Re-running writes nothing]]
   it('is idempotent across runs', async () => {
     const root = makeRoot();

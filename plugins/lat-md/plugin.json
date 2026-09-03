@@ -1,0 +1,9 @@
+{
+  "name": "lat-md",
+  "version": "0.12.3",
+  "description": "Grounds an agent in a project's lat.md/ knowledge graph deterministically: resolves [[refs]] and federates knowledge into prompts, blocks multi-line rationale comments before they reach source, regenerates directory indexes after edits, and blocks Stop on a failing lat check — including Diataxis mode validation.",
+  "author": {
+    "name": "PlebeianTech"
+  },
+  "keywords": ["documentation", "diataxis", "lat.md", "knowledge-graph"]
+}

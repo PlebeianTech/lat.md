@@ -1,0 +1,38 @@
+{
+  "lat-md": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "lat hook antigravity PreInvocation"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "replace_file_content|write_to_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "lat hook antigravity PreToolUse"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "replace_file_content|write_to_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "lat hook antigravity PostToolUse"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "lat hook antigravity Stop"
+      }
+    ]
+  }
+}

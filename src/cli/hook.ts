@@ -23,6 +23,7 @@ import {
   type PostToolUseInput,
 } from './comment-reminder.js';
 import { handlePreToolUse } from './comment-guard.js';
+import { handleAntigravityHook } from '../fork/antigravity-hook.js';
 
 function outputPromptSubmit(context: string): void {
   process.stdout.write(
@@ -367,7 +368,7 @@ function analyzeDiff(projectRoot: string): {
   return { codeLines, latMdLines };
 }
 
-type StopStatus = {
+export type StopStatus = {
   checkFailed: boolean;
   totalErrors: number;
   needsSync: boolean;
@@ -375,7 +376,7 @@ type StopStatus = {
   latMdLines: number;
 };
 
-async function getStopStatus(latDir: string): Promise<StopStatus> {
+export async function getStopStatus(latDir: string): Promise<StopStatus> {
   const md = await checkMd(latDir);
   const code = await checkCodeRefs(latDir);
   const indexErrors = await checkIndex(latDir);
@@ -409,7 +410,7 @@ async function getStopStatus(latDir: string): Promise<StopStatus> {
   };
 }
 
-function formatStopReason({
+export function formatStopReason({
   checkFailed,
   totalErrors,
   needsSync,
@@ -547,9 +548,13 @@ export async function hookCmd(agent: string, event: string): Promise<void> {
           );
           process.exit(1);
       }
+    case 'antigravity':
+    case 'gemini':
+      await handleAntigravityHook(event);
+      return;
     default:
       console.error(
-        `Unknown agent: ${agent}. Supported: claude, codex, cursor`,
+        `Unknown agent: ${agent}. Supported: claude, codex, cursor, antigravity, gemini`,
       );
       process.exit(1);
   }

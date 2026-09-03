@@ -35,6 +35,7 @@ import { selectMenu, type SelectOption } from './select-menu.js';
 import { checklistMenu } from './checklist-menu.js';
 import { writeForkInstructions } from './fork-instructions.js';
 import { offerRequireMode, writeForkScaffold } from './fork-scaffold.js';
+import { setupAntigravity } from '../fork/antigravity-init.js';
 
 async function confirm(
   rl: ReturnType<typeof createInterface>,
@@ -1325,6 +1326,7 @@ function printNextSteps(selectedAgents: string[]): void {
     pi: 'Pi',
     opencode: 'OpenCode',
     codex: 'Codex',
+    antigravity: 'Antigravity',
   };
 
   if (!hasClaudeCode && ideAgents.length === 0) return;
@@ -1445,6 +1447,7 @@ export async function initCmd(targetDir?: string): Promise<void> {
       { label: 'VS Code Copilot', value: 'copilot' },
       { label: 'OpenCode', value: 'opencode' },
       { label: 'Codex', value: 'codex' },
+      { label: 'Antigravity / Gemini', value: 'antigravity' },
     ];
 
     const selectedAgents = await checklistMenu(
@@ -1458,6 +1461,7 @@ export async function initCmd(targetDir?: string): Promise<void> {
     const useCopilot = selectedAgents.includes('copilot');
     const useOpenCode = selectedAgents.includes('opencode');
     const useCodex = selectedAgents.includes('codex');
+    const useAntigravity = selectedAgents.includes('antigravity');
 
     const anySelected = selectedAgents.length > 0;
     const needsLatCommand =
@@ -1466,7 +1470,8 @@ export async function initCmd(targetDir?: string): Promise<void> {
       useCursor ||
       useCopilot ||
       useOpenCode ||
-      useCodex;
+      useCodex ||
+      useAntigravity;
 
     // Step 4: How should agents run lat?
     let commandStyle: LatCommandStyle = 'local';
@@ -1521,7 +1526,12 @@ export async function initCmd(targetDir?: string): Promise<void> {
 
     // Step 5: AGENTS.md (shared by non-Claude agents)
     const needsAgentsMd =
-      usePi || useCursor || useCopilot || useOpenCode || useCodex;
+      usePi ||
+      useCursor ||
+      useCopilot ||
+      useOpenCode ||
+      useCodex ||
+      useAntigravity;
     if (needsAgentsMd) {
       await setupAgentsMd(root, latDir, template, fileHashes, ask);
     }
@@ -1568,6 +1578,25 @@ export async function initCmd(targetDir?: string): Promise<void> {
       console.log('');
       console.log(styleText('bold', 'Setting up Codex...'));
       await setupCodex(root, latDir, fileHashes, ask, commandStyle);
+    }
+
+    if (useAntigravity) {
+      console.log('');
+      console.log(styleText('bold', 'Setting up Antigravity / Gemini...'));
+      await setupAntigravity({
+        root,
+        latDir,
+        template,
+        hashes: fileHashes,
+        ask,
+        style: commandStyle,
+        latBin: latBinString(commandStyle),
+        appendTemplateSection,
+        writeTemplateFile,
+        ensureGitignored,
+        hasMcpServer,
+        addMcpServer,
+      });
     }
 
     await writeForkInstructions(root, latDir, fileHashes, ask);

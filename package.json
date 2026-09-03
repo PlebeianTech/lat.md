@@ -25,7 +25,8 @@
   },
   "files": [
     "dist/src",
-    "templates"
+    "templates",
+    "plugins"
   ],
   "scripts": {
     "build": "tsc && pnpm build:view",

@@ -80,3 +80,38 @@ describe('literal-example-code-ref', () => {
     expect(errors).toHaveLength(0);
   });
 });
+
+describe('antigravity directory exclusion', () => {
+  it('excludes .gemini and .agents from code reference scanning', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const dir = mkdtempSync(join(tmpdir(), 'lat-agy-ignore-'));
+    try {
+      mkdirSync(join(dir, '.gemini'), { recursive: true });
+      mkdirSync(join(dir, '.agents'), { recursive: true });
+      mkdirSync(join(dir, 'src'), { recursive: true });
+
+      writeFileSync(
+        join(dir, '.gemini', 'state.ts'),
+        '// @lat: [[lat.md/topic#Gemini Ref]]\n',
+      );
+      writeFileSync(
+        join(dir, '.agents', 'rules.ts'),
+        '// @lat: [[lat.md/topic#Agents Ref]]\n',
+      );
+      writeFileSync(
+        join(dir, 'src', 'app.ts'),
+        '// @lat: [[lat.md/topic#App Ref]]\n',
+      );
+
+      const { refs } = await scanCodeRefs(dir);
+      const targets = refs.map((r) => r.target);
+      expect(targets).toContain('lat.md/topic#App Ref');
+      expect(targets).not.toContain('lat.md/topic#Gemini Ref');
+      expect(targets).not.toContain('lat.md/topic#Agents Ref');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+

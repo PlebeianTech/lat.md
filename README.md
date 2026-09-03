@@ -77,6 +77,30 @@ The hooks are also packaged as a plugin, installable straight from this reposito
 
 The plugin ships hooks only and finds `lat` on your `PATH`, accepting a build only if its version carries a `-fork` suffix.
 
+### As an Antigravity / Gemini CLI plugin
+
+The hooks, rules, and skills are packaged as an Antigravity plugin under `plugins/lat-md/`.
+
+You can install it directly without cloning the repository:
+
+**Global installation (all local projects):**
+```bash
+mkdir -p ~/.gemini/config/plugins/lat-md && \
+curl -sL https://github.com/PlebeianTech/lat.md/archive/refs/heads/main.tar.gz | \
+  tar -xz -C ~/.gemini/config/plugins/lat-md --strip-components=2 lat.md-main/plugins/lat-md
+```
+
+**Workspace installation (single repository):**
+```bash
+mkdir -p .agents/plugins/lat-md && \
+curl -sL https://github.com/PlebeianTech/lat.md/archive/refs/heads/main.tar.gz | \
+  tar -xz -C .agents/plugins/lat-md --strip-components=2 lat.md-main/plugins/lat-md
+```
+
+Alternatively, install `@plebeiantech/lat.md` via npm/mise, run `lat init` in your project, and select **Antigravity / Gemini** from the agent checklist.
+
+
+
 ## How it works
 
 Run `lat init` to scaffold a `lat.md/` directory, then write markdown files describing your architecture, business logic, test specs — whatever matters. Link between sections using `[[file#Section#Subsection]]` syntax. Link to source code symbols with `[[src/auth.ts#validateToken]]`. Annotate source code with `// @lat: [[section-id]]` (or `# @lat: [[section-id]]` in Python) comments to tie implementation back to concepts.

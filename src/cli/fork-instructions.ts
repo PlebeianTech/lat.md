@@ -18,7 +18,7 @@ import { findTemplatesDir } from './templates.js';
  *
  * Two shapes, because the destinations behave differently:
  *
- * - Always-loaded instruction files (`CLAUDE.md`, `AGENTS.md`,
+ * - Always-loaded instruction files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`,
  *   `.github/copilot-instructions.md`) already carry upstream's
  *   `%% lat:begin %%` block, so this appends a *second* block under its own
  *   `%% lat-fork:begin %%` markers. Upstream's `appendTemplateSection` slices
@@ -46,6 +46,7 @@ function forkHashKey(relPath: string): string {
 const BLOCK_TARGETS = [
   'CLAUDE.md',
   'AGENTS.md',
+  'GEMINI.md',
   '.github/copilot-instructions.md',
 ];
 
@@ -63,7 +64,7 @@ const SKILL_ROOTS = [
 
 const SKILL_NAME = 'lat-md-conventions';
 
-const SKILL_FRONTMATTER = `---
+export const SKILL_FRONTMATTER = `---
 name: ${SKILL_NAME}
 description: >-
   Rules lat check enforces in this project: Diátaxis mode placement for every
