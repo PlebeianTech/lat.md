@@ -12,8 +12,15 @@ import {
   closeDb,
 } from '../src/search/db.js';
 import { indexSections } from '../src/search/index.js';
-import { searchSections } from '../src/search/search.js';
+import {
+  DEFAULT_SEARCH_LIMIT,
+  DEFAULT_SEARCH_THRESHOLD,
+  searchSections,
+} from '../src/search/search.js';
 import { runSearch } from '../src/cli/search.js';
+import { formatResultList } from '../src/format.js';
+import { plainStyler, type CmdContext } from '../src/context.js';
+import type { Section } from '../src/lattice-model.js';
 import { startReplayServer, hasReplayData } from './rag-replay-server.js';
 import type { Client } from '@libsql/client';
 import type { Server } from 'node:http';
@@ -92,11 +99,36 @@ describe('search (rag, local)', () => {
       db,
       'how do we handle user login and security?',
       embedder,
+      DEFAULT_SEARCH_LIMIT,
+      0,
     );
     expect(results.length).toBeGreaterThan(0);
     expect(results[0].id).toContain('Authentication');
     expect(Number.isFinite(results[0].score)).toBe(true);
     expect(results[0].score).toBeGreaterThanOrEqual(results.at(-1)!.score);
+  });
+
+  // @lat: [[search#RAG Tests#Filters results below the similarity threshold]]
+  it('filters results below the similarity threshold', async () => {
+    const query = 'how do we handle user login and security?';
+    const results = await searchSections(
+      db,
+      query,
+      embedder,
+      DEFAULT_SEARCH_LIMIT,
+      0,
+    );
+    const threshold = (results[0].score + results[1].score) / 2;
+    const filtered = await searchSections(
+      db,
+      query,
+      embedder,
+      DEFAULT_SEARCH_LIMIT,
+      threshold,
+    );
+
+    expect(filtered.map((result) => result.id)).toEqual([results[0].id]);
+    expect(filtered[0].score).toBeGreaterThanOrEqual(threshold);
   });
 
   // @lat: [[search#RAG Tests#Finds performance section for latency query]]
@@ -105,6 +137,8 @@ describe('search (rag, local)', () => {
       db,
       'what tools do we use to measure response times?',
       embedder,
+      DEFAULT_SEARCH_LIMIT,
+      0,
     );
     expect(results.length).toBeGreaterThan(0);
     expect(results[0].id).toContain('Performance');
@@ -132,6 +166,118 @@ describe('search (rag, local)', () => {
     const stats = await indexSections(latDir, db, embedder);
     expect(stats.removed).toBe(4); // testing + unit + integration + performance
     expect(stats.unchanged).toBe(5); // architecture sections remain
+  });
+});
+
+describe('search result formatting', () => {
+  const ctx: CmdContext = {
+    latDir: '/project/lat.md',
+    projectRoot: '/project',
+    styler: plainStyler,
+    mode: 'cli',
+  };
+  const section: Section = {
+    id: 'lat.md/architecture#Authentication',
+    heading: 'Authentication',
+    depth: 2,
+    file: 'lat.md/architecture',
+    filePath: 'lat.md/architecture.md',
+    children: [],
+    startLine: 3,
+    endLine: 8,
+    firstParagraph: 'Authentication uses signed sessions.',
+  };
+  const matches = [{ section, reason: 'semantic match', score: 0.8123456789 }];
+
+  // @lat: [[search#RAG Tests#Debug output includes similarity scores]]
+  it('shows scores only when debug output is requested', () => {
+    const normal = formatResultList(ctx, 'Results:', matches);
+    const debug = formatResultList(ctx, 'Results:', matches, {
+      showScores: true,
+    });
+
+    expect(normal).toContain('(semantic match)');
+    expect(normal).not.toContain('score:');
+    expect(debug).toContain('(semantic match, score: 0.812346)');
+  });
+});
+
+describe('search threshold policy', () => {
+  // @lat: [[search#RAG Tests#Applies the shared default result limit]]
+  it('applies the shared default result limit', async () => {
+    const db = {
+      execute: vi.fn().mockResolvedValue({ rows: [] }),
+    } as unknown as Client;
+    const embedder = {
+      name: 'test',
+      dimensions: 1,
+      embed: vi.fn().mockResolvedValue([[1]]),
+    };
+
+    await searchSections(db, 'query', embedder);
+
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ args: ['[1]', '[1]', DEFAULT_SEARCH_LIMIT] }),
+    );
+  });
+
+  // @lat: [[search#RAG Tests#Applies the shared default similarity threshold]]
+  it('applies the shared default unless a caller overrides it', async () => {
+    const db = {
+      execute: vi.fn().mockResolvedValue({
+        rows: [
+          {
+            id: 'relevant',
+            file: 'relevant.md',
+            heading: 'Relevant',
+            content: 'Relevant match',
+            score: DEFAULT_SEARCH_THRESHOLD,
+          },
+          {
+            id: 'weak',
+            file: 'weak.md',
+            heading: 'Weak',
+            content: 'Weak match',
+            score: DEFAULT_SEARCH_THRESHOLD - 0.01,
+          },
+          {
+            id: 'negative',
+            file: 'negative.md',
+            heading: 'Negative',
+            content: 'Negative match',
+            score: -0.1,
+          },
+          {
+            id: 'zero',
+            file: 'zero.md',
+            heading: 'Zero',
+            content: 'Zero match',
+            score: 0,
+          },
+        ],
+      }),
+    } as unknown as Client;
+    const embedder: Embedder = {
+      name: 'test',
+      dimensions: 1,
+      embed: vi.fn().mockResolvedValue([[1]]),
+    };
+
+    const defaults = await searchSections(db, 'query', embedder);
+    const overridden = await searchSections(
+      db,
+      'query',
+      embedder,
+      DEFAULT_SEARCH_LIMIT,
+      0,
+    );
+
+    expect(defaults.map((result) => result.id)).toEqual(['relevant']);
+    expect(overridden.map((result) => result.id)).toEqual([
+      'relevant',
+      'weak',
+      'zero',
+    ]);
   });
 });
 
@@ -179,6 +325,8 @@ describe('search (rag, legacy cache upgrade)', () => {
         latDir,
         'how do we handle user login and security?',
         5,
+        undefined,
+        { threshold: 0 },
       );
       expect(result.matches.length).toBeGreaterThan(0);
       expect(result.matches[0].section.id).toContain('Authentication');

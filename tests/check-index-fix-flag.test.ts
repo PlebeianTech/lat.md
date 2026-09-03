@@ -126,7 +126,7 @@ describe('index-fix-missing', () => {
   // @lat: [[check-index#check --fix regenerates index files#Writes a missing index that then passes]]
   it('writes an index that then passes', async () => {
     await withTmpCopy('index-fix-missing', async (lat) => {
-      const fixErrors = await checkIndex(lat, { fix: true });
+      const fixErrors = await checkIndex(lat, undefined, { fix: true });
       expect(fixErrors).toHaveLength(0);
 
       const { readFile } = await import('node:fs/promises');
@@ -143,7 +143,7 @@ describe('index-fix-subdir', () => {
   // @lat: [[check-index#check --fix regenerates index files#Regenerates a subdirectory index before its parent]]
   it('regenerates a subdirectory index before its parent', async () => {
     await withTmpCopy('index-fix-subdir', async (lat) => {
-      const fixErrors = await checkIndex(lat, { fix: true });
+      const fixErrors = await checkIndex(lat, undefined, { fix: true });
       expect(fixErrors).toHaveLength(0);
 
       const errors = await checkIndex(lat);
@@ -156,7 +156,7 @@ describe('index-fix-title-injection', () => {
   // @lat: [[check-index#check --fix regenerates index files#Escapes a title shaped like a closing bracket]]
   it('produces one link, not two, for a title shaped like a closing bracket', async () => {
     await withTmpCopy('index-fix-title-injection', async (lat) => {
-      await checkIndex(lat, { fix: true });
+      await checkIndex(lat, undefined, { fix: true });
 
       const { readFile } = await import('node:fs/promises');
       const content = await readFile(join(lat, 'lat.md'), 'utf-8');
@@ -178,7 +178,7 @@ describe('index-fix-percent-filename', () => {
   // @lat: [[check-index#check --fix regenerates index files#Links to a file whose name contains a percent-encoded paren]]
   it('links to a file whose name already contains a percent-encoded paren', async () => {
     await withTmpCopy('index-fix-percent-filename', async (lat) => {
-      await checkIndex(lat, { fix: true });
+      await checkIndex(lat, undefined, { fix: true });
 
       const { readFile } = await import('node:fs/promises');
       const content = await readFile(join(lat, 'lat.md'), 'utf-8');

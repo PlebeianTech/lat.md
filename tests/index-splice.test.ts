@@ -27,7 +27,7 @@ describe('index-splice-below', () => {
   // @lat: [[check-index#Splicing preserves hand-written content#Hand-written content below the generated list survives]]
   it('preserves a hand-written section below the generated list', async () => {
     await withTmpCopy('index-splice-below', async (lat) => {
-      const errors = await checkIndex(lat, { fix: true });
+      const errors = await checkIndex(lat, undefined, { fix: true });
       expect(errors).toHaveLength(0);
 
       const content = await readFile(join(lat, 'sub', 'sub.md'), 'utf-8');
@@ -43,7 +43,7 @@ describe('index-splice-above', () => {
   // @lat: [[check-index#Splicing preserves hand-written content#Hand-written content above the generated list survives]]
   it('preserves a hand-written section above the generated list', async () => {
     await withTmpCopy('index-splice-above', async (lat) => {
-      const errors = await checkIndex(lat, { fix: true });
+      const errors = await checkIndex(lat, undefined, { fix: true });
       expect(errors).toHaveLength(0);
 
       const content = await readFile(join(lat, 'sub', 'sub.md'), 'utf-8');
@@ -59,7 +59,7 @@ describe('index-splice-external-link', () => {
   // @lat: [[check-index#Splicing preserves hand-written content#A hand-written external-link bullet survives untouched]]
   it('preserves a hand-written external-link bullet and the prose after it', async () => {
     await withTmpCopy('index-splice-external-link', async (lat) => {
-      const errors = await checkIndex(lat, { fix: true });
+      const errors = await checkIndex(lat, undefined, { fix: true });
       expect(errors).toHaveLength(0);
 
       const content = await readFile(join(lat, 'sub', 'sub.md'), 'utf-8');
@@ -78,10 +78,10 @@ describe('index-splice-idempotent', () => {
   // @lat: [[check-index#Splicing preserves hand-written content#Running --fix twice is byte-identical]]
   it('produces byte-identical output on a second --fix run', async () => {
     await withTmpCopy('index-splice-idempotent', async (lat) => {
-      await checkIndex(lat, { fix: true });
+      await checkIndex(lat, undefined, { fix: true });
       const first = await readFile(join(lat, 'sub', 'sub.md'), 'utf-8');
 
-      await checkIndex(lat, { fix: true });
+      await checkIndex(lat, undefined, { fix: true });
       const second = await readFile(join(lat, 'sub', 'sub.md'), 'utf-8');
 
       expect(second).toBe(first);
@@ -102,7 +102,7 @@ describe('index-splice-malformed-markers', () => {
     await withTmpCopy('index-splice-malformed-markers', async (lat) => {
       const before = await readFile(join(lat, 'sub', 'sub.md'), 'utf-8');
 
-      const errors = await checkIndex(lat, { fix: true });
+      const errors = await checkIndex(lat, undefined, { fix: true });
       expect(errors.length).toBeGreaterThan(0);
       expect(errors.some((e) => /marker/i.test(e.message))).toBe(true);
 

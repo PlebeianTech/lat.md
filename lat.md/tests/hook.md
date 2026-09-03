@@ -2,15 +2,20 @@
 lat:
   require-code-mention: true
 ---
+
 # Hook
 
-Functional tests for Claude, Codex, and Cursor lifecycle hooks. Runs hook commands against fixtures and injects a fake `git` through PATH to control `git diff HEAD --numstat` output.
+Functional tests for Claude, Codex, and Cursor lifecycle hooks. Hook subprocesses use fake Git output; [[src/cli/hook.ts#analyzeDiff]] also runs against temporary real repositories.
 
-Tests in `tests/hook.test.ts`.
+The fake `git` dispatches on the subcommand, so one helper controls both the tracked diff and untracked-file list. Real repositories verify native Git ignore and unborn-branch behavior. Tests live in `tests/hook.test.ts`.
 
 ## Exits silently when check passes and no diff
 
 When `lat check` passes and there is no git diff output, the hook produces no stdout and no stderr — the agent stops cleanly.
+
+## Supports projects outside Git
+
+Git version control is optional. Outside a Git worktree, the Stop hook skips diff-based sync analysis but still runs `lat check`; valid projects exit silently, while validation errors still block.
 
 ## Blocks when lat check fails
 
@@ -42,7 +47,7 @@ On the second pass, if `lat check` still fails, the hook prints a warning to std
 
 ## Ignores non-code files in diff
 
-Files that don't match `SOURCE_EXTENSIONS` (e.g. `.md`) are not counted toward code lines, so a large markdown-only diff does not trigger a sync reminder.
+Files that don't match `SOURCE_FILE_EXTENSIONS` (e.g. `.md`) are not counted toward code lines, so a large markdown-only diff does not trigger a sync reminder.
 
 ## Cursor stop hook returns follow-up work instead of a Claude block
 
@@ -74,14 +79,25 @@ Tested in `tests/hook-stop-mode.test.ts`.
 
 ## Parses the lat.md tree once per prompt (lat-t1y.23)
 
-`UserPromptSubmit` handling needs the parsed tree for both [[cli#expand]] and [[cli#search]] federation lookups. Threading a preloaded-sections parameter through both call sites avoids walking and parsing the tree twice per prompt.
+`UserPromptSubmit` handling needs the parsed tree for both [[cli#expand]] and [[cli#search]] federation lookups. Sharing one command context across those call sites avoids walking and parsing the tree twice per prompt.
+
+The fork originally threaded an explicit preloaded-sections argument. Upstream's project session reaches the same result by memoising the analysis on the context object, so the argument is gone and what has to hold now is that every caller is handed the same context.
 
 Tested in `tests/preloaded-sections.test.ts`.
 
-### expandPrompt uses preloaded sections instead of re-parsing the tree
+### expandPrompt reuses the analysis memoised on its context
 
-Calling `expandPrompt` with a preloaded `loadAllSections()` result does not call `loadAllSections` again, and produces byte-identical output to the unpreloaded call.
+A second `expandPrompt` call on the same context walks nothing and returns byte-identical output. A fresh context walks again, which is what shows the cache is per-command rather than global.
 
-### runSearch resolves matches from preloaded sections without re-parsing the tree
+### runSearch resolves matches from a supplied analysis without re-parsing the tree
 
-Calling `runSearch` with `preloadedSections` resolves the same matches without calling `loadAllSections`; omitting it still resolves correctly by walking the tree itself.
+`runSearch` given the caller's `project` analysis resolves matches without walking the tree; omitting it still resolves the same matches by analysing the tree itself.
+## Counts tracked and untracked files together
+
+Diff analysis combines tracked churn with relevant untracked `lat.md/` and supported source files while respecting nested `.gitignore` rules and safely skipping unrelated paths.
+
+The integration fixture nests the Lat project inside a larger worktree, verifies sibling changes are excluded, and covers spaces and non-ASCII characters in untracked paths.
+
+## Counts untracked files before the first commit
+
+When `HEAD` does not exist yet, tracked diff analysis may fail but untracked `lat.md/` and supported source files still contribute their complete line counts.

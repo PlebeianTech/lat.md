@@ -13,13 +13,14 @@ jobs:
         with:
           node-version: "22"
 
-      # Upstream used lars20070/lat-check-action@v1, which hardcodes
-      # `npm install -g lat.md`. Upstream's index parser matches only
-      # `- [[name]]`; this fork writes `- [Label](dest.md)` and reads both, so
-      # upstream's sees zero entries here and calls every index file incomplete.
-      # Only a fork build can validate this tree. Rationale: lat.md/fork.md.
+      # Upstream now builds its own CLI here, which ci.yml already does for
+      # this tree. Kept diverged because this job earns its place a different
+      # way: it installs the *published* package and runs it against a real
+      # repository, which no source build can do. Rationale: lat.md/fork.md.
       #
-      # This also smoke-tests the published tarball against a real repository,
-      # which the source-built check in ci.yml cannot do.
+      # It must be the fork's package. Upstream's index parser matches only
+      # `- [[name]]`; this fork writes `- [Label](dest.md)` and reads both, so
+      # upstream's build sees zero entries here and calls every index file
+      # incomplete.
       - run: npm install -g @plebeiantech/lat.md
       - run: lat check

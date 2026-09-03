@@ -4,8 +4,15 @@ export type ViewGitState = {
   files: Record<string, ViewGitFileStatus>;
 };
 
+export type ViewExternalFile = {
+  handle: string;
+  path: string;
+  target: string;
+};
+
 export type ViewIndex = {
   files: string[];
+  externalFiles: ViewExternalFile[];
   entry: string;
   errorCounts: Record<string, number>;
   git: ViewGitState | null;
@@ -37,9 +44,47 @@ export type ViewSearchResponse = {
   results: ViewSearchResult[];
 };
 
-export type ViewProjectChange = {
+export type ViewDocumentProperty =
+  | string
+  | number
+  | boolean
+  | null
+  | (string | number)[];
+
+export type ViewDocumentText = {
+  type: 'text';
+  value: string;
+};
+
+export type ViewDocumentElement = {
+  type: 'element';
+  tagName: string;
+  properties: Record<string, ViewDocumentProperty>;
+  children: ViewDocumentNode[];
+};
+
+export type ViewDocumentNode = ViewDocumentText | ViewDocumentElement;
+
+/** Versioned, parser-neutral presentation tree sent to the browser. */
+export type ViewDocumentTree = {
+  version: 1;
+  type: 'root';
+  children: ViewDocumentNode[];
+};
+
+export type ViewSectionCommandOutput = {
+  output: string;
+  tree: ViewDocumentTree;
+  isError: boolean;
+};
+
+export type ViewProjectGeneration = {
   generation: number;
   markdownGeneration: number;
+};
+
+export type ViewProjectChange = ViewProjectGeneration & {
+  instanceId: string;
 };
 
 export type ViewGraphNodeKind = 'document' | 'source' | 'code-reference';
@@ -58,6 +103,7 @@ export type ViewGraphNode = {
   symbol?: string;
   line?: number;
   snippet?: string;
+  externalTarget?: string;
   gitStatus?: ViewGitFileStatus;
   errorCount?: number;
 };
@@ -89,8 +135,8 @@ export type ViewDocumentTocItem = {
 export type ViewDocument = {
   path: string;
   title: string;
-  html: string;
-  gitHtml: string | null;
+  tree: ViewDocumentTree;
+  gitTree: ViewDocumentTree | null;
   graphNodeIds: Record<string, string>;
   tableOfContents: ViewDocumentTocItem[];
   errors: ViewDocumentError[];
@@ -100,12 +146,26 @@ export type ViewDocument = {
   };
 };
 
+export type ViewDocumentSource = {
+  path: string;
+  content: string;
+};
+
+export type ViewDocumentEditRequest = {
+  baseContent: string;
+  content: string;
+};
+
+export type ViewDocumentEditResponse = ViewDocumentSource & {
+  merged: boolean;
+};
+
 export type ViewMarkdownBackReference = {
   kind: 'markdown';
   sectionId: string;
   breadcrumbs: string[];
   paragraph: string;
-  paragraphHtml: string;
+  paragraphTree: ViewDocumentTree;
   url: string;
 };
 
@@ -131,14 +191,14 @@ export type ViewSourceReference = {
   sectionId: string;
   breadcrumbs: string[];
   paragraph: string;
-  paragraphHtml: string;
+  paragraphTree: ViewDocumentTree;
   url: string;
 };
 
 export type ViewSourceDocument = {
   path: string;
   content: string;
-  highlightedHtmlLines: string[];
+  highlightedLines: ViewDocumentTree[];
   focus: {
     symbol: string;
     kind: string;
@@ -149,6 +209,18 @@ export type ViewSourceDocument = {
   context: ViewSourceReference | null;
   otherReferences: ViewSourceReference[];
 };
+
+export type ViewExternalDocument =
+  | {
+      kind: 'markdown';
+      target: string;
+      document: ViewDocument;
+    }
+  | {
+      kind: 'source';
+      target: string;
+      source: ViewSourceDocument;
+    };
 
 export type ViewError = {
   error: string;

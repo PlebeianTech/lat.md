@@ -1,9 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { relative } from 'node:path';
-import { scanCodeRefs } from '../code-refs.js';
+import { createCodeReferenceDiscovery } from '../code-refs.js';
 import { listLatticeFiles } from '../lattice.js';
 import { indexNameFor } from './check-mode.js';
-import { toPosix } from '../walk.js';
+import { toPosix } from '../path.js';
 import { basename, dirname } from 'node:path';
 import type { CheckError } from './check.js';
 
@@ -44,9 +44,13 @@ export async function checkCoverage(
   const documents = files.filter((f) => !isIndex(latticeDir, f));
   if (documents.length === 0) return [];
 
-  const scan = await scanCodeRefs(projectRoot);
-  if (scan.files.length === 0) return [];
-  if (scan.refs.length > 0) return [];
+  // One discovery for both questions: it coalesces the repeated call and
+  // shares the ripgrep exclusion scan between them. Upstream's ScanResult no
+  // longer carries the file list, so the scope has to be asked for separately.
+  const discovery = createCodeReferenceDiscovery(projectRoot);
+  const { refs } = await discovery.scan();
+  if (refs.length > 0) return [];
+  if ((await discovery.listSourceFiles()).length === 0) return [];
 
   const rootIndexPath = `${latticeDir}/${indexNameFor(basename(latticeDir))}`;
   const rootIndexRel = toPosix(relative(process.cwd(), rootIndexPath));

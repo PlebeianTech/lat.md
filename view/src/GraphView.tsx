@@ -15,6 +15,7 @@ import {
 } from 'sigma/rendering';
 import type {
   ViewDocument,
+  ViewExternalDocument,
   ViewGraph,
   ViewGraphNode,
   ViewGraphNodeKind,
@@ -22,15 +23,17 @@ import type {
   ViewSourceDocument,
 } from '../../src/view/protocol';
 import { fetchViewJson } from './data-source';
+import { MarkdownContent } from './MarkdownContent';
 import {
   documentPath,
+  externalTarget,
   graphInspectorLinkUrl,
   graphSelectionForUrl,
   graphTargetForNode,
   sourcePath,
   sourceSymbol,
 } from './navigation';
-import { renderSectionBackReferences } from './section-back-references';
+import { navigateAndCopySectionLink } from './section-back-references';
 import { SourceView } from './SourceView';
 import {
   deterministicGraphPosition,
@@ -65,6 +68,7 @@ let cameraCache: { x: number; y: number; angle: number; ratio: number } | null =
   null;
 let cachedViewGraph: ViewGraph | null = null;
 let viewGraphRequest: Promise<ViewGraph> | null = null;
+let viewGraphInstanceId = '';
 const GRAPH_SEARCH_DEBOUNCE_MS = 220;
 
 function nodeCategory(kind: ViewGraphNodeKind): GraphCategory {
@@ -379,7 +383,15 @@ function GraphCanvas({
 }
 
 /** Warm the immutable graph projection so switching views does not wait on I/O. */
-export function preloadViewGraph(minimumGeneration = 0): Promise<ViewGraph> {
+export function preloadViewGraph(
+  minimumGeneration = 0,
+  instanceId = '',
+): Promise<ViewGraph> {
+  if (viewGraphInstanceId !== instanceId) {
+    viewGraphInstanceId = instanceId;
+    cachedViewGraph = null;
+    viewGraphRequest = null;
+  }
   if (cachedViewGraph && cachedViewGraph.generation >= minimumGeneration) {
     return Promise.resolve(cachedViewGraph);
   }
@@ -387,11 +399,11 @@ export function preloadViewGraph(minimumGeneration = 0): Promise<ViewGraph> {
     return viewGraphRequest.then((graph) =>
       graph.generation >= minimumGeneration
         ? graph
-        : preloadViewGraph(minimumGeneration),
+        : preloadViewGraph(minimumGeneration, instanceId),
     );
   }
   const request = fetchViewJson<ViewGraph>('/api/graph').then((graph) => {
-    cachedViewGraph = graph;
+    if (viewGraphInstanceId === instanceId) cachedViewGraph = graph;
     return graph;
   });
   viewGraphRequest = request;
@@ -411,12 +423,14 @@ function GraphInspector({
   graph,
   node,
   onSelect,
+  onShowSectionOutput,
   target,
 }: {
   gitEnabled: boolean;
   graph: ViewGraph;
   node: ViewGraphNode | null;
   onSelect: (nodeId: string, target?: string) => void;
+  onShowSectionOutput?: (sectionId: string) => void;
   target: string;
 }) {
   const [content, setContent] = useState<
@@ -434,16 +448,13 @@ function GraphInspector({
     [graph, node, target],
   );
   const contentTarget = node?.kind === 'document' ? node.url : previewTarget;
-  const documentHtml = useMemo(
+  const documentTree = useMemo(
     () =>
       content?.kind === 'markdown'
-        ? renderSectionBackReferences(
-            gitEnabled && content.document.gitHtml
-              ? content.document.gitHtml
-              : content.document.html,
-            content.document.backReferences,
-          )
-        : '',
+        ? gitEnabled && content.document.gitTree
+          ? content.document.gitTree
+          : content.document.tree
+        : null,
     [content, gitEnabled],
   );
 
@@ -472,8 +483,18 @@ function GraphInspector({
           ? (query.get('at') ?? '0')
           : String(node.line ?? 0),
     });
-    const request =
-      node.kind === 'document'
+    const request = node.externalTarget
+      ? fetchViewJson<ViewExternalDocument>(
+          `/api/external?target=${encodeURIComponent(node.externalTarget)}`,
+          controller.signal,
+        ).then((external) =>
+          setContent(
+            external.kind === 'markdown'
+              ? { kind: 'markdown', document: external.document }
+              : { kind: 'source', source: external.source },
+          ),
+        )
+      : node.kind === 'document'
         ? fetchViewJson<ViewDocument>(
             `/api/document?path=${encodeURIComponent(node.documentPath ?? '')}`,
             controller.signal,
@@ -483,7 +504,7 @@ function GraphInspector({
             controller.signal,
           ).then((source) => setContent({ kind: 'source', source }));
     request.catch((reason: Error) => {
-      if (reason.name !== 'AbortError') setError(reason.message);
+      if (!controller.signal.aborted) setError(reason.message);
     });
     return () => controller.abort();
   }, [contentTarget, graph.generation, node]);
@@ -521,20 +542,6 @@ function GraphInspector({
       return;
     }
     const target = event.target;
-    const toggle =
-      target instanceof Element
-        ? target.closest<HTMLButtonElement>('[data-section-back-references]')
-        : null;
-    if (toggle) {
-      const panelId = toggle.getAttribute('aria-controls');
-      const panel = panelId ? window.document.getElementById(panelId) : null;
-      if (panel) {
-        const open = toggle.getAttribute('aria-expanded') === 'true';
-        toggle.setAttribute('aria-expanded', String(!open));
-        panel.hidden = open;
-      }
-      return;
-    }
     const anchor =
       target instanceof Element ? target.closest<HTMLAnchorElement>('a') : null;
     if (!anchor || anchor.target || anchor.hasAttribute('download')) return;
@@ -545,7 +552,12 @@ function GraphInspector({
       previewTarget || node?.url || '/',
       window.location.origin,
     );
-    if (!url || (!documentPath(url.pathname) && !sourcePath(url.pathname))) {
+    if (
+      !url ||
+      (!documentPath(url.pathname) &&
+        !sourcePath(url.pathname) &&
+        !externalTarget(url.pathname, url.hash))
+    ) {
       return;
     }
     event.preventDefault();
@@ -582,10 +594,28 @@ function GraphInspector({
               </div>
             )}
           </div>
-          <article
-            className="markdown"
-            dangerouslySetInnerHTML={{ __html: documentHtml }}
-          />
+          {documentTree && (
+            <MarkdownContent
+              backReferences={content.document.backReferences}
+              onCopySectionLink={(headingId) =>
+                navigateAndCopySectionLink(
+                  new URL(
+                    contentTarget || previewTarget || node.url || '/',
+                    window.location.origin,
+                  ).href,
+                  headingId,
+                  (url) => {
+                    const selection = graphSelectionForUrl(graph, url);
+                    if (selection) onSelect(selection.nodeId, selection.target);
+                  },
+                  window.navigator.clipboard,
+                )
+              }
+              onShowSectionOutput={onShowSectionOutput}
+              sectionOutputEnabled={Boolean(onShowSectionOutput)}
+              tree={documentTree}
+            />
+          )}
         </div>
       ) : content?.kind === 'source' ? (
         <div className="graph-inspector-source">
@@ -606,8 +636,10 @@ export default function GraphView({
   generation,
   gitEnabled,
   header,
+  instanceId,
   markdownGeneration,
   onNavigate,
+  onShowSectionOutput,
   searchEnabled,
   selectedNodeId,
   target,
@@ -618,8 +650,10 @@ export default function GraphView({
     selectedNode: ViewGraphNode | null,
     selectedTarget: string,
   ) => ReactNode;
+  instanceId: string;
   markdownGeneration: number;
   onNavigate: (url: URL) => void;
+  onShowSectionOutput?: (sectionId: string) => void;
   searchEnabled: boolean;
   selectedNodeId: string;
   target: string;
@@ -641,7 +675,7 @@ export default function GraphView({
   useEffect(() => {
     let cancelled = false;
     setError('');
-    void preloadViewGraph(generation)
+    void preloadViewGraph(generation, instanceId)
       .then((nextGraph) => {
         if (!cancelled) setGraph(nextGraph);
       })
@@ -651,7 +685,7 @@ export default function GraphView({
     return () => {
       cancelled = true;
     };
-  }, [generation]);
+  }, [generation, instanceId]);
 
   const normalizedQuery = searchEnabled ? query.trim() : '';
   useEffect(() => {
@@ -682,7 +716,7 @@ export default function GraphView({
           });
         })
         .catch((reason: Error) => {
-          if (reason.name !== 'AbortError') setSearchError(reason.message);
+          if (!controller.signal.aborted) setSearchError(reason.message);
         })
         .finally(() => {
           if (!controller.signal.aborted) setSearching(false);
@@ -832,6 +866,7 @@ export default function GraphView({
               graph={graph}
               node={selectedNode}
               onSelect={selectNode}
+              onShowSectionOutput={onShowSectionOutput}
               target={selectedTarget}
             />
           </aside>

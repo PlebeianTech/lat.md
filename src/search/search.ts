@@ -1,6 +1,9 @@
 import type { Client } from '@libsql/client';
 import type { Embedder } from './embedder.js';
 
+export const DEFAULT_SEARCH_LIMIT = 5;
+export const DEFAULT_SEARCH_THRESHOLD = 0.35;
+
 export type SearchResult = {
   id: string;
   file: string;
@@ -13,7 +16,8 @@ export async function searchSections(
   db: Client,
   query: string,
   embedder: Embedder,
-  limit = 5,
+  limit = DEFAULT_SEARCH_LIMIT,
+  threshold = DEFAULT_SEARCH_THRESHOLD,
 ): Promise<SearchResult[]> {
   const [queryVec] = await embedder.embed([query]);
   const vecJson = JSON.stringify(queryVec);
@@ -27,7 +31,7 @@ export async function searchSections(
     args: [vecJson, vecJson, limit],
   });
 
-  return rows.rows.map((row) => {
+  const results = rows.rows.map((row) => {
     const score = Number(row.score);
     return {
       id: row.id as string,
@@ -37,4 +41,6 @@ export async function searchSections(
       score: Number.isFinite(score) ? score : 0,
     };
   });
+
+  return results.filter((result) => result.score >= threshold);
 }

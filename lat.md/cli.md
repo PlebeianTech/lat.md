@@ -18,7 +18,7 @@ Outputs a [[cli#Section Preview]] for each match.
 
 Usage: `lat locate <query>`
 
-Implementation: [[src/cli/locate.ts]], matching logic in [[src/lattice.ts#findSections]]
+Implementation: [[src/cli/locate.ts]], matching logic in [[src/lattice-model.ts#findSections]]
 
 ## section
 
@@ -30,10 +30,14 @@ Output:
 
 1. Section header with id and file location
 2. Section content blockquoted (`>`) from `startLine` through the end of the last descendant subsection
-3. **This section references** — all wiki link targets found within the section, including both lat.md section refs (with body descriptions) and source code refs (with file path and line range, e.g. `file.ts:10-25`, plus a 5-line snippet centered on the symbol)
-4. **Referenced by** — other sections in `lat.md/` that contain wiki links pointing to this section
-5. **Referenced by code** — source files containing `@lat:` comments that reference this section, each shown with file path, line number, and a 5-line snippet centered on the reference
+3. **This section references** — all wiki link targets found within the section or its descendants, including lat.md section refs with complete leading paragraphs, source code refs with line ranges and snippets, and external refs
+4. **Referenced by** — other sections in `lat.md/` that contain wiki links pointing to this section, shown with their complete leading paragraphs
+5. **Referenced by code** — source files containing `@lat:` comments that reference this section or any descendant, each shown with file path, line number, and a 5-line snippet centered on the reference
 6. **Navigation hints** — same footer as [[cli#search]], suggesting `lat section` and `lat search` as next steps
+
+Reference paragraphs rely on the 250-character section-summary invariant. As a fallback for documents that currently fail validation, output truncates them after 300 characters.
+
+Source snippet lines in outgoing-reference and code-backlink blocks use Markdown inline-code delimiters. Lines containing backticks receive a longer delimiter so template literals remain valid Markdown.
 
 Usage: `lat section <query>`
 
@@ -65,7 +69,9 @@ Validation command group. Without a subcommand it runs every check against the
 discovered `lat.md/`; an explicit `-- <directory>` suffix validates any
 Markdown directory instead.
 
-Usage: `lat check [md|links|code-refs|index|sections|mode|status] [-- <directory>]`
+Usage: `lat check [md|links|code-refs|index|sections|mode|status] [-- <directory>]`; use
+`lat check --profile [-- <directory>]` to profile the full validation run, or
+`lat check --fix [-- <directory>]` to generate directory index files.
 
 The separator is required. It keeps directory names distinct from subcommands:
 `lat check links` runs the relative-link subcommand against the discovered
@@ -78,17 +84,21 @@ relative to the containing project root and code references are scanned from
 that root. The full check skips the `lat init` version warning because the
 directory is not required to have lat setup metadata.
 
-Emits a stale-init warning before any errors so the user sees setup issues first. The init version check compares `INIT_VERSION` in [[src/init-version.ts]] against the version in `lat.md/.cache/lat_init.json` written by [[cli#init]]. If the total check took longer than one second and ripgrep is not installed, shows a tip suggesting the user install it for faster scanning. The first output line ("Scanned ...") includes the total elapsed time (e.g. "in 250ms" or "in 1.2s").
+Emits a stale-init warning before any errors so the user sees setup issues first. The init version check compares `INIT_VERSION` in [[src/init-version.ts]] against the version in `lat.md/.cache/lat_init.json` written by [[cli#init]]. If the total check took longer than one second and ripgrep is not installed, shows a tip suggesting the user install it for faster scanning. A successful full check ends with its total elapsed time, such as `All checks passed in 250ms`; file-extension counts are omitted because the validators perform different kinds of work.
 
-Implementation: [[src/cli/check.ts]]
+`--profile` adds a nested timing report for every validator and its major operations. Markdown and external-document timing explicitly report parser-module import durations on misses and zero-duration skipped-import events on hits; worker runs report one Markdown analyzer import per worker. Markdown and source timing also distinguish file reads, hashing, persistent parser-cache hits or misses, cache publication, and actual parser work. Repeated work is aggregated with call counts, average and maximum duration, and the slowest file or target so large-repository bottlenecks remain visible without one output line per file. Concurrent timings remain attributed to their initiating validator and may overlap within the total wall time.
+
+The full check runs its validators concurrently through one lazy command-scoped context backed by [[architecture-analysis#Project snapshot]]. Markdown files are read and parsed once; their AST-free facts and indexes are shared while syntax trees are discarded. Promise-backed code scanning, external resolution, and source-symbol checks coalesce in-flight work. Runtime state ends with the atomic command, while versioned AST-free parser entries remain as disposable input-hash caches.
+
+Implementation: [[src/cli/check.ts]], with check-specific inputs in [[src/cli/check-context.ts]] and shared Markdown analysis in [[src/project-analysis.ts]].
 
 ### md
 
-Validate that all [[parser#Wiki Links]] in the checked markdown files point to existing sections.
+Validate that every [[parser#Wiki Links|wiki link]] points to an existing section, an in-project file or directory, or a symbol in a supported source file.
 
 ### links
 
-Validate that ordinary markdown links in the checked files point to existing files, Markdown fragments use GitHub heading ids, and full or collapsed reference-style links have definitions. See [[markdown#Relative Links]] for exact rules.
+Validate that ordinary markdown links in the checked files point to existing files, Markdown fragments use GitHub heading ids, and all reference-style links have definitions. See [[markdown#Relative Links]] for exact rules.
 
 ### code-refs
 
@@ -278,6 +288,10 @@ Generated agent instructions and `lat-md` skills direct project-specific documen
 
 The `AGENTS.md` and `lat-md` `SKILL.md` templates state that these generated files are owned by lat tooling and may be replaced by a later `lat init`. Agents must record project guidance in `lat.md/` rather than changing generated copies.
 
+The [shared authoring guidance](../templates/skill/SKILL.md) directs agents to bind implementation-owned symbols and defaults to validated source links instead of copying bare identifiers or literal values.
+
+Generated Markdown instructions obey Lat's local validation rules, so symlinked or shared instruction files remain valid even when they also live inside the project's graph directory.
+
 ### Marker-based append mode
 
 Shared files use `appendTemplateSection` to preserve user content outside lat's managed section.
@@ -327,7 +341,7 @@ Conditionally continues Claude or Codex — only when something is actually wron
 1. **No `lat.md/` dir** — exit silently.
 2. **Run `lat check`** — always, on both first and second pass.
 3. **Second pass** (`stop_hook_active` true) — if check still fails, print warning to stderr (no block, loop stops). If check passes, exit silently.
-4. **First pass** — run `git diff HEAD --numstat`. Count `codeLines` (files matching [[src/source-parser.ts#SOURCE_EXTENSIONS]]) and `latMdLines`. Skip ratio check if `codeLines < 5` or `latMdLines >= 50` (enough doc work was clearly done). Otherwise round `latMdLines` up to 1 (if nonzero) and flag `needsSync` when `latMdLines < codeLines * 5%`.
+4. **First pass** — measure churn via [[src/cli/hook.ts#analyzeDiff]]: project-relative `git diff HEAD --numstat --relative -- .` covers tracked changes, while NUL-delimited `git ls-files --others --exclude-standard -z -- .` discovers untracked files and respects Git ignore rules. Both scans stay within the discovered Lat project when it is nested in a larger Git worktree. The hook counts regular files under `lat.md/` plus code files matching [[src/source-formats.ts#SOURCE_FILE_EXTENSIONS]]; it classifies untracked paths before reading them, so unrelated files are skipped. This makes a freshly scaffolded, never-committed `lat.md/` visible. Outside a Git worktree, diff analysis contributes zero churn by design: Git is optional, so validation still runs but the sync reminder is disabled. Skip the ratio check if `codeLines < 5` or `latMdLines >= 50`; otherwise flag `needsSync` when `latMdLines < codeLines * 5%`.
 5. **Decision** — both pass: exit silently, clean output. Check failed + needs sync: block ("update relevant current-state `lat.md/` sections if needed, then run `lat check` until it passes"). Check failed only: block ("run `lat check` until it passes"). Needs sync only: block with explicit context ("not updated" when 0 lat.md lines, "may not be fully in sync (N lines)" when some changes exist but below ratio) and a reminder not to add journal/changelog noise.
 
 ### PreToolUse
@@ -382,11 +396,15 @@ Implementation: [[src/mcp/server.ts]]
 Semantic search across `lat.md` sections using vector embeddings. Works **offline by default** — no
 API key required.
 
-Usage: `lat search [query] [--limit=5]`
+Usage: `lat search [query] [--limit=<n>] [--threshold=<score>] [--debug]`
 
 Query is optional — `lat search` with no query just builds the index on first use. `lat search` only reads; rebuilding is [[cli#reindex]]. Results include a navigation hint footer suggesting `lat locate`, `lat refs`, and `lat search` for further exploration — this makes the tools self-documenting so agents discover them organically.
 
-Core search logic in [[src/cli/search.ts#runSearch]] (returns matched sections), used by both the CLI command and [[cli#mcp]] `lat_search` tool. Indexing/storage internals are in `src/search/`; all embedding generation lives in the `@lat.md/embed` package (see [[cli#search#Embeddings]]).
+`--debug` appends each result's cosine-similarity score, rounded to six decimal places. Scores stay hidden by default, including in the MCP `lat_search` output.
+
+Search returns at most `--limit` results ([[src/search/search.ts#DEFAULT_SEARCH_LIMIT]] by default) whose cosine-similarity score is at least `--threshold` ([[src/search/search.ts#DEFAULT_SEARCH_THRESHOLD]] by default). The accepted threshold range is `0` to `1`; lower it to favor recall or raise it to favor precision. The vector-search core owns both defaults: CLI, MCP, and prompt-hook retrieval share them unless their interfaces supply an explicit override, while the UI deliberately requests its own named limit.
+
+Core search logic in [[src/cli/search.ts#runSearch]] (returns matched sections), used by both the CLI command and [[cli#mcp]] `lat_search` tool. [[src/search/query.ts#openIndexedSearchSession]] reuses one database handle and embedder when a runtime serves multiple queries. Indexing/storage internals are in `src/search/`; all embedding generation lives in the `@lat.md/embed` package (see [[cli#search#Embeddings]]).
 
 ### Backend selection
 
@@ -428,7 +446,7 @@ All embedding generation is isolated in the `@lat.md/embed` package, exposed thr
 [[packages/embed/src/index.ts#createEmbedder]] entry point returning an `Embedder`
 (`{ name, dimensions, embed() }`). Two backends:
 
-- **local** — a candle (Rust) BERT engine compiled to WebAssembly ([[packages/embed/src/local.ts#createLocalEmbedder]]), driven by a `ModelManifest` from a weights package (`@lat.md/embed-minilm-fp16`, fp16 weights up-cast to fp32 at load). Pure WASM, no native binaries; masked-mean pooling + L2 normalize, matching `sentence-transformers`. Texts are embedded one at a time (the engine is single-threaded with no batch speedup, and padding a batch to its longest item wastes work); large jobs fan out across `worker_threads` (one engine per CPU, [[packages/embed/src/worker.ts]]) while small jobs run inline.
+- **local** — a candle (Rust) BERT engine compiled to WebAssembly ([[packages/embed/src/local.ts#createLocalEmbedder]]), driven by a `ModelManifest` from a weights package (`@lat.md/embed-minilm-fp16`, fp16 weights up-cast to fp32 at load). Pure WASM, no native binaries; the ESM loader reads its binary through a module-relative URL and initializes generated glue explicitly so deployment tracers retain the asset. Masked-mean pooling + L2 normalization matches `sentence-transformers`. Texts are embedded one at a time; large jobs fan out across `worker_threads` (one engine per CPU, [[packages/embed/src/worker.ts]]) while small jobs run inline.
 - **remote** — direct `fetch()` to an OpenAI-compatible `/v1/embeddings` endpoint, batching up to 2048 texts per request ([[packages/embed/src/remote.ts#detectProvider]]).
 
 ### Storage

@@ -24,7 +24,7 @@ import { scanCodeRefs } from './code-refs.js';
 import { DIATAXIS_MODES, MODE_DIRS } from './cli/check-mode.js';
 import { readProvenance } from './cli/check-status.js';
 import { cleanUntrustedId } from './untrusted.js';
-import { toPosix } from './walk.js';
+import { toPosix } from './path.js';
 
 const execFileAsync = promisify(execFile);
 

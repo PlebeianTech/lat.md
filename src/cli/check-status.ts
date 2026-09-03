@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { dirname, relative } from 'node:path';
 import { listLatticeFiles, parseFrontmatter } from '../lattice.js';
-import { toPosix } from '../walk.js';
+import { toPosix } from '../path.js';
 import { quoteUntrusted } from '../untrusted.js';
 import type { Styler } from '../context.js';
 import type { CheckError } from './check.js';

@@ -42,6 +42,8 @@ describe('mcp', () => {
     expect(names).toEqual([
       'lat_check',
       'lat_expand',
+      'lat_external_list',
+      'lat_external_show',
       'lat_locate',
       'lat_refs',
       'lat_search',
@@ -206,7 +208,7 @@ describe.skipIf(!canRunSearch)('mcp search (rag)', () => {
 
     const result = await client2.callTool({
       name: 'lat_search',
-      arguments: { query: 'how do we handle user login and security?' },
+      arguments: { query: 'How are users authenticated with JWT tokens?' },
     });
     const text = (result.content as { type: string; text: string }[])[0].text;
     expect(result.isError).toBeFalsy();

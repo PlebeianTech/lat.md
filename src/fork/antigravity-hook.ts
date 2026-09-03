@@ -1,6 +1,7 @@
 import { existsSync, openSync, readSync, closeSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
-import { findLatticeDir, findSections, loadAllSections } from '../lattice.js';
+import { findLatticeDir, findSections } from '../lattice.js';
+import { commandProjectAnalysis } from '../project-analysis.js';
 import { plainStyler, type CmdContext } from '../context.js';
 import { expandPrompt } from '../cli/expand.js';
 import { runSearch } from '../cli/search.js';
@@ -219,11 +220,15 @@ export async function handleAntigravityPreInvocation(
     const searchFilePaths: string[] = [];
 
     if (userPrompt) {
-      const allSections = await loadAllSections(ctx.latDir).catch(() => []);
+      // Memoised on ctx, so the expansion, search, and federation below
+      // share one parse of the tree — same contract as cli/hook.ts.
+      const allSections = await commandProjectAnalysis(ctx)
+        .then((analysis) => analysis.allSections)
+        .catch(() => []);
 
       if (/\[\[[^\]]+\]\]/.test(userPrompt)) {
         try {
-          const expanded = await expandPrompt(ctx, userPrompt, allSections);
+          const expanded = await expandPrompt(ctx, userPrompt);
           if (expanded && expanded !== userPrompt) {
             parts.push(expanded, '');
           }
@@ -437,7 +442,7 @@ export async function handleAntigravityPostToolUse(
     if (latDir) {
       try {
         const { checkIndex } = await import('../cli/check.js');
-        await checkIndex(latDir, { fix: true });
+        await checkIndex(latDir, undefined, { fix: true });
       } catch {}
     }
   } catch {}

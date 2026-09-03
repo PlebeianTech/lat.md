@@ -9,15 +9,25 @@ Functional specifications for the browser server, static export, client navigati
 
 ## Serves the document index and browser shell
 
-The loopback server exposes the visible Markdown index, redirects its root to the vault index, and serves the client shell for document routes.
+The loopback server exposes the visible Markdown index, redirects its root to the extensionless vault-index route, and serves the client shell for extensionless document routes.
+
+Requesting the same route with `.md` returns the exact known vault file as `text/markdown`; missing or escaping paths remain unavailable. `HEAD` returns the same source headers without a body.
+
+Contained non-Markdown resources referenced by documents are served through `/resources/...`; missing files, directory traversal, and escaping symlinks remain unavailable.
 
 By default the header renders the same Lat wordmark as the website. `lat ui --logo-text <text>` replaces it with safely rendered plain text.
 
+The browser shell keeps a default-self Content Security Policy while allowing the OpenFreeMap tile endpoint, GitHub's custom emoji image host, and data-backed renderer fonts.
+
+The server anchors Vite's relative entry assets at `/assets/`, so every live document, source, search, and graph route loads the same production shell.
+
 ## Builds a static deployment
 
-`lat ui build [output]` emits a host-ready immutable snapshot with physical document and source routes, lazy graph data, and a compatibility entrypoint for old graph URLs.
+`lat ui build [output]` emits a host-ready immutable snapshot with physical extensionless document and source routes, lazy graph data, and a compatibility entrypoint for old graph URLs.
 
-The static client keeps Markdown and wiki navigation, backlinks, validation, source views, TOCs, and graph inspection. It does not expose Git or search, perform live API requests, or subscribe to project changes.
+Every local document also emits its exact source at the corresponding `.md` URL, while referenced vault resources are copied under `resources/` and generated, relative, search, backlink, and graph navigation all target the extensionless React route.
+
+The static client keeps Markdown and wiki navigation, backlinks, validation, source views, TOCs, and graph inspection. It does not expose Git, search, or the runtime-only section command, perform live API requests, or subscribe to project changes.
 
 Every source file stores its raw text and highlighted lines once. Request-specific focus, context, and reference metadata stays in small separate payloads, so multiple links into one file do not duplicate its code.
 
@@ -25,17 +35,61 @@ Every source file stores its raw text and highlighted lines once. Request-specif
 
 An absolute `--base` path nests the payload under that path as well as prefixing its URLs, so the output directory itself remains the deployment root.
 
-Any existing output path is rejected before snapshot work begins, including an empty directory or prior generated export. Callers must remove it explicitly or choose a new destination.
+Entry assets use that base, while lazy JavaScript, CSS, fonts, and renderer chunks resolve relative to their owning production asset. Rich fences therefore work at both root and nested deployments.
 
-The generated marker excludes the entire artifact from both ripgrep and fallback code-reference scans, preventing exported JSON and bundles from polluting project checks or search.
+Any existing output path is rejected before snapshot work begins, including an empty directory or prior generated export. Callers must remove it explicitly or choose a new destination.
 
 ## Builds the website wiki from published embedding packages
 
 Website deployments compile the current Lat UI against pinned npm releases of the embedding engine and model package, avoiding Rust, WASM, and model generation in the Vercel build.
 
+## Keeps build-only packages out of runtime dependencies
+
+The published CLI declares browser renderer inputs and test-only serializers as development dependencies because consumers execute prebuilt artifacts and should not install redundant source trees.
+
+## Renders canonical document trees
+
+Document, Git, section-output, reference, and highlighted-source APIs expose versioned JSON trees of safe root, element, and text nodes without legacy HTML fields.
+
+Markdown, reStructuredText, and AsciiDoc normalize into the same protocol. Native external parse trees project directly without an HTML round trip; shared tree decoration marks external links, and the client rejects executable properties and unsafe URL protocols.
+
+External-document repository links resolve against the document's source path. Files present in the project's explicit external set receive canonical routes; unavailable relative targets become visibly muted, non-interactive nodes.
+
+Static export discovers and rewrites links by traversing node properties while retaining the same document-tree payload as the live server.
+
 ## Renders Markdown with navigable local links
 
-Markdown becomes safe HTML with GitHub-style heading ids while ordinary relative links retain their destinations and fragments. HTTP(S) and protocol-relative links append a decorative external-site icon in documents and rendered reference contexts.
+Markdown normalizes into a safe tree with GitHub-style heading ids and intact relative destinations. HTTP(S) and protocol-relative links gain decorative external-site icons in documents and reference contexts.
+
+Links wrapping images omit the external-site icon so badges and other linked embeds remain visually intact.
+
+GitHub-flavored pipe tables render as semantic HTML tables. Wide tables stay within the document column and scroll horizontally instead of flattening into pipe-delimited text or widening the page.
+
+Single- and double-tilde GitHub strikethrough syntax renders semantic deleted text rather than literal delimiters.
+
+GitHub task-list markers render checked or unchecked disabled checkboxes with compact list alignment, preserving document readability without implying that the source file can be edited from the viewer.
+
+Bare HTTP(S), `www.`, and email addresses render as links. Web addresses receive the same external-site treatment as explicit Markdown links, while trailing prose punctuation stays outside the destination.
+
+GitHub-compatible raw HTML renders only through the sanitizer allowlist. Safe formatting and disclosure elements survive, while scripts, event handlers, and unsafe URL protocols never reach the client.
+
+Fenced code blocks with supported language labels render escaped, server-side syntax-highlighted markup. Unknown labels remain safely escaped plain code.
+
+Inline and display math render as accessible KaTeX after authored HTML has been sanitized, including display math written with dollar blocks or `math` code fences.
+
+`mermaid` fences retain escaped source in server and static payloads, then lazily become React-owned SVG element trees in the browser. Invalid syntax leaves the source visible with a safe inline error instead of removing the block.
+
+`geojson` and `topojson` fences replace source with a fixed-height loading shell before first paint, then lazily render their data over OpenFreeMap's hosted OpenStreetMap basemap. They retain visible attribution and fall back to an interactive local geometry view when tiles cannot load. Malformed data, renderer failures, and rejected lazy imports restore escaped source with a safe inline error and retry action.
+
+ASCII `stl` fences lazily render as responsive 3D models with rotation, zoom, automatic framing, centered geometry, and a canvas constrained to its viewport at every pixel ratio. Invalid models or unavailable WebGL leave escaped source visible with a safe inline error.
+
+GitHub `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, and `CAUTION` alert blockquotes render as labeled callouts with type-specific color, while non-alert blockquotes retain their ordinary presentation.
+
+GitHub footnotes render linked superscript references and a compact end section with return links, rather than being misread as ordinary Markdown reference links.
+
+Recognized GitHub emoji shortcodes render as accessible Unicode emoji or GitHub custom emoji assets; unknown shortcodes stay literal, and rendering never rewrites the authored Markdown.
+
+GitHub conversation references such as `#26`, `GH-26`, account mentions, and commit SHAs remain literal in Lat documents, matching repository-file rendering. Full GitHub URLs remain ordinary external links rather than conversation-only shortlinks or embeds.
 
 ## Shows a local table of contents
 
@@ -49,7 +103,7 @@ Sections containing rendered Git changes carry an orange disc when Git is enable
 
 Below 64rem, files remain reachable through a sticky two-row header and a scrollable full-viewport navigation overlay instead of a compressed or hidden desktop sidebar.
 
-The overlay exposes its expanded state, uses touch-sized file targets, locks document scrolling while open, and closes on navigation, Escape, or a return to desktop width. Content gutters narrow, code scrolls horizontally, and the graph stacks above its inspector.
+The overlay exposes its expanded state, uses touch-sized file targets, locks document scrolling while open, and closes on navigation, Escape, or a return to desktop width. Content gutters narrow, code scrolls horizontally without browser text inflation, and the graph stacks above its inspector.
 
 When the desktop TOC rail no longer fits, a compact `On this page` control shares an aligned metadata row and expands its links in a bounded overlay without moving content. On mobile it becomes a full-width row below the app header, retains active and Git/error states, closes after selection or Escape, and offsets fragment targets.
 
@@ -77,7 +131,23 @@ The URL preserves the latest query; Back restores it, and Escape clears the quer
 
 ## Exposes code-mention frontmatter as metadata
 
-Documents expose [[markdown#Frontmatter#require-code-mention]] separately from rendered HTML so the browser can badge files that require code references.
+Documents expose [[markdown#Frontmatter#require-code-mention]] separately from the rendered document tree so the browser can badge files that require code references.
+
+## Edits local Markdown safely
+
+Live local documents expose a View/Edit split control that swaps rendered Markdown for a soft-wrapped, syntax-highlighted CodeMirror surface without exposing editing in static exports or external documents.
+
+The editor loads raw source on demand and writes only from its Save button or the platform save shortcut. Saving, saved, unsaved, and conflict states remain visible without blocking further typing.
+
+Added, modified, and deleted lines receive subdued gutter markers against the last loaded or saved source. Markers clear when edits are reverted or saved and reset when clean content reloads from disk.
+
+Leaving Edit, navigating away, or entering Graph requires confirmation while a draft is dirty. Reloading or closing the page requests the browser's native unsaved-changes confirmation, while canceled transitions keep the draft mounted.
+
+Each save applies the user's delta from the last loaded or acknowledged text to the latest file content on disk. Unrelated concurrent changes survive, overlapping changes fail visibly while retaining the draft, and successful writes immediately refresh the live project snapshot.
+
+### Does not replay uncertain writes
+
+An interrupted editor PATCH becomes a visible error without automatic replay because the first request may already have reached disk; safe read requests retain their one retry.
 
 ## Resolves Markdown and source wiki links
 
@@ -99,13 +169,29 @@ Source links preserve their originating section and line so the code view can re
 
 ## Shows section back-references
 
-Referenced sections expose distinct linking Markdown paragraphs, wiki references, and `@lat:` code locations with navigable context.
+Every section exposes a burger-icon menu with a count only when references exist. It lists distinct Markdown and code back-references or an empty state, and can navigate to and copy the section URL.
+
+Muted actions stack below the references and can copy the URL or canonical ID accepted by `lat section`. In live views, the output modal defaults to the shared React tree renderer and offers a raw-text toggle; static exports omit this runtime-only action.
 
 ## Updates long-running views incrementally
 
 Changing, adding, or deleting project files updates cached documents, navigation, source references, and backlinks without rereading unchanged Markdown files.
 
 Browser clients receive a change event and refresh the current route while keeping its URL and viewport stable.
+
+Internal parser, search, and external-source cache writes do not publish project generations or restart in-flight document requests.
+
+### Accepts restarted server generations
+
+Each event stream identifies its server lifetime, so reconnecting after a restart accepts reset generations and invalidates document and graph data from the prior process.
+
+### Times out stalled document requests
+
+A document request that never settles becomes a visible error with a retry action instead of leaving the route on an indefinite loading state.
+
+### Recovers interrupted document requests
+
+A transport-interrupted document request retries once. A repeated interruption becomes a visible retryable error, while navigation cancellations remain silent and never overwrite the next route.
 
 ## Refreshes search after Markdown changes
 
@@ -115,13 +201,17 @@ The first search indexes lazily, while a later Markdown generation triggers exac
 
 Invalid Markdown files show a sidebar marker propagated through every ancestor directory, plus a top metadata error label whose entries jump to red-marked authored content.
 
-The initial snapshot and every refresh recompute diagnostics from cached syntax trees, removing markers immediately when errors are fixed.
+The initial snapshot and every refresh recompute diagnostics from cached AST-free file analyses, removing markers immediately when errors are fixed.
 
 ## Shows live Git state
 
 Git worktrees show cached HEAD changes as yellow modified or green new-file markers, split with red for validation errors, while rendered Markdown highlights removed and added words inline.
 
 Every rendered block in a new Markdown file inherits the added state, including headings, unordered and ordered lists with their markers, and fenced code blocks.
+
+Compatible table edits retain one rendered table, place inline additions and removals inside changed cells, and color inserted or deleted rows. Incompatible column or alignment changes fall back to colored whole-table replacements.
+
+Changed inline math keeps its surrounding prose and marks the rendered old and new formulas inline. Display-dollar and fenced math changes remain rendered inside removed and added block treatments.
 
 Blocks with less than 60% ordered word-token overlap render as whole removed and added blocks instead of noisy word-level replacements.
 
@@ -137,7 +227,7 @@ Focused source views place reference context before the highlighted definition, 
 
 ## Highlights source syntax safely
 
-Supported languages receive server-side token coloring while HTML-like source remains escaped and multiline tokens retain their styling.
+Supported languages, including Dart and Java, become structured line trees without HTML serialization. HTML-like source remains inert text and multiline tokens retain their styling across every line.
 
 ## Builds a nested file tree
 
@@ -152,6 +242,10 @@ Fragment links position rendered documents without smooth scrolling so content i
 Changing only a Markdown fragment preserves the mounted document and cached response through direct clicks and Back or Forward navigation, avoiding a loading state or full-content repaint.
 
 Selecting the H1 entry in the page TOC keeps its canonical fragment while positioning the document at scroll-top zero instead of aligning the rendered heading.
+
+### Preserves rich renderers
+
+Fragment-only rerenders preserve the keyed React fence components, while a changed document tree updates or unmounts Mermaid, map, and STL resources through normal component lifecycle.
 
 ## Restores history scroll positions
 

@@ -67,10 +67,9 @@ describe('literal-example-code-ref', () => {
   it('agrees with the ripgrep fast path when rg is available', async () => {
     const usedRg = await hasRipgrep();
     if (!usedRg) return; // rg not installed; ts-fallback case above already covers behavior
-    const { refs, usedRg: didUseRg } = await scanCodeRefs(
-      caseDir('literal-example-code-ref'),
-    );
-    expect(didUseRg).toBe(true);
+    // ScanResult no longer reports which path ran, but rg is installed and
+    // _LAT_DISABLE_RG is unset here, so this is the ripgrep path by construction.
+    const { refs } = await scanCodeRefs(caseDir('literal-example-code-ref'));
     expect(refs).toHaveLength(1);
     expect(refs[0].target).toBe('Specs#Real Ref');
   });

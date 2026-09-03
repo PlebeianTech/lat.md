@@ -1,4 +1,8 @@
-import type { ViewIndex, ViewSourceDocument } from './protocol.js';
+import type {
+  ViewExternalDocument,
+  ViewIndex,
+  ViewSourceDocument,
+} from './protocol.js';
 
 export type ViewStaticSourceRequest = {
   path: string;
@@ -10,7 +14,7 @@ export type ViewStaticSourceRequest = {
 
 export type ViewStaticSourceFile = Pick<
   ViewSourceDocument,
-  'path' | 'content' | 'highlightedHtmlLines'
+  'path' | 'content' | 'highlightedLines'
 >;
 
 export type ViewStaticSourceView = Omit<
@@ -23,12 +27,28 @@ export type ViewStaticSourceEntry = {
   view: string;
 };
 
+export type ViewStaticExternalEntry =
+  | { kind: 'markdown'; document: string }
+  | { kind: 'source'; file: string; view: string };
+
+export type ViewStaticExternalSourceView = {
+  kind: 'source';
+  target: string;
+  source: ViewStaticSourceView;
+};
+
+export type ViewStaticExternalMarkdown = Extract<
+  ViewExternalDocument,
+  { kind: 'markdown' }
+>;
+
 export type ViewStaticManifest = {
   version: 1;
   index: ViewIndex;
   graph: string;
   documents: Record<string, string>;
   sources: Record<string, ViewStaticSourceEntry>;
+  externals: Record<string, ViewStaticExternalEntry>;
 };
 
 /** Stable lookup key shared by the static exporter and browser adapter. */

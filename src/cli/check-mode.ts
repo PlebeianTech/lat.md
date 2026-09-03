@@ -4,7 +4,7 @@ import type { Heading, List, Paragraph, Root, RootContent } from 'mdast';
 import { listLatticeFiles, parseFrontmatter } from '../lattice.js';
 import { parse } from '../parser.js';
 import { quoteUntrusted } from '../untrusted.js';
-import { toPosix } from '../walk.js';
+import { toPosix } from '../path.js';
 import type { CheckError } from './check.js';
 
 export const DIATAXIS_MODES = [

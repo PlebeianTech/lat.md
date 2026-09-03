@@ -2,6 +2,7 @@
 lat:
   require-code-mention: true
 ---
+
 # Search
 
 Tests in `tests/search.test.ts`.
@@ -34,10 +35,29 @@ Index the RAG fixture (9 sections across 2 files), verify counts.
 Search for "how do we handle user login and security?" and verify the Authentication section ranks
 first.
 
+### Filters results below the similarity threshold
+
+Semantic search returns only candidates at or above the requested cosine-similarity threshold so
+callers can trade recall for less low-relevance noise.
+
+### Applies the shared default similarity threshold
+
+Every semantic-search path applies [[src/search/search.ts#DEFAULT_SEARCH_THRESHOLD]] unless its public interface supplies an
+explicit override, keeping CLI, MCP, hooks, and UI ranking policy aligned.
+
+### Applies the shared default result limit
+
+CLI, MCP, and prompt-hook semantic search use [[src/search/search.ts#DEFAULT_SEARCH_LIMIT]] unless a caller explicitly overrides it; the UI retains its named presentation-specific limit.
+
 ### Finds performance section for latency query
 
 Search for "what tools do we use to measure response times?" and verify the Performance Tests
 section ranks first.
+
+### Debug output includes similarity scores
+
+Search result formatting includes each cosine-similarity score when debug output is requested and
+keeps scores out of the normal output.
 
 ### Deterministic embeddings
 
@@ -67,3 +87,19 @@ search: the mismatched table is dropped and rebuilt at 384 dims and the query su
 
 This is the pre-versioning `.cache` upgrade path — before, the stale table was queried and threw a
 raw dimension-mismatch error.
+
+### Reuses an indexed search session
+
+An indexed search session opens its database and embedder once, applies each query's limit and threshold, resolves known section ids, and closes owned resources exactly once.
+
+### Skips an unbuilt search index
+
+Opening a query-only session before an index exists returns no matches without loading an embedder, while still closing the database cleanly.
+
+### Patches generated WASM loading explicitly
+
+The package build replaces wasm-bindgen's opaque filesystem loader with an explicit byte initializer that is idempotent and discoverable by deployment tracers.
+
+### Rejects unknown generated WASM glue
+
+The package build fails clearly when generated wasm-bindgen output no longer contains the loader shape Lat knows how to replace.

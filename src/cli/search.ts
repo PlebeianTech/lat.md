@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { CmdContext, CmdResult, Styler } from '../context.js';
 import {
   openDb,
@@ -20,12 +20,14 @@ import {
 } from '../search/embedder.js';
 import { indexSections, type IndexStats } from '../search/index.js';
 import { searchSections } from '../search/search.js';
+import type { SectionMatch } from '../lattice-model.js';
+import type { Section } from '../lattice-model.js';
+import { searchIndexedSections } from '../search/query.js';
 import {
-  loadAllSections,
-  flattenSections,
-  type Section,
-  type SectionMatch,
-} from '../lattice.js';
+  analyzeMarkdownProject,
+  commandProjectAnalysis,
+  type MarkdownProjectAnalysis,
+} from '../project-analysis.js';
 import { formatSectionPreview, formatNavHints } from '../format.js';
 import { provenanceNote, formatProvenanceNote } from './check-status.js';
 
@@ -44,12 +46,15 @@ export type IndexProgress = {
 async function withDb<T>(
   latDir: string,
   progress: IndexProgress | undefined,
+  project: MarkdownProjectAnalysis,
+  cacheDir: string | undefined,
   fn: (
     db: Awaited<ReturnType<typeof openDb>>,
     embedder: Embedder,
+    project: MarkdownProjectAnalysis,
   ) => Promise<T>,
 ): Promise<T> {
-  const db = openDb(latDir);
+  const db = openDb(latDir, cacheDir);
 
   try {
     await ensureMeta(db);
@@ -93,7 +98,13 @@ async function withDb<T>(
 
     progress?.beforeIndex?.(isEmpty);
     try {
-      const stats = await indexSections(latDir, db, embedder);
+      const stats = await indexSections(
+        latDir,
+        db,
+        embedder,
+        undefined,
+        project,
+      );
       // Pin the backend only after a successful index, so a failed build never
       // leaves the repo wrongly pinned to an empty index.
       if (!stored) await setStoredModel(db, modelKey(embedder));
@@ -105,31 +116,12 @@ async function withDb<T>(
       throw err;
     }
 
-    return await fn(db, embedder);
+    return await fn(db, embedder, project);
   } finally {
     await closeDb(db);
   }
 }
 
-/** Resolve raw search hits (by id) to full section matches. */
-async function resolveMatches(
-  latDir: string,
-  results: { id: string; score: number }[],
-  preloadedSections?: Section[],
-): Promise<SectionMatch[]> {
-  if (results.length === 0) return [];
-
-  const allSections = preloadedSections ?? (await loadAllSections(latDir));
-  const flat = flattenSections(allSections);
-  const byId = new Map(flat.map((s) => [s.id, s]));
-
-  return results.flatMap((result) => {
-    const section = byId.get(result.id);
-    return section
-      ? [{ section, reason: 'semantic match', score: result.score }]
-      : [];
-  });
-}
 
 /**
  * Run a semantic search across lat.md sections.
@@ -146,35 +138,58 @@ export async function runSearch(
   query: string,
   limit: number,
   progress?: IndexProgress,
-  opts?: { buildIndex?: boolean; preloadedSections?: Section[] },
+  opts?: {
+    buildIndex?: boolean;
+    project?: MarkdownProjectAnalysis;
+    sectionById?: ReadonlyMap<string, Section>;
+    threshold?: number;
+    cacheDir?: string;
+  },
 ): Promise<SearchResult> {
   if (opts?.buildIndex === false) {
-    const db = openDb(latDir);
-    try {
-      await ensureMeta(db);
-      const stored = await getStoredModel(db);
-      // Never built (or a legacy pre-versioning cache) — leave building to
-      // `lat search`; don't load the embedder just to embed the query.
-      if (stored === null) return { query, matches: [] };
-      const embedder = await embedderForIndex(stored, latDir);
-      await ensureSectionsSchema(db, embedder.dimensions);
-      const results = await searchSections(db, query, embedder, limit);
-      return {
-        query,
-        matches: await resolveMatches(latDir, results, opts?.preloadedSections),
-      };
-    } finally {
-      await closeDb(db);
-    }
+    const sectionById =
+      opts.sectionById ??
+      opts.project?.sectionById ??
+      (
+        await analyzeMarkdownProject(latDir, dirname(latDir), {
+          executor: 'auto',
+        })
+      ).sectionById;
+    return searchIndexedSections(latDir, query, limit, sectionById, {
+      cacheDir: opts.cacheDir,
+      threshold: opts.threshold,
+    });
   }
 
-  return withDb(latDir, progress, async (db, embedder) => {
-    const results = await searchSections(db, query, embedder, limit);
-    return {
-      query,
-      matches: await resolveMatches(latDir, results, opts?.preloadedSections),
-    };
-  });
+  const project =
+    opts?.project ??
+    (await analyzeMarkdownProject(latDir, dirname(latDir), {
+      executor: 'auto',
+    }));
+  return withDb(
+    latDir,
+    progress,
+    project,
+    opts?.cacheDir,
+    async (db, embedder, analyzed) => {
+      const results = await searchSections(
+        db,
+        query,
+        embedder,
+        limit,
+        opts?.threshold,
+      );
+      return {
+        query,
+        matches: results.flatMap((result) => {
+          const section = analyzed.sectionById.get(result.id.toLowerCase());
+          return section
+            ? [{ section, reason: 'semantic match', score: result.score }]
+            : [];
+        }),
+      };
+    },
+  );
 }
 
 /**
@@ -184,8 +199,15 @@ export async function runSearch(
 export async function runIndex(
   latDir: string,
   progress?: IndexProgress,
+  analyzedProject?: MarkdownProjectAnalysis,
+  options: { cacheDir?: string } = {},
 ): Promise<void> {
-  await withDb(latDir, progress, async () => {});
+  const project =
+    analyzedProject ??
+    (await analyzeMarkdownProject(latDir, dirname(latDir), {
+      executor: 'auto',
+    }));
+  await withDb(latDir, progress, project, options.cacheDir, async () => {});
 }
 
 export function cliProgress(s: Styler): IndexProgress {
@@ -226,6 +248,7 @@ async function formatSearchMatches(
   ctx: CmdContext,
   query: string,
   matches: SectionMatch[],
+  opts?: { showScores?: boolean },
 ): Promise<string> {
   const notes = new Map<string, ReturnType<typeof provenanceNote>>();
   for (const match of matches) {
@@ -245,6 +268,7 @@ async function formatSearchMatches(
     lines.push(
       formatSectionPreview(ctx, matches[i].section, {
         reason: matches[i].reason,
+        score: opts?.showScores ? matches[i].score : undefined,
       }),
     );
     const note = notes.get(matches[i].section.filePath);
@@ -257,17 +281,21 @@ async function formatSearchMatches(
 export async function searchCommand(
   ctx: CmdContext,
   query: string | undefined,
-  opts: { limit: number },
+  opts: { limit: number; debug?: boolean; threshold?: number },
   progress?: IndexProgress,
 ): Promise<CmdResult> {
   const s = ctx.styler;
   try {
     if (!query) {
-      await runIndex(ctx.latDir, progress);
+      await runIndex(ctx.latDir, progress, await commandProjectAnalysis(ctx));
       return { output: '' };
     }
 
-    const result = await runSearch(ctx.latDir, query, opts.limit, progress);
+    const project = await commandProjectAnalysis(ctx);
+    const result = await runSearch(ctx.latDir, query, opts.limit, progress, {
+      project,
+      threshold: opts.threshold,
+    });
 
     if (result.matches.length === 0) {
       return { output: 'No results found.' };
@@ -275,8 +303,9 @@ export async function searchCommand(
 
     return {
       output:
-        (await formatSearchMatches(ctx, query, result.matches)) +
-        formatNavHints(ctx),
+        (await formatSearchMatches(ctx, query, result.matches, {
+          showScores: opts.debug,
+        })) + formatNavHints(ctx),
     };
   } catch (err) {
     // The stored index can't be served in the current environment — never

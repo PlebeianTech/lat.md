@@ -11,6 +11,10 @@ import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
 import { resolveCheckContext, resolveContext } from './context.js';
 import type { CmdResult } from '../context.js';
+import {
+  DEFAULT_SEARCH_LIMIT,
+  DEFAULT_SEARCH_THRESHOLD,
+} from '../search/search.js';
 
 type CheckTargetArgs = {
   args: string[];
@@ -26,6 +30,14 @@ function parsePort(value: string): number {
     throw new InvalidArgumentError('port must be an integer from 1 to 65535');
   }
   return port;
+}
+
+function parseSimilarityThreshold(value: string): number {
+  const threshold = Number(value);
+  if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
+    throw new InvalidArgumentError('threshold must be a number from 0 to 1');
+  }
+  return threshold;
 }
 
 /** Reserve `-- <directory>` for an explicit check target. */
@@ -171,15 +183,74 @@ program
     handleResult(await refsCommand(ctx, query, scope));
   });
 
+const external = program
+  .command('external')
+  .description('Manage pinned external source repositories');
+
+external
+  .command('add')
+  .argument('[handle]', 'stable external source handle')
+  .argument('[repo]', 'canonical HTTPS Git repository')
+  .option('--commit <commit-or-ref>', 'commit, branch, or tag to pin')
+  .option('--prefix <path>', 'repository path prefix')
+  .option(
+    '--default-file-extension <extension>',
+    'extension for external paths that omit one',
+  )
+  .option('--strategy <strategy>', 'retrieval strategy: fetch or checkout')
+  .option('--fetch-url <template>', 'raw-file URL template')
+  .action(
+    async (
+      handle: string | undefined,
+      repo: string | undefined,
+      opts: {
+        commit?: string;
+        prefix?: string;
+        defaultFileExtension?: string;
+        strategy?: string;
+        fetchUrl?: string;
+      },
+    ) => {
+      const ctx = resolveContext(program.opts());
+      const { externalAddCommand } = await import('./external.js');
+      handleResult(await externalAddCommand(ctx, handle, repo, opts));
+    },
+  );
+
+external
+  .command('show')
+  .argument('<source>', 'handle or exact external target')
+  .option('--json', 'emit structured JSON')
+  .action(async (source: string, opts: { json?: boolean }) => {
+    const ctx = resolveContext(program.opts());
+    const { externalShowCommand } = await import('./external.js');
+    handleResult(await externalShowCommand(ctx, source, !!opts.json));
+  });
+
+external
+  .command('list')
+  .option('--json', 'emit structured JSON')
+  .action(async (opts: { json?: boolean }) => {
+    const ctx = resolveContext(program.opts());
+    const { externalListCommand } = await import('./external.js');
+    handleResult(await externalListCommand(ctx, !!opts.json));
+  });
+
 const check = program
   .command('check')
   .usage('[subcommand] [-- <directory>]')
   .description('Validate markdown, links, code references, and structure')
   .option('--fix', 'generate/update directory index files from frontmatter')
-  .action(async (opts: { fix?: boolean }) => {
+  .option('--profile', 'show detailed validation timing')
+  .action(async (opts: { fix?: boolean; profile?: boolean }) => {
     const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
     const { checkAllCommand } = await import('./check.js');
-    handleResult(await checkAllCommand(ctx, { fix: opts.fix }));
+    handleResult(
+      await checkAllCommand(ctx, {
+        fix: opts.fix,
+        profile: !!opts.profile,
+      }),
+    );
   });
 
 check
@@ -307,19 +378,38 @@ program
   .command('search')
   .description('Semantic search across lat.md sections')
   .argument('[query]', 'search query in plain English')
-  .option('--limit <n>', 'max results', '5')
-  .action(async (query: string | undefined, opts: { limit: string }) => {
-    const ctx = resolveContext(program.opts());
-    const { searchCommand, cliProgress } = await import('./search.js');
-    const progress = cliProgress(ctx.styler);
-    const result = await searchCommand(
-      ctx,
-      query,
-      { limit: parseInt(opts.limit) },
-      progress,
-    );
-    handleResult(result);
-  });
+  .option(
+    '--limit <n>',
+    `max results (default: ${DEFAULT_SEARCH_LIMIT})`,
+    String(DEFAULT_SEARCH_LIMIT),
+  )
+  .option('--debug', 'show result similarity scores')
+  .option(
+    '--threshold <score>',
+    `minimum cosine similarity score (default: ${DEFAULT_SEARCH_THRESHOLD})`,
+    parseSimilarityThreshold,
+  )
+  .action(
+    async (
+      query: string | undefined,
+      opts: { limit: string; debug?: boolean; threshold?: number },
+    ) => {
+      const ctx = resolveContext(program.opts());
+      const { searchCommand, cliProgress } = await import('./search.js');
+      const progress = cliProgress(ctx.styler);
+      const result = await searchCommand(
+        ctx,
+        query,
+        {
+          limit: parseInt(opts.limit),
+          debug: opts.debug,
+          threshold: opts.threshold,
+        },
+        progress,
+      );
+      handleResult(result);
+    },
+  );
 
 program
   .command('reindex')

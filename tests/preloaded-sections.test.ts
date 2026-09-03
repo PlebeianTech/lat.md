@@ -1,12 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
 import { join } from 'node:path';
 
-// Spy on loadAllSections while keeping its real implementation, so the tests
-// below can count how many times the tree is actually walked and parsed —
-// the seam lat-t1y.23 threads a pre-loaded-sections parameter through.
-vi.mock('../src/lattice.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/lattice.js')>();
-  return { ...actual, loadAllSections: vi.fn(actual.loadAllSections) };
+// Count real tree walks. Upstream absorbed lat-t1y.23's explicit
+// preloaded-sections parameter into a session memoised on the command context,
+// so the property under test is unchanged but the seam moved: what proves one
+// parse per prompt is now that every caller shares one `ctx`.
+vi.mock('../src/walk.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/walk.js')>();
+  return { ...actual, walkEntries: vi.fn(actual.walkEntries) };
 });
 
 vi.mock('../src/search/db.js', () => ({
@@ -22,87 +23,103 @@ vi.mock('../src/search/embedder.js', () => ({
 }));
 
 vi.mock('../src/search/search.js', () => ({
-  searchSections: vi.fn(async () => [
-    { id: 'feature', file: '', heading: '', content: '' },
-  ]),
+  searchSections: vi.fn(async () => []),
 }));
 
 const clean = join(import.meta.dirname, 'cases', 'hook-clean');
+const latDir = join(clean, 'lat.md');
+
+function makeCtx() {
+  return {
+    latDir,
+    projectRoot: clean,
+    styler: {
+      bold: (s: string) => s,
+      dim: (s: string) => s,
+      red: (s: string) => s,
+      cyan: (s: string) => s,
+      white: (s: string) => s,
+      green: (s: string) => s,
+      yellow: (s: string) => s,
+      boldWhite: (s: string) => s,
+    },
+    mode: 'cli' as const,
+  };
+}
 
 describe('parses the lat.md tree once per prompt (lat-t1y.23)', () => {
-  // @lat: [[hook#Parses the lat.md tree once per prompt (lat-t1y.23)#expandPrompt uses preloaded sections instead of re-parsing the tree]]
-  it('expandPrompt uses preloaded sections instead of re-parsing the tree', async () => {
-    const { loadAllSections } = await import('../src/lattice.js');
+  // @lat: [[hook#Parses the lat.md tree once per prompt (lat-t1y.23)#expandPrompt reuses the analysis memoised on its context]]
+  it('expandPrompt reuses the analysis memoised on its context', async () => {
+    const { walkEntries } = await import('../src/walk.js');
     const { expandPrompt } = await import('../src/cli/expand.js');
-    const spy = vi.mocked(loadAllSections);
+    const { commandProjectAnalysis } = await import(
+      '../src/project-analysis.js'
+    );
+    const spy = vi.mocked(walkEntries);
+
+    const ctx = makeCtx();
     spy.mockClear();
+    const first = await expandPrompt(ctx, '[[feature]]');
+    expect(first).not.toBeNull();
+    const walksAfterFirst = spy.mock.calls.length;
+    expect(walksAfterFirst).toBeGreaterThan(0);
 
-    const latDir = join(clean, 'lat.md');
-    const ctx = {
-      latDir,
-      projectRoot: clean,
-      styler: {
-        bold: (s: string) => s,
-        dim: (s: string) => s,
-        red: (s: string) => s,
-        cyan: (s: string) => s,
-        white: (s: string) => s,
-        green: (s: string) => s,
-        yellow: (s: string) => s,
-        boldWhite: (s: string) => s,
-      },
-      mode: 'cli' as const,
-    };
+    // Same ctx: the analysis is already on it, so nothing is walked again and
+    // the output is byte-identical.
+    const second = await expandPrompt(ctx, '[[feature]]');
+    expect(spy.mock.calls.length).toBe(walksAfterFirst);
+    expect(second).toBe(first);
 
-    // Baseline: no preloaded sections still works, and still walks the tree.
-    const withoutPreload = await expandPrompt(ctx, '[[feature]]');
-    expect(withoutPreload).not.toBeNull();
-    expect(spy).toHaveBeenCalledTimes(1);
+    // And it is the very same analysis object, not an equal copy.
+    expect(await commandProjectAnalysis(ctx)).toBe(
+      await commandProjectAnalysis(ctx),
+    );
 
-    // With preloaded sections, the tree is not walked again.
+    // A fresh ctx is a fresh session, so the cache is per-command and not global.
+    const other = makeCtx();
     spy.mockClear();
-    const preloaded = await spy.getMockImplementation()!(latDir);
-    const withPreload = await expandPrompt(ctx, '[[feature]]', preloaded);
-    expect(spy).not.toHaveBeenCalled();
-
-    // Results are byte-identical whether or not sections were preloaded.
-    expect(withPreload).toBe(withoutPreload);
+    await expandPrompt(other, '[[feature]]');
+    expect(spy.mock.calls.length).toBeGreaterThan(0);
   });
 
-  // @lat: [[hook#Parses the lat.md tree once per prompt (lat-t1y.23)#runSearch resolves matches from preloaded sections without re-parsing the tree]]
-  it('runSearch resolves matches from preloaded sections without re-parsing the tree', async () => {
-    const { loadAllSections, flattenSections } =
-      await import('../src/lattice.js');
+  // @lat: [[hook#Parses the lat.md tree once per prompt (lat-t1y.23)#runSearch resolves matches from a supplied analysis without re-parsing the tree]]
+  it('runSearch resolves matches from a supplied analysis without re-parsing the tree', async () => {
+    const { walkEntries } = await import('../src/walk.js');
     const { runSearch } = await import('../src/cli/search.js');
-    const spy = vi.mocked(loadAllSections);
+    const { commandProjectAnalysis } = await import(
+      '../src/project-analysis.js'
+    );
+    const spy = vi.mocked(walkEntries);
 
-    const latDir = join(clean, 'lat.md');
-    const preloaded = await spy.getMockImplementation()!(latDir);
-    const featureId = flattenSections(preloaded).find((s) =>
-      s.filePath.endsWith('feature.md'),
-    )!.id;
+    const ctx = makeCtx();
+    const project = await commandProjectAnalysis(ctx);
+    const featureId = [...project.sectionById.keys()].find((id) =>
+      id.includes('feature'),
+    )!;
+    expect(featureId).toBeDefined();
     vi.mocked(
       (await import('../src/search/search.js')).searchSections,
     ).mockResolvedValue([
       { id: featureId, file: '', heading: '', content: '', score: 1 },
     ]);
 
+    // The hook hands runSearch the analysis it already has; nothing is re-walked.
     spy.mockClear();
-    const withPreload = await runSearch(latDir, 'feature', 5, undefined, {
+    const supplied = await runSearch(latDir, 'feature', 5, undefined, {
       buildIndex: false,
-      preloadedSections: preloaded,
+      project,
     });
     expect(spy).not.toHaveBeenCalled();
-    expect(withPreload.matches).toHaveLength(1);
-    expect(withPreload.matches[0].section.id).toBe(featureId);
+    expect(supplied.matches).toHaveLength(1);
+    expect(supplied.matches[0].section.id.toLowerCase()).toBe(featureId);
 
-    // Passing no preloaded sections is unchanged: it still resolves the
-    // match by walking the tree itself.
+    // Supplying nothing is unchanged: runSearch analyses the tree itself and
+    // resolves the same match.
     spy.mockClear();
-    const withoutPreload = await runSearch(latDir, 'feature', 5, undefined, {
+    const unsupplied = await runSearch(latDir, 'feature', 5, undefined, {
       buildIndex: false,
     });
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(withoutPreload.matches).toEqual(withPreload.matches);
+    expect(spy.mock.calls.length).toBeGreaterThan(0);
+    expect(unsupplied.matches).toEqual(supplied.matches);
   });
 });
