@@ -138,7 +138,7 @@ A clone carries `origin` at PlebeianTech/lat.md and `upstream` at vercel-labs/la
 
 `gh` chooses its repository from the git remotes and ranks the name `upstream` above `origin`, so in a fresh clone every `gh` command resolves to vercel-labs. `gh run list` reads their workflow runs rather than ours, which is merely confusing; `gh issue create` or `gh pr create` would post to a repository we do not own, which is prohibited outright.
 
-`gh repo set-default PlebeianTech/lat.md` settles it by writing `remote.origin.gh-resolved = base` into `.git/config`. That file is untracked, so the setting does not survive a fresh clone — every new checkout starts pointed at upstream. An explicit `--repo`, as in [[fork#Fork#Turning a workflow off without editing it]], is the form that depends on no local configuration at all.
+`gh repo set-default PlebeianTech/lat.md` settles it by writing `remote.origin.gh-resolved = base` into `.git/config`. That file is untracked, so the setting does not survive a fresh clone — every new checkout starts pointed at upstream. It does not survive removing and re-adding the remote either: the value is stored *on* `remote.origin`, so it is deleted with it. Rewriting history is one way to hit that, because `git filter-repo` removes `origin` on its way out, and the next bare `gh` command reads upstream again. An explicit `--repo`, as in [[fork#Fork#Turning a workflow off without editing it]], is the form that depends on no local configuration at all.
 
 ## Upstream's commits must keep their hashes
 
