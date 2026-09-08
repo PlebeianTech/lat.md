@@ -397,6 +397,7 @@ function codeLanguage(target: string): {
       return { className: 'code-language-js', label: 'JS' };
     case '.py':
       return { className: 'code-language-py', label: 'PY' };
+    case '.rake':
     case '.rb':
       return { className: 'code-language-rb', label: 'RB' };
     case '.rs':

@@ -103,6 +103,7 @@ const grammarMap = {
   '.js': 'tree-sitter-javascript.wasm',
   '.jsx': 'tree-sitter-javascript.wasm',
   '.py': 'tree-sitter-python.wasm',
+  '.rake': 'tree-sitter-ruby.wasm',
   '.rb': 'tree-sitter-ruby.wasm',
   '.rs': 'tree-sitter-rust.wasm',
   '.ts': 'tree-sitter-typescript.wasm',
@@ -464,8 +465,89 @@ function collectRubyScope(
           }
         }
       }
+    } else if (node.type === 'call') {
+      const methodNode = node.childForFieldName('method');
+      const methodName = methodNode?.text;
+      if (
+        methodName === 'task' ||
+        methodName === 'multitask' ||
+        methodName === 'file'
+      ) {
+        const name = extractRubyRakeName(node);
+        if (name) {
+          symbols.push({
+            name,
+            kind: parent ? 'method' : 'function',
+            ...(parent ? { parent } : {}),
+            startLine,
+            endLine,
+            signature,
+          });
+        }
+      } else if (methodName === 'namespace') {
+        const name = extractRubyRakeName(node);
+        if (name) {
+          symbols.push({
+            name,
+            kind: 'class',
+            startLine,
+            endLine,
+            signature,
+          });
+          if (parent) {
+            symbols.push({
+              name,
+              kind: 'class',
+              parent,
+              startLine,
+              endLine,
+              signature,
+            });
+          }
+          const block =
+            node.childForFieldName('block') ??
+            node.namedChildren.find(
+              (n) => n.type === 'do_block' || n.type === 'block',
+            );
+          if (block) {
+            const body =
+              block.childForFieldName('body') ??
+              block.namedChildren.find(
+                (n) => n.type === 'body_statement' || n.type === 'block_body',
+              ) ??
+              block;
+            collectRubyScope(body, name, symbols);
+          }
+        }
+      }
     }
   }
+}
+
+function extractRubyRakeName(node: SyntaxNode): string | null {
+  const args = node.childForFieldName('arguments');
+  if (!args || args.namedChildren.length === 0) return null;
+  let first = args.namedChildren[0];
+  if (first.type === 'pair') {
+    first = first.childForFieldName('key') ?? first.namedChildren[0];
+  }
+  if (!first) return null;
+  if (first.type === 'simple_symbol') {
+    return first.text.replace(/^:/, '');
+  }
+  if (first.type === 'hash_key_symbol') {
+    return first.text.replace(/:$/, '');
+  }
+  if (first.type === 'string') {
+    const content = first.namedChildren.find(
+      (c) => c.type === 'string_content',
+    );
+    return content ? content.text : first.text.replace(/^['"]|['"]$/g, '');
+  }
+  if (first.type === 'identifier') {
+    return first.text;
+  }
+  return null;
 }
 
 function extractRubySymbols(tree: Tree): SourceSymbol[] {
@@ -1435,6 +1517,7 @@ const symbolExtractors = {
   '.js': extractTsSymbols,
   '.jsx': extractTsSymbols,
   '.py': extractPySymbols,
+  '.rake': extractRubySymbols,
   '.rb': extractRubySymbols,
   '.rs': extractRustSymbols,
   '.ts': extractTsSymbols,

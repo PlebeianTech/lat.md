@@ -28,6 +28,7 @@ const SOURCE_CACHE_FIXTURES = {
     symbol: 'cached',
   },
   '.py': { content: 'def cached():\n    return None\n', symbol: 'cached' },
+  '.rake': { content: 'task :cached do\n  1\nend\n', symbol: 'cached' },
   '.rb': { content: 'def cached\n  1\nend\n', symbol: 'cached' },
   '.rs': { content: 'pub fn cached() {}\n', symbol: 'cached' },
   '.ts': { content: 'export function cached() {}\n', symbol: 'cached' },

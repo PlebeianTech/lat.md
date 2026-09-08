@@ -30,7 +30,9 @@ async function createSourceProject(): Promise<string> {
   await Promise.all([
     ...SOURCE_FILE_EXTENSIONS.map((extension) => {
       const comment =
-        extension === '.py' || extension === '.rb' ? '#' : '//';
+        extension === '.py' || extension === '.rake' || extension === '.rb'
+          ? '#'
+          : '//';
       return writeFile(
         join(sourceDir, `source${extension}`),
         codeReference(comment, `Specs#${extension.slice(1)}`),

@@ -1356,6 +1356,14 @@ describe('source-ref-rb-valid', () => {
   });
 });
 
+describe('source-ref-rake-valid', () => {
+  // @lat: [[tests/check-md#Passes with valid links#Passes with Rake source symbol links]]
+  it('resolves Rake tasks, namespaces, and helper functions without errors', async () => {
+    const { errors } = await checkMd(latDir('source-ref-rake-valid'));
+    expect(errors).toHaveLength(0);
+  });
+});
+
 describe('error-source-ref-rs-missing', () => {
   it('check md reports all missing Rust symbols', async () => {
     const { errors } = await checkMd(latDir('error-source-ref-rs-missing'));
@@ -1980,6 +1988,38 @@ describe('getSection', () => {
     expect(ref('src/greeter.rb#SuperGreeter#super_greet')).toMatchObject({
       line: 52,
       endLine: 54,
+    });
+  });
+
+  it('Rake: outgoingSourceRefs include tasks and namespaces', async () => {
+    const ctx = testCtx('source-ref-rake-valid');
+    const result = await getSection(ctx, 'lat.md/docs#Docs');
+    expect(result.kind).toBe('found');
+    if (result.kind !== 'found') return;
+    const ref = (target: string) =>
+      result.outgoingSourceRefs.find(
+        (reference) => reference.target === target,
+      );
+
+    expect(ref('lib/tasks/app.rake#default')).toMatchObject({
+      line: 4,
+      endLine: 4,
+    });
+    expect(ref('lib/tasks/app.rake#build')).toMatchObject({
+      line: 7,
+      endLine: 9,
+    });
+    expect(ref('lib/tasks/app.rake#db')).toMatchObject({
+      line: 11,
+      endLine: 16,
+    });
+    expect(ref('lib/tasks/app.rake#db#migrate')).toMatchObject({
+      line: 13,
+      endLine: 15,
+    });
+    expect(ref('lib/tasks/app.rake#rake_helper')).toMatchObject({
+      line: 18,
+      endLine: 20,
     });
   });
 

@@ -46,3 +46,7 @@ Given links to Java types and members, [[cli#check#md]] resolves classes, interf
 ### Passes with Ruby source symbol links
 
 Given links to Ruby declarations and nested members, [[cli#check#md]] resolves classes, modules, methods, singleton methods, constants, and scoped declarations with complete source ranges.
+
+### Passes with Rake source symbol links
+
+Given links to Rake tasks and namespaces in `.rake` files, [[cli#check#md]] resolves tasks, namespaces, nested tasks, and helper functions with complete source ranges.

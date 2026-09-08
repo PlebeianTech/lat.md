@@ -10,6 +10,7 @@ export const SOURCE_FILE_EXTENSIONS = [
   '.js',
   '.jsx',
   '.py',
+  '.rake',
   '.rb',
   '.rs',
   '.ts',

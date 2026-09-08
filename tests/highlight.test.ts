@@ -72,6 +72,13 @@ describe('source highlighting', () => {
     expect(treeClasses(rubySource[0])).toContain('hljs-title');
     expect(treeText(rubySource[0])).toContain('Greeter');
 
+    const rakeSource = highlightSource(
+      'lib/tasks/build.rake',
+      'task :build do; puts "building"; end',
+    );
+    expect(treeClasses(rakeSource[0])).toContain('hljs-string');
+    expect(treeText(rakeSource[0])).toContain('build');
+
     expect(highlightSource('notes.txt', '<safe>\n& literal')).toEqual([
       {
         version: 1,

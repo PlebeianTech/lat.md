@@ -1437,6 +1437,19 @@ describe('lat ui', () => {
     );
     expect(rubyLink.html).toContain('>RB</span>');
 
+    const rakeLink = await renderMarkdown(
+      '[[lib/tasks/build.rake#build]]',
+      'lat.md',
+      async () => ({
+        href: '/code/lib/tasks/build.rake?symbol=build',
+        referenceCount: 0,
+      }),
+    );
+    expect(rakeLink.html).toContain(
+      'class="code-link-language code-language-rb"',
+    );
+    expect(rakeLink.html).toContain('>RB</span>');
+
     for (const referenceCount of [0, 1]) {
       const sparseReferences = await renderMarkdown(
         '[[orphan]]',
