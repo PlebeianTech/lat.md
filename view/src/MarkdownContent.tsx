@@ -19,6 +19,7 @@ import {
   type MarkdownRichFenceKind,
 } from './MarkdownRichFence';
 import { copySectionId } from './section-back-references';
+import { CodeBlock } from './CodeBlock';
 
 const VOID_ELEMENTS = new Set([
   'area',
@@ -189,6 +190,7 @@ function SectionMenu({
   onShowSectionOutput,
   section,
   sectionOutputEnabled,
+  viewMarkdownUrl,
 }: {
   heading: {
     children: ReactNode[] | undefined;
@@ -200,6 +202,7 @@ function SectionMenu({
   onShowSectionOutput?: (sectionId: string) => void;
   section: ViewSectionBackReferences;
   sectionOutputEnabled: boolean;
+  viewMarkdownUrl?: string;
 }) {
   const [open, setOpen] = useState(false);
   const count = section.references.length;
@@ -240,7 +243,7 @@ function SectionMenu({
       >
         {count > 0 ? (
           <>
-            <div className="section-back-reference-header">Referenced from</div>
+            <div className="section-back-reference-header">Referenced From</div>
             <div className="section-back-reference-list">
               {section.references.map((reference, referenceIndex) =>
                 reference.kind === 'markdown' ? (
@@ -268,8 +271,13 @@ function SectionMenu({
             onClick={stop(() => onCopySectionLink?.(section.headingId))}
             type="button"
           >
-            Copy link to the section
+            Copy Link to the Section
           </button>
+          {index === 0 && viewMarkdownUrl && (
+            <a className="section-back-reference-action" href={viewMarkdownUrl}>
+              View Markdown File
+            </a>
+          )}
           <button
             className="section-back-reference-action"
             onClick={stop(() =>
@@ -277,7 +285,7 @@ function SectionMenu({
             )}
             type="button"
           >
-            Copy section ID
+            Copy Section ID
           </button>
           {sectionOutputEnabled && (
             <button
@@ -285,7 +293,7 @@ function SectionMenu({
               onClick={stop(() => onShowSectionOutput?.(section.sectionId))}
               type="button"
             >
-              Show <code>lat section</code> output
+              Show <code>lat section</code> Output
             </button>
           )}
         </div>
@@ -302,6 +310,7 @@ type RenderContext = {
   sectionOutputEnabled: boolean;
   onCopySectionLink?: (headingId: string) => void;
   onShowSectionOutput?: (sectionId: string) => void;
+  viewMarkdownUrl?: string;
 };
 
 function DocumentElement({
@@ -320,10 +329,17 @@ function DocumentElement({
         documentNode(child, `${path}.${index}`, context),
       );
   const fenceKind = richFenceKind(node);
+  const element = createElement(node.tagName, properties, children);
+  const content =
+    node.tagName === 'pre' ? (
+      <CodeBlock text={documentNodeText(node)}>{element}</CodeBlock>
+    ) : (
+      element
+    );
   if (fenceKind) {
     return (
       <MarkdownRichFence
-        fallback={createElement(node.tagName, properties, children)}
+        fallback={content}
         key={path}
         kind={fenceKind}
         source={node.children.map(documentNodeText).join('')}
@@ -336,7 +352,7 @@ function DocumentElement({
       : null;
   const backReferences = headingId ? context?.sections.get(headingId) : null;
   if (!backReferences) {
-    return createElement(node.tagName, properties, children);
+    return content;
   }
   return (
     <SectionMenu
@@ -347,6 +363,7 @@ function DocumentElement({
       onShowSectionOutput={context?.onShowSectionOutput}
       section={backReferences.section}
       sectionOutputEnabled={context?.sectionOutputEnabled ?? true}
+      viewMarkdownUrl={context?.viewMarkdownUrl}
     />
   );
 }
@@ -377,6 +394,7 @@ export function MarkdownContent({
   onShowSectionOutput,
   sectionOutputEnabled = true,
   tree,
+  viewMarkdownUrl,
 }: {
   backReferences?: ViewSectionBackReferences[];
   onClick?: (event: MouseEvent<HTMLElement>) => void;
@@ -384,6 +402,7 @@ export function MarkdownContent({
   onShowSectionOutput?: (sectionId: string) => void;
   sectionOutputEnabled?: boolean;
   tree: ViewDocumentTree;
+  viewMarkdownUrl?: string;
 }) {
   const context: RenderContext = {
     sections: new Map(
@@ -395,6 +414,7 @@ export function MarkdownContent({
     sectionOutputEnabled,
     onCopySectionLink,
     onShowSectionOutput,
+    viewMarkdownUrl,
   };
 
   return (

@@ -1,28 +1,42 @@
 # Browser Architecture
 
-`lat ui` serves the current vault on loopback, while `lat ui build` exports the same browser as an immutable static deployment.
+Lat UI has one browser and three portable targets: a local live server, a fully static export, and a static export with a small semantic-search server.
 
 ## Runtime boundary
 
-[[src/cli/ui.ts#uiCommand]] starts [[src/view/server.ts#startViewServer]] on loopback port 4242 and launches the browser without a shell. An occupied default advances to the next available port; an explicit `--port` is strict and reports the conflict.
+`lat ui` is shorthand for `lat ui run`. [[src/cli/ui.ts#uiCommand]] starts [[src/view/server.ts#startViewServer]] on loopback port 4242 and launches the browser without a shell. An occupied default advances to the next available port; an explicit `--port` is strict.
 
-The website's Lat wordmark is the default top-left brand in both clients. `--logo-text` replaces it with safely rendered plain text for the live server or static export.
+[[packages/server/src/index.ts#createLatServerApp]] owns the shared Express stack, security policy, static delivery, and Node listener used by both live and exported servers. [[src/view/server.ts#createViewApp]] adds the live project APIs, while `startViewServer` selects the loopback port through the shared listener.
 
-The browser follows the lat website's monochrome visual system: pure black or white foundations, neutral surfaces and borders, and restrained Vercel-style controls. Color is reserved for links, graph categories, syntax, and semantic Git or diagnostic state.
+`--no-git` disables working-tree discovery and presentation without changing document, source, graph, search, or editing behavior.
 
-The installed runtime composes its live request handler with the shared Express stack in `@lat.md/server`, which owns security headers, listening, shutdown, and static hosting behavior for both local and deployed servers. Browser renderer inputs remain development dependencies because Vite emits their code, styles, and fonts into the published lazy assets instead of making npm consumers install redundant source packages.
+The bundled Lat wordmark is the default top-left brand in both clients. Vite emits it with the other client assets; `--logo-text` replaces it with safely rendered plain text for the live server or static export.
+
+The browser uses a monochrome visual system: pure black or white foundations, neutral surfaces and borders, and restrained controls. Color is reserved for links, graph categories, syntax, and semantic Git or diagnostic state.
+
+The shared client uses Geist typography and system-selected light/dark themes. Geist Sans and Geist Mono ship as self-hosted Vite assets in live, static, and server deployments, including nested bases. Controls retain visible keyboard focus.
+
+The installed runtime uses Node HTTP and prebuilt Vite assets. Browser renderer inputs remain development dependencies because Vite emits their code, styles, and fonts into the published lazy assets instead of making npm consumers install redundant source packages.
 
 The server highlighter similarly bundles Lowlight with only Lat's supported Highlight.js grammars, keeping the full language set out of production dependencies.
 
+Code fences, source views, and the Markdown editor share syntax color roles in both themes while retaining their own tokenizers. Parameters, variables, and properties stay neutral rather than inheriting enclosing function colors.
+
 Rich Markdown fences keep authored source as inert text nodes in document payloads. React-owned Mermaid, map, and 3D components lazily load browser-only renderers, so live and static documents degrade to readable code when a renderer cannot load or rejects input.
+
+The graph renderer and graph projection stay out of ordinary document startup. Opening graph mode loads both on demand, while document navigation remains independent of Sigma and graph I/O.
 
 Map fences lazily request OpenFreeMap's hosted OpenStreetMap vector style through MapLibre. The authored GeoJSON or converted TopoJSON remains interactive over a local fallback when the basemap cannot load.
 
-The live server's default-self Content Security Policy explicitly permits only OpenFreeMap tile connections, GitHub custom emoji images, and bundled data fonts needed by those supported renderers.
+The live server's default-self Content Security Policy permits OpenFreeMap tile connections, GitHub-hosted images, Shields badges, and bundled data fonts used by supported content and renderers.
 
-Read APIs accept only walked vault files, contained document resources, or supported project source paths and reject traversal and escaping symlinks.
+Read APIs accept only walked vault files or supported project source paths and reject traversal and escaping symlinks.
 
-Local Markdown documents use extensionless `/docs/...` browser routes. Appending `.md` addresses the exact Markdown source instead, with `text/markdown` from the live server and a physical `.md` file in static exports so agents can read the vault without the React protocol.
+Local Markdown routes mirror vault-relative paths without a fixed prefix: `guide.md` becomes `/guide`, and the entry document owns `/` in live and exported UIs. Raw Markdown remains at `/<file>.md`, with `text/markdown` from servers and physical files in exports.
+
+Document paths cannot shadow reserved UI namespaces (`api`, `assets`, `data`, `code`, `external`, `resources`, `graph`, and `search`) or generated HTML files. There is no special `docs/` namespace or compatibility alias.
+
+Relative links to non-Markdown files inside the vault become `/resources/...` routes. The live server reads only real files contained by the vault, while static and server builds copy only resources reached from rendered documents.
 
 ## Document tree protocol
 
@@ -38,29 +52,67 @@ Rich fences remain `pre` and `code` elements with inert text children in the con
 
 Source and fenced-code highlighting starts as Lowlight HAST and becomes document-tree nodes without HTML serialization. Multiline tokens are split structurally into independently renderable lines. Raw reStructuredText and AsciiDoc pass-through content remains inert text.
 
+Rendered `pre` blocks use [[view/src/CodeBlock.tsx#CodeBlock]] for a clipboard button outside the horizontally scrolling code. It copies plain text with whitespace intact, reports success or failure, and appears on hover or keyboard focus; touch devices always show it. The shared renderer covers live, static, external, and formatted section-output documents, including rich-fence source fallbacks.
+
 Static export traverses tree properties to discover linked source and external targets and to rewrite route URLs. It does not parse or edit serialized markup.
 
-## Static export
+## Build targets
 
-[[src/cli/ui-build.ts#uiBuildCommand]] snapshots the current vault into a directory of HTML, JavaScript, CSS, and lazy JSON data that any ordinary static host can serve.
+Builds snapshot the current vault into CDN-ready HTML, JavaScript, CSS, raw Markdown, and lazy JSON data, with an optional portable search process.
 
-The export preserves the file tree, rendered Markdown, wiki and ordinary Markdown navigation, validation state, backlinks, source views, local TOCs, and the graph workspace. Each extensionless document and source path gets a physical `index.html` shell; every local document also has an exact `.md` source sibling, and referenced vault resources are copied under `resources/`. A compatibility shell migrates old graph URLs.
+### Static export
+
+[[src/cli/ui-build.ts#uiBuildCommand]] implements `lat ui build static [output]`, a fully static deployment that any ordinary file host can serve.
+
+The default destination is `.lat-build/static/`; an explicit output overrides it.
+
+The export preserves the file tree, rendered Markdown, wiki and ordinary Markdown navigation, validation state, backlinks, source views, local TOCs, and the graph workspace. Each extensionless document and source path gets a physical `index.html` shell; every local document also has an exact `.md` source sibling, and linked vault resources retain their relative paths. A compatibility shell migrates old graph URLs.
 
 Each unique source file has one shared raw-text and highlighted-line payload. Manifest entries combine it with small request-specific payloads for focus, context, and references, avoiding code duplication across links into the same file.
 
+Generated JSON payload names hash their exact serialized bytes, so hosts can cache documents, graph data, and source projections indefinitely. The stable manifest remains revalidatable because its contents select those immutable payloads.
+
 The manifest stores the selected logo text with the document index so the static client renders the default wordmark or the same plain-text override as the live server.
 
-The browser reads an immutable manifest instead of `/api/*`, never opens an event stream, and hides Git, search, and runtime command controls. Documents contain no Git diff projection, while graph nodes contain no Git status.
+Each document route embeds the snapshot manifest and its own document response as inert JSON. Its first render therefore has no manifest-to-document request waterfall; navigation intent prefetches other immutable document payloads before a client-side transition.
 
-`--base /path/` prefixes routes, assets, and data and nests the physical payload under the same path, so deploying the output directory at a host's root serves the UI from that subpath. `/` is the default.
+The browser reads the snapshot manifest instead of `/api/*`, never opens an event stream, and hides Git, search, and runtime command controls. Documents contain no Git diff projection, while graph nodes contain no Git status.
+
+`--base /path/` prefixes routes, assets, and data and nests the physical payload under the same path. `/` is the default; `--base docs/` normalizes to `/docs/`, without adding another document prefix.
 
 Vite emits lazy chunks, imported CSS, fonts, and renderer dependencies relative to their owning JavaScript or stylesheet. Generated route shells anchor only the entry assets at the configured base, so nested deployments do not leak requests to root `/assets/`.
 
-Relative Markdown links are rewritten against their source document and then to extensionless UI routes, so the extra static route directory does not change their target or accidentally request raw Markdown. Both deployment entrypoints redirect to the exported index document.
+Relative Markdown links are resolved against their source document before applying the deployment base, preserving nested links and fragments. The entry document owns the base root; `index.html` is only its physical file, and its filename route redirects home.
 
-Builds reject any existing destination, including an empty directory or prior export. For a new path, the builder stages the complete artifact beside the destination and renames it into place only after generation succeeds.
+Builds reject any existing destination, including an empty directory or prior export. `--force` allows intentional replacement; the builder stages the complete artifact beside the destination and moves it only after generation succeeds, retrying transient filesystem locks.
 
-Git-backed projects naturally exclude generated artifacts from later project-wide scans because source discovery reads the tracked-file set. Any destination that could contain the project root is also rejected.
+Build artifacts carry no ownership marker. Git projects naturally exclude untracked output from their tracked source scope, while destinations that could contain the project root remain forbidden even with `--force`.
+
+### Server export
+
+[[src/view/server-build.ts#buildServerView]] implements the default `node` target of `lat ui build server [output]`: `public/` contains immutable routes, `server-data/` holds the search index, and a small `app.mjs` delegates to the reusable runtime.
+
+The default Node destination is `.lat-build/server/`; an explicit output overrides it.
+
+The artifact pins `lat.md`, `@lat.md/server`, and Express. Its entrypoint constructs Express and passes that app plus exact manifest and index URLs into the shared runtime. The runtime derives the sibling `public/` directory from the manifest, so `npm start` serves the same app on ordinary Node hosts without making CDN content a traceable function input.
+
+Framework-aware hosts can serve `public/` from a CDN and route remaining requests to the default Express export without platform-specific output. The entrypoint also injects a search-engine factory built from ordinary `@lat.md/embed` and model imports; those packages own and load their engine, WASM, and model assets.
+
+The build creates the semantic index once and serializes the flat section metadata required to turn index ids into browser results. [[src/view/preindexed-search.ts#createPreindexedViewSearch]] queries that copied index without importing indexing or Markdown parsers, then hydrates its storage-level rows through the same resolver as other search callers.
+
+[[src/view/server-build.ts#buildServerSearchIndex]] indexes the analyzed snapshot in a child process and waits for its exit before publishing staging. Process exit releases native database handles that can otherwise prevent directory renames on Windows.
+
+[[src/view/server-deployment.ts#createServerViewApp]] consumes the explicit manifest and index paths, derives static fallback content from the artifact layout, copies the immutable database into a writable runtime cache, and registers only the search API on the supplied Express app. Each server instance opens that copy and resolves its injected local embedder once; hosted keys do not alter the prebuilt index's model. The local model initializes on the first query and remains available for later warm queries. Shutdown closes the database before removing temporary storage. Git, editing, events, and repository reads remain absent.
+
+Static client configuration treats search as an independent capability: pure static builds omit the control and route, while server builds point the same client at their configured search endpoint. Documents, source views, externals, and the graph remain static in both targets.
+
+Shutdown retries deletion of its owned temporary index. Persistent Windows native-file locks may leave that disposable OS-temp copy behind without failing shutdown; caller-provided caches and deployed indexes are never removed.
+
+### Vercel server export
+
+[[src/view/vercel-server-build.ts#buildVercelServerView]] implements `--target vercel` by composing the portable Node builder with [[src/view/vercel-build.ts#buildVercelOutput]].
+
+It defaults to `.vercel/output/`, builds the Node artifact in temporary sibling staging, and installs its production dependency graph without lifecycle scripts. Node File Trace can then follow the real Express, search, WASM, model, manifest, and index imports while public files move only into the CDN static tree. The staging artifact is removed after success or failure.
 
 ## Live Markdown editing
 
@@ -116,13 +168,15 @@ Whenever cached changes exist, the toggle keeps an orange notification dot wheth
 
 Generated document links omit `.md`; the same route with `.md` is deliberately left to the browser as raw source. Relative links authored with `.md` are normalized to the extensionless UI route before rendering.
 
-Markdown and source metadata rows align with the sidebar header, while source metadata retains clear space before the code panel.
+Desktop sidebar controls, document metadata, presentation switches, and TOC titles align vertically. Source metadata retains clear space before the code panel.
 
 Rendered sections use heading scale and whitespace without horizontal separators between headings.
 
 Rendered link text is always underlined. A [[src/view/document-tree.ts#decorateExternalSiteLinks|parser-neutral tree pass]] adds external-link icons across Markdown, reStructuredText, and AsciiDoc, except when a link wraps an image; language badges, reference counts, and those icons remain undecorated.
 
 Document responses project every parsed heading and canonical GitHub slug into a local TOC. Its H1 entry stays bold at the base indentation, while subsection indentation remains relative to the first subsection level.
+
+The current section and its entire subtree stay subtly emphasized while readers move through its subsections. Desktop indicators mark the active heading and its section ancestors at their own indentation; the document H1 does not emphasize the whole page.
 
 TOC entries show an orange disc when their section contains a rendered Git change and a red disc when it owns validation errors. Git discs follow the Git visibility toggle; error discs remain visible.
 
@@ -132,9 +186,17 @@ Wide layouts give the sticky TOC a fixed 286px column and the available viewport
 
 A moving end-of-page activation line makes short final sections reachable.
 
-The sidebar is a natural-order file tree. Root `lat.md` and each `name/name.md` directory index stay first; selecting a directory opens its index and expands the directory. When external files are referenced, an `External sources` label separates source-handle folders from the local tree.
+The sidebar follows the page and subdirectory order authored in each directory's index list, with the index page pinned first. Selecting a directory opens its index and expands it. An `External sources` label separates referenced source-handle folders from the local tree.
+
+The view store projects cached Markdown `indexEntries` into [[src/view/protocol.ts#ViewIndex]] for the shared browser tree; live refreshes and exported sites use the same order without parsing Markdown again. External sources retain natural sorting.
+
+[[cli#check#index]] requires every visible Markdown page and directory to be listed. While editing an invalid vault, the sidebar keeps unlisted entries visible after listed ones in natural order; missing or stale entries remain validation errors.
 
 Every section heading exposes a burger-icon action menu, with a numeric badge only when references exist. It shows incoming Markdown, wiki, and `@lat:` locations or an empty state, followed by stacked muted actions that copy the navigated URL or canonical section ID.
+
+The topmost section menu in a local Markdown document links to the raw `.md` route. External documents and document previews outside their normal local route omit this action.
+
+Raw-file links preserve the deployment base in live, static, and server builds. A homepage at `/` links to its `/<file>.md` source rather than appending `.md` to the homepage URL.
 
 In live views, the menu can invoke [[src/cli/section.ts#sectionCommand|the shared `lat section` command path]] with plain styling. Its modal defaults to the React projection of the shared document tree and can switch to raw output; static exports omit only this execution action.
 
@@ -144,7 +206,7 @@ Below 64rem, the browser replaces desktop navigation rails with a persistent, to
 
 The first row keeps the logo and Git, Search, and Graph actions. A second row shows the current route and opens the file tree as an independently scrolling viewport overlay; navigation, Escape, or returning to desktop closes it and restores document scrolling.
 
-Mobile content uses narrower gutters, fixed heading metrics, wrapped links, and horizontally scrollable code instead of shrinking text. The desktop TOC collapses into a sticky `On this page` row with its own scrollable list and preserved section state.
+Mobile navigation, document text, and `On This Page` share a consistent left gutter across tablet and phone widths. Long text, inline code, and error messages wrap without widening the viewport; code blocks scroll locally. The TOC becomes a sticky row with its own scrollable list.
 
 Selecting a collapsed TOC entry closes the list before positioning the heading. Its sticky-header offset keeps direct fragments visible below both mobile navigation rows and the TOC trigger.
 
@@ -176,4 +238,4 @@ Escape clears a non-empty query, then returns to the page that opened search. Cl
 
 [[graph#Graph View]] projects cached documents, source targets, and code mentions into a stable directed graph without rescanning at request time. Resolved section relationships roll up to their owning documents.
 
-The client preloads the graph projection, ships its WebGL renderer in the main UI, and uses deterministic document/code clusters so the persisted presentation mode switches without I/O or layout work. Normal document/source URLs own selection and history; the embedding filter reuses `/api/search` and propagates cosine scores into result sizing.
+The graph renderer and projection load on demand; deterministic document/code clusters avoid force simulation. Normal document/source URLs own selection and history; the embedding filter reuses `/api/search` and propagates cosine scores into result sizing.

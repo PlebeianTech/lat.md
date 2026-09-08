@@ -12,6 +12,8 @@ export type ViewExternalFile = {
 
 export type ViewIndex = {
   files: string[];
+  /** Authored directory-index entries, keyed by vault-relative directory ('' at root). */
+  directoryOrder: Record<string, string[]>;
   externalFiles: ViewExternalFile[];
   entry: string;
   errorCounts: Record<string, number>;
@@ -95,6 +97,7 @@ export type ViewGraphNode = {
   label: string;
   url: string;
   breadcrumbs: string[];
+  /** Local documents sum direct backlink counts across every heading. Other nodes use incoming edge weights. */
   inDegree: number;
   outDegree: number;
   documentPath?: string;

@@ -10,7 +10,17 @@ import {
 } from 'react';
 import Sigma from 'sigma';
 import {
+  graphFitCamera,
+  graphViewportCamera,
+  type GraphViewport,
+} from './graph-camera';
+import {
+  GraphNodeProgram,
+  GraphSelectedNodeProgram,
+} from './graph-node-program';
+import {
   createEdgeArrowProgram,
+  EdgeLineProgram,
   type NodeLabelDrawingFunction,
 } from 'sigma/rendering';
 import type {
@@ -52,6 +62,8 @@ type GraphNodeAttributes = {
   color: string;
   label: string;
   backlinks: number;
+  category: GraphCategory;
+  labelColor?: string;
 };
 
 type GraphEdgeAttributes = {
@@ -66,6 +78,7 @@ type GraphCategory = 'document' | 'code';
 const positionCache = new Map<string, { x: number; y: number }>();
 let cameraCache: { x: number; y: number; angle: number; ratio: number } | null =
   null;
+let cameraViewportCache: GraphViewport | null = null;
 let cachedViewGraph: ViewGraph | null = null;
 let viewGraphRequest: Promise<ViewGraph> | null = null;
 let viewGraphInstanceId = '';
@@ -83,10 +96,6 @@ function colorValue(
   return styles.getPropertyValue(name).trim() || fallback;
 }
 
-function withAlpha(color: string, alpha: string): string {
-  return /^#[\da-f]{6}$/i.test(color) ? `${color}${alpha}` : color;
-}
-
 const drawGraphNodeLabel: NodeLabelDrawingFunction<
   GraphNodeAttributes,
   GraphEdgeAttributes
@@ -95,54 +104,16 @@ const drawGraphNodeLabel: NodeLabelDrawingFunction<
   const fontSize = settings.labelSize;
   const labelX = data.x + data.size + 4;
   const baselineY = data.y + fontSize / 3;
-  const horizontalPadding = 5;
-  const verticalPadding = 3;
-
   context.save();
   context.font = `${settings.labelWeight} ${fontSize}px ${settings.labelFont}`;
-  const metrics = context.measureText(data.label);
-  const ascent = metrics.actualBoundingBoxAscent || fontSize * 0.8;
-  const descent = metrics.actualBoundingBoxDescent || fontSize * 0.2;
-  const plateX = labelX - horizontalPadding;
-  const plateY = baselineY - ascent - verticalPadding;
-  const plateWidth = metrics.width + horizontalPadding * 2;
-  const plateHeight = ascent + descent + verticalPadding * 2;
-  const radius = 3;
-
-  context.fillStyle = 'rgba(0, 0, 0, 0.8)';
-  context.beginPath();
-  context.moveTo(plateX + radius, plateY);
-  context.lineTo(plateX + plateWidth - radius, plateY);
-  context.quadraticCurveTo(
-    plateX + plateWidth,
-    plateY,
-    plateX + plateWidth,
-    plateY + radius,
-  );
-  context.lineTo(plateX + plateWidth, plateY + plateHeight - radius);
-  context.quadraticCurveTo(
-    plateX + plateWidth,
-    plateY + plateHeight,
-    plateX + plateWidth - radius,
-    plateY + plateHeight,
-  );
-  context.lineTo(plateX + radius, plateY + plateHeight);
-  context.quadraticCurveTo(
-    plateX,
-    plateY + plateHeight,
-    plateX,
-    plateY + plateHeight - radius,
-  );
-  context.lineTo(plateX, plateY + radius);
-  context.quadraticCurveTo(plateX, plateY, plateX + radius, plateY);
-  context.closePath();
-  context.fill();
-
-  context.fillStyle = '#fff';
-  context.shadowColor = 'rgba(0, 0, 0, 0.95)';
-  context.shadowBlur = 5;
-  context.shadowOffsetX = 0;
-  context.shadowOffsetY = 1;
+  // A narrow, theme-aware halo separates text from edges without label cards.
+  const styles = getComputedStyle(document.documentElement);
+  context.strokeStyle = colorValue(styles, '--sidebar', '#000');
+  context.lineWidth = 3;
+  context.lineJoin = 'round';
+  context.strokeText(data.label, labelX, baselineY);
+  context.fillStyle =
+    data.labelColor || colorValue(styles, '--text', '#ededed');
   context.fillText(data.label, labelX, baselineY);
   context.restore();
 };
@@ -169,6 +140,7 @@ function GraphCanvas({
   const searchSizes = useRef(searchNodeSizes);
   const visible = useRef(visibleNodes);
   const onSelectRef = useRef(onSelect);
+  const fitCamera = useRef<() => void>(() => {});
 
   useLayoutEffect(() => {
     selected.current = selectedNodeId;
@@ -197,9 +169,21 @@ function GraphCanvas({
       document: colorValue(styles, '--graph-document', '#ededed'),
       code: colorValue(styles, '--graph-code', '#737373'),
     };
-    const text = colorValue(styles, '--text', '#ededed');
-    const muted = colorValue(styles, '--muted', '#888888');
-    const edgeColor = colorValue(styles, '--panel-border', '#262626');
+    const mutedNodeColor = colorValue(styles, '--graph-node-muted', '#404040');
+    const documentColor = colorValue(
+      styles,
+      '--graph-document-rest',
+      '#999999',
+    );
+    const codeColor = colorValue(styles, '--graph-code-rest', '#737373');
+    const mutedLabelColor = colorValue(styles, '--muted', '#a1a1a1');
+    const activeEdgeColor = colorValue(
+      styles,
+      '--graph-edge-active',
+      '#686868',
+    );
+    const edgeColor = colorValue(styles, '--graph-edge', '#505050');
+    const mutedEdgeColor = colorValue(styles, '--graph-edge-muted', '#383838');
     const graph = new MultiDirectedGraph<
       GraphNodeAttributes,
       GraphEdgeAttributes
@@ -216,6 +200,7 @@ function GraphCanvas({
         ...position,
         label: graphDisplayLabel(node),
         backlinks,
+        category: nodeCategory(node.kind),
         size: graphNodeSize(backlinks),
         color: colors[nodeCategory(node.kind)],
       });
@@ -224,8 +209,8 @@ function GraphCanvas({
       if (!graph.hasNode(edge.from) || !graph.hasNode(edge.to)) continue;
       graph.addDirectedEdgeWithKey(edge.id, edge.from, edge.to, {
         color: edgeColor,
-        size: 0.6 + Math.log2(edge.weight + 1) * 0.45,
-        type: 'arrow',
+        size: 0.4 + Math.log2(edge.weight + 1) * 0.15,
+        type: 'line',
         weight: edge.weight,
       });
     }
@@ -246,22 +231,29 @@ function GraphCanvas({
       {
         defaultEdgeColor: edgeColor,
         defaultEdgeType: 'arrow',
+        nodeProgramClasses: {
+          circle: GraphNodeProgram<GraphNodeAttributes, GraphEdgeAttributes>,
+          selected: GraphSelectedNodeProgram<
+            GraphNodeAttributes,
+            GraphEdgeAttributes
+          >,
+        },
         defaultDrawNodeHover: drawGraphNodeLabel,
         defaultDrawNodeLabel: drawGraphNodeLabel,
         edgeProgramClasses: {
+          line: EdgeLineProgram<GraphNodeAttributes, GraphEdgeAttributes>,
           arrow: createEdgeArrowProgram<
             GraphNodeAttributes,
             GraphEdgeAttributes
           >(),
         },
-        hideEdgesOnMove: true,
+        hideEdgesOnMove: false,
         labelColor: { color: '#fff' },
-        labelDensity: 0.12,
-        labelFont:
-          'Geist, "Geist Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
-        labelRenderedSizeThreshold: 6,
-        labelSize: 11,
-        labelWeight: '600',
+        labelDensity: 0.3,
+        labelFont: getComputedStyle(document.documentElement).fontFamily,
+        labelRenderedSizeThreshold: 3,
+        labelSize: 12,
+        labelWeight: '400',
         minCameraRatio: 0.08,
         maxCameraRatio: 8,
         renderEdgeLabels: false,
@@ -273,26 +265,35 @@ function GraphCanvas({
           const renderedData =
             searchSize === undefined ? data : { ...data, size: searchSize };
           const focus = hoveredNode || selected.current;
+          const isSelected = node === selected.current;
+          if (isSelected || node === focus) {
+            return {
+              ...renderedData,
+              type: isSelected ? 'selected' : 'circle',
+              forceLabel: true,
+              highlighted: true,
+              label: `${data.label} · ${data.backlinks} ${data.backlinks === 1 ? 'ref' : 'refs'}`,
+              zIndex: isSelected ? 4 : 3,
+            };
+          }
           if (focus && node !== focus && !graph.areNeighbors(node, focus)) {
             return {
               ...renderedData,
-              color: withAlpha(muted, '48'),
-              label: null,
+              color: mutedNodeColor,
+              label: data.category === 'document' ? data.label : null,
+              labelColor: mutedLabelColor,
               zIndex: 0,
-            };
-          }
-          if (node === focus) {
-            return {
-              ...renderedData,
-              forceLabel: true,
-              highlighted: true,
-              size: renderedData.size + 2.5,
-              zIndex: 3,
             };
           }
           return {
             ...renderedData,
-            forceLabel: data.backlinks >= 4,
+            color: focus
+              ? data.color
+              : data.color === colors.document
+                ? documentColor
+                : codeColor,
+            // Let Sigma resolve collisions; only the focus forces a label.
+            forceLabel: false,
             zIndex: data.backlinks >= 4 ? 2 : 1,
           };
         },
@@ -305,22 +306,66 @@ function GraphCanvas({
           if (focus && from !== focus && to !== focus) {
             return {
               ...data,
-              color: withAlpha(edgeColor, '24'),
-              size: 0.35,
+              color: mutedEdgeColor,
+              size: 0.4,
             };
           }
           return focus
             ? {
                 ...data,
-                color: withAlpha(text, '70'),
-                size: data.size + 0.4,
+                color: activeEdgeColor,
+                type: 'arrow',
+                size: data.size + 0.2,
               }
             : data;
         },
       },
     );
     renderer.current = sigma;
-    if (cameraCache) sigma.getCamera().setState(cameraCache);
+    const viewport = (): GraphViewport => ({
+      ...sigma.getDimensions(),
+      activeWidth: target.parentElement?.clientWidth ?? target.clientWidth,
+    });
+    let previousViewport = viewport();
+    sigma.setSetting('zoomToSizeRatioFunction', (ratio) =>
+      Math.sqrt(
+        ratio / graphFitCamera(viewport(), sigma.getGraphDimensions()).ratio,
+      ),
+    );
+    sigma
+      .getCamera()
+      .setState(
+        cameraCache && cameraViewportCache
+          ? graphViewportCamera(
+              cameraCache,
+              cameraViewportCache,
+              previousViewport,
+              sigma.getGraphDimensions(),
+            )
+          : graphFitCamera(previousViewport, sigma.getGraphDimensions()),
+      );
+    sigma.on('resize', () => {
+      const nextViewport = viewport();
+      sigma
+        .getCamera()
+        .setState(
+          graphViewportCamera(
+            sigma.getCamera().getState(),
+            previousViewport,
+            nextViewport,
+            sigma.getGraphDimensions(),
+          ),
+        );
+      previousViewport = nextViewport;
+    });
+    fitCamera.current = () => {
+      const state = graphFitCamera(viewport(), sigma.getGraphDimensions());
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        sigma.getCamera().setState(state);
+      } else {
+        void sigma.getCamera().animate(state);
+      }
+    };
 
     sigma.on('enterNode', ({ node }) => {
       hoveredNode = node;
@@ -332,32 +377,11 @@ function GraphCanvas({
     });
     sigma.on('clickNode', ({ node }) => onSelectRef.current(node));
 
-    let draggedNode = '';
-    let dragged = false;
-
-    sigma.on('downNode', ({ node, preventSigmaDefault }) => {
-      draggedNode = node;
-      dragged = false;
-      preventSigmaDefault();
-    });
-    const mouse = sigma.getMouseCaptor();
-    mouse.on('mousemovebody', (event) => {
-      if (!draggedNode) return;
-      dragged = true;
-      event.preventSigmaDefault();
-      const position = sigma.viewportToGraph(event);
-      graph.mergeNodeAttributes(draggedNode, position);
-    });
-    mouse.on('mouseup', () => {
-      if (!draggedNode) return;
-      positionCache.set(draggedNode, graph.getNodeAttributes(draggedNode));
-      draggedNode = '';
-      if (dragged) sigma.refresh();
-    });
-
     return () => {
       savePositions();
       cameraCache = sigma.getCamera().getState();
+      cameraViewportCache = previousViewport;
+      fitCamera.current = () => {};
       sigma.kill();
       renderer.current = null;
     };
@@ -372,7 +396,7 @@ function GraphCanvas({
       />
       <button
         className="graph-fit"
-        onClick={() => void renderer.current?.getCamera().animatedReset()}
+        onClick={() => fitCamera.current()}
         title="Fit graph"
         type="button"
       >
@@ -843,6 +867,11 @@ export default function GraphView({
                   <span>{category}</span>
                 </label>
               ))}
+            </div>
+            <div className="graph-encoding-note">
+              {searchNodeSizes
+                ? 'Size: relevance'
+                : 'Area: incoming refs · includes subsections'}
             </div>
             {searchError ? (
               <div className="graph-no-results">{searchError}</div>

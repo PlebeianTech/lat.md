@@ -1,6 +1,6 @@
 import type { ViewGraph, ViewGraphNode } from '../../src/view/protocol';
 import { isDocumentPath } from '../../src/document-formats';
-import { staticViewRoute, viewPathname } from './static-mode';
+import { staticViewRoute, viewPathname, viewEntryPath } from './static-mode';
 import {
   documentPath as routeDocumentPath,
   documentUrl as routeDocumentUrl,
@@ -18,11 +18,19 @@ type DocumentScroller = {
 
 export function documentUrl(path: string): string {
   const route = routeDocumentUrl(path);
-  return staticViewRoute(route.slice(1)) ?? route;
+  return (
+    staticViewRoute(route.slice(1)) ?? (path === viewEntryPath() ? '/' : route)
+  );
 }
 
 export function documentPath(pathname: string): string | null {
   return routeDocumentPath(viewPathname(pathname));
+}
+
+/** Build the raw Markdown URL paired with a local rendered document route. */
+export function rawDocumentUrl(path: string): string {
+  const route = `${routeDocumentUrl(path)}.md`;
+  return staticViewRoute(route.slice(1)) ?? route;
 }
 
 /** Build the browser route for one canonical external target. */
@@ -125,9 +133,10 @@ export function searchQuery(search: string): string {
 }
 
 export function searchUrl(query: string): string {
-  if (!query) return '/search';
+  const path = staticViewRoute('search/') ?? '/search';
+  if (!query) return path;
   const search = new URLSearchParams({ q: query });
-  return `/search?${search}`;
+  return `${path}?${search}`;
 }
 
 export function graphNode(search: string): string {
@@ -341,7 +350,7 @@ export function searchEscapeAction(query: string): 'clear' | 'close' {
 }
 
 export function searchButtonAction(pathname: string): 'close' | 'open' {
-  return pathname === '/search' ? 'close' : 'open';
+  return viewPathname(pathname) === '/search' ? 'close' : 'open';
 }
 
 /** Position a newly rendered document without leaving its content in motion. */

@@ -32,6 +32,32 @@ function parsePort(value: string): number {
   return port;
 }
 
+type UiRunOptions = {
+  git: boolean;
+  logoText?: string;
+  port?: number;
+};
+
+type UiServerBuildTarget = 'node' | 'vercel';
+
+function parseUiServerBuildTarget(value: string): UiServerBuildTarget {
+  if (value !== 'node' && value !== 'vercel') {
+    throw new InvalidArgumentError('target must be node or vercel');
+  }
+  return value;
+}
+
+function configureUiRun(command: Command): Command {
+  return command
+    .option('--logo-text <text>', 'top-left logo text')
+    .option('--no-git', 'disable Git working-tree integration')
+    .option(
+      '--port <number>',
+      'server port (default: 4242; explicit ports are strict)',
+      parsePort,
+    );
+}
+
 function parseSimilarityThreshold(value: string): number {
   const threshold = Number(value);
   if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
@@ -133,39 +159,98 @@ program
     handleResult(await sectionCommand(ctx, query));
   });
 
-const ui = program
-  .command('ui')
-  .description('Open lat.md in a local browser')
+async function runUi(opts: UiRunOptions): Promise<void> {
+  const ctx = resolveContext(program.opts());
+  const { uiCommand } = await import('./ui.js');
+  handleResult(
+    await uiCommand(ctx, {
+      git: opts.git,
+      logoText: opts.logoText,
+      port: opts.port,
+    }),
+  );
+}
+
+const ui = configureUiRun(
+  program.command('ui').description('Run or build the Lat UI'),
+).action(runUi);
+
+configureUiRun(
+  ui.command('run').description('Run the local Lat UI server'),
+).action(async (opts: UiRunOptions) => {
+  await runUi(opts);
+});
+
+const uiBuild = ui.command('build').description('Build a deployable Lat UI');
+
+uiBuild
+  .command('static')
+  .description('Build a fully static, read-only Lat UI')
+  .argument(
+    '[output]',
+    'output directory relative to the project (default: .lat-build/static)',
+    '.lat-build/static',
+  )
+  .option('--base <path>', 'deployment base path', '/')
+  .option('--force', 'replace an existing output path')
+  .option('--logo-text <text>', 'top-left logo text')
+  .action(
+    async (
+      output: string,
+      opts: { base: string; force?: boolean; logoText?: string },
+    ) => {
+      const ctx = resolveContext(program.opts());
+      const { uiBuildCommand } = await import('./ui-build.js');
+      handleResult(
+        await uiBuildCommand(ctx, output, {
+          basePath: opts.base,
+          force: opts.force,
+          logoText:
+            opts.logoText ?? (ui.opts() as { logoText?: string }).logoText,
+        }),
+      );
+    },
+  );
+
+uiBuild
+  .command('server')
+  .description('Build a static Lat UI with a portable search server')
+  .argument(
+    '[output]',
+    'output directory (default: .lat-build/server for node, .vercel/output for vercel)',
+  )
+  .option('--base <path>', 'deployment base path', '/')
+  .option('--force', 'replace an existing output path')
   .option('--logo-text <text>', 'top-left logo text')
   .option(
-    '--port <number>',
-    'server port (default: 4242; explicit ports are strict)',
-    parsePort,
+    '--target <target>',
+    'deployment target: node or vercel',
+    parseUiServerBuildTarget,
+    'node',
   )
-  .action(async (opts: { logoText?: string; port?: number }) => {
-    const ctx = resolveContext(program.opts());
-    const { uiCommand } = await import('./ui.js');
-    handleResult(
-      await uiCommand(ctx, { logoText: opts.logoText, port: opts.port }),
-    );
-  });
-
-ui.command('build')
-  .description('Export lat.md as a static website')
-  .argument('[output]', 'output directory relative to the project', 'lat-ui')
-  .option('--base <path>', 'deployment base path', '/')
-  .option('--logo-text <text>', 'top-left logo text')
-  .action(async (output: string, opts: { base: string; logoText?: string }) => {
-    const ctx = resolveContext(program.opts());
-    const { uiBuildCommand } = await import('./ui-build.js');
-    handleResult(
-      await uiBuildCommand(ctx, output, {
-        basePath: opts.base,
-        logoText:
-          opts.logoText ?? (ui.opts() as { logoText?: string }).logoText,
-      }),
-    );
-  });
+  .action(
+    async (
+      output: string | undefined,
+      opts: {
+        base: string;
+        force?: boolean;
+        logoText?: string;
+        target: UiServerBuildTarget;
+      },
+    ) => {
+      const ctx = resolveContext(program.opts());
+      const { uiBuildServerCommand } = await import('./ui-build-server.js');
+      handleResult(
+        await uiBuildServerCommand(ctx, output, {
+          basePath: opts.base,
+          force: opts.force,
+          logoText:
+            opts.logoText ?? (ui.opts() as { logoText?: string }).logoText,
+          target: opts.target,
+        }),
+      );
+    },
+  );
 
 program
   .command('refs')

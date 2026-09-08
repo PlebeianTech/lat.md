@@ -36,6 +36,7 @@ import { checklistMenu } from './checklist-menu.js';
 import { writeForkInstructions } from './fork-instructions.js';
 import { offerRequireMode, writeForkScaffold } from './fork-scaffold.js';
 import { setupAntigravity } from '../fork/antigravity-init.js';
+import { readInitAgents, writeInitAgents } from './init-preferences.js';
 
 async function confirm(
   rl: ReturnType<typeof createInterface>,
@@ -1437,6 +1438,7 @@ export async function initCmd(targetDir?: string): Promise<void> {
     }
 
     ensureLatLocalConfigIgnored(latDir);
+    ensureGitignored(root, '.lat-build');
 
     // Step 2: Configure fresh/outdated setups, ask interactive users about an
     // available key, and offer to rebuild an index whose backend differs. This
@@ -1464,6 +1466,7 @@ export async function initCmd(targetDir?: string): Promise<void> {
     const selectedAgents = await checklistMenu(
       allAgents,
       'Which coding agents do you use?',
+      readInitAgents(latDir),
     );
 
     const useClaudeCode = selectedAgents.includes('claude');
@@ -1522,6 +1525,7 @@ export async function initCmd(targetDir?: string): Promise<void> {
       // agent. Stamp the version so future non-interactive runs do not reapply
       // fresh/outdated defaults and overwrite the chosen backend.
       writeInitMeta(latDir, {});
+      if (interactive) writeInitAgents(latDir, selectedAgents);
       console.log('');
       console.log(
         styleText('dim', 'No agents selected. You can re-run') +
@@ -1614,6 +1618,7 @@ export async function initCmd(targetDir?: string): Promise<void> {
 
     // Record init version and file hashes so `lat check` can detect stale setups
     writeInitMeta(latDir, fileHashes);
+    if (interactive) writeInitAgents(latDir, selectedAgents);
 
     console.log('');
     console.log(
