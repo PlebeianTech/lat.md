@@ -65,6 +65,13 @@ describe('source highlighting', () => {
     expect(treeClasses(java[0])).toContain('hljs-title');
     expect(treeText(java[0])).toContain('Greeter');
 
+    const rubySource = highlightSource(
+      'src/greeter.rb',
+      'class Greeter; def greet; puts "hello"; end; end',
+    );
+    expect(treeClasses(rubySource[0])).toContain('hljs-title');
+    expect(treeText(rubySource[0])).toContain('Greeter');
+
     expect(highlightSource('notes.txt', '<safe>\n& literal')).toEqual([
       {
         version: 1,

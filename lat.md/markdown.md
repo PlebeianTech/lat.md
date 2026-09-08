@@ -117,10 +117,11 @@ Existence does not imply navigation support: unsupported files and directories v
 
 ### Source Code Links
 
-Wiki links can reference symbols in TypeScript, JavaScript, Python, Dart, Java, Rust, Go, and C source files:
+Wiki links can reference symbols in TypeScript, JavaScript, Python, Ruby, Dart, Java, Rust, Go, and C source files:
 
 - **`[[src/config.ts#getConfigDir]]`** — the `getConfigDir` function in `src/config.ts`
 - **`[[src/server.ts#App#listen]]`** — the `listen` method on class `App` in `src/server.ts`
+- **`[[src/greeter.rb#Greeter#greet]]`** — the `greet` method on class `Greeter` in Ruby
 - **`[[lib/service.dart#Greeter#greet]]`** — the `greet` method on class `Greeter` in Dart
 - **`[[src/Greeter.java#Greeter#greet]]`** — the `greet` method on class `Greeter` in Java
 - **`[[src/lib.rs#Greeter#greet]]`** — the `greet` method on struct `Greeter` in Rust
@@ -129,9 +130,11 @@ Wiki links can reference symbols in TypeScript, JavaScript, Python, Dart, Java, 
 - **`[[src/app.h#Greeter#prefix]]`** — the `prefix` field of struct `Greeter` in C
 - **`[[src/config.ts]]`** — link to the file itself (no symbol)
 
-Supported extensions: `.c`, `.dart`, `.go`, `.h`, `.java`, `.js`, `.jsx`, `.py`, `.rs`, `.ts`, `.tsx`. The typed [[src/source-formats.ts#SOURCE_FILE_EXTENSIONS]] registry governs source-link parsing, external source validation, and `@lat:` code-mention scanning.
+Supported extensions: `.c`, `.dart`, `.go`, `.h`, `.java`, `.js`, `.jsx`, `.py`, `.rb`, `.rs`, `.ts`, `.tsx`. The typed [[src/source-formats.ts#SOURCE_FILE_EXTENSIONS]] registry governs source-link parsing, external source validation, and `@lat:` code-mention scanning.
 
 Python symbols: functions, classes, methods, module-level variables. Decorated definitions (`@decorator`) are unwrapped transparently — `[[file.py#my_func]]` resolves whether or not `my_func` has decorators, and `# @lat:` comments placed between decorators and the `def`/`class` line are scanned normally.
+
+Ruby symbols: classes, modules, methods, singleton methods (`def self.method`), constants, and scoped declarations (`A::B`). Methods support Ruby conventions including predicates (`valid?`), mutating methods (`save!`), setters (`count=`), and operators (`==`, `[]`). Scoped classes, modules, and constants resolve standalone (`[[file.rb#Inner]]`) and qualified (`[[file.rb#Outer#Inner]]`). `# @lat:` comments are scanned like other hash-commented languages.
 
 Dart symbols: functions, getters, setters, classes, constructors, fields, mixins, named extensions, enums and values, extension types, type aliases, and top-level variables. Nested members use `[[file.dart#Type#member]]`; named constructors use their suffix (`#Type#named`), while unnamed constructors use the class name (`#Type#Type`). Operators retain Dart spelling, such as `[[file.dart#Greeter#operator ==]]`. Annotations are included in definition ranges, and `// @lat:` comments are scanned like other C-style source comments.
 

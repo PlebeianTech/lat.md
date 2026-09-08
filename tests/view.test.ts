@@ -1424,6 +1424,19 @@ describe('lat ui', () => {
     );
     expect(javaLink.html).toContain('>JAVA</span>');
 
+    const rubyLink = await renderMarkdown(
+      '[[src/greeter.rb#Greeter#greet]]',
+      'lat.md',
+      async () => ({
+        href: '/code/src/greeter.rb?symbol=Greeter%23greet',
+        referenceCount: 0,
+      }),
+    );
+    expect(rubyLink.html).toContain(
+      'class="code-link-language code-language-rb"',
+    );
+    expect(rubyLink.html).toContain('>RB</span>');
+
     for (const referenceCount of [0, 1]) {
       const sparseReferences = await renderMarkdown(
         '[[orphan]]',

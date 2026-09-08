@@ -129,6 +129,7 @@ function CodeReference({ reference }: { reference: ViewCodeBackReference }) {
     ['.js', ['code-language-js', 'JS']],
     ['.jsx', ['code-language-js', 'JS']],
     ['.py', ['code-language-py', 'PY']],
+    ['.rb', ['code-language-rb', 'RB']],
     ['.rs', ['code-language-rs', 'RS']],
     ['.go', ['code-language-go', 'GO']],
     ['.c', ['code-language-c', 'C']],

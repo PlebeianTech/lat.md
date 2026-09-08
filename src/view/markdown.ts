@@ -60,6 +60,7 @@ const CODE_LINK_CLASSES = [
   'code-language-ts',
   'code-language-js',
   'code-language-py',
+  'code-language-rb',
   'code-language-rs',
   'code-language-go',
   'code-language-c',
@@ -396,6 +397,8 @@ function codeLanguage(target: string): {
       return { className: 'code-language-js', label: 'JS' };
     case '.py':
       return { className: 'code-language-py', label: 'PY' };
+    case '.rb':
+      return { className: 'code-language-rb', label: 'RB' };
     case '.rs':
       return { className: 'code-language-rs', label: 'RS' };
     case '.go':

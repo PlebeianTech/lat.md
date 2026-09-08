@@ -103,6 +103,7 @@ const grammarMap = {
   '.js': 'tree-sitter-javascript.wasm',
   '.jsx': 'tree-sitter-javascript.wasm',
   '.py': 'tree-sitter-python.wasm',
+  '.rb': 'tree-sitter-ruby.wasm',
   '.rs': 'tree-sitter-rust.wasm',
   '.ts': 'tree-sitter-typescript.wasm',
   '.tsx': 'tree-sitter-tsx.wasm',
@@ -337,6 +338,139 @@ function extractPySymbols(tree: Tree): SourceSymbol[] {
     }
   }
 
+  return symbols;
+}
+
+function collectRubyScope(
+  scope: SyntaxNode,
+  parent: string | undefined,
+  symbols: SourceSymbol[],
+): void {
+  for (const node of scope.namedChildren) {
+    const startLine = node.startPosition.row + 1;
+    const endLine = node.endPosition.row + 1;
+    const signature = firstLine(node.text);
+
+    if (node.type === 'class' || node.type === 'module') {
+      const nameNode = node.childForFieldName('name');
+      if (nameNode) {
+        let childPart: string;
+        let parentPart: string | undefined;
+
+        if (
+          nameNode.type === 'scope_resolution' &&
+          nameNode.namedChildren.length === 2
+        ) {
+          parentPart = nameNode.namedChildren[0].text;
+          childPart = nameNode.namedChildren[1].text;
+          symbols.push({
+            name: childPart,
+            kind: 'class',
+            startLine,
+            endLine,
+            signature,
+          });
+          symbols.push({
+            name: childPart,
+            kind: 'class',
+            parent: parentPart,
+            startLine,
+            endLine,
+            signature,
+          });
+        } else {
+          childPart = nameNode.text;
+          symbols.push({
+            name: childPart,
+            kind: 'class',
+            startLine,
+            endLine,
+            signature,
+          });
+          if (parent) {
+            symbols.push({
+              name: childPart,
+              kind: 'class',
+              parent,
+              startLine,
+              endLine,
+              signature,
+            });
+          }
+        }
+
+        const body = node.childForFieldName('body');
+        if (body) {
+          collectRubyScope(body, childPart, symbols);
+        }
+      }
+    } else if (node.type === 'method' || node.type === 'singleton_method') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: parent ? 'method' : 'function',
+          ...(parent ? { parent } : {}),
+          startLine,
+          endLine,
+          signature,
+        });
+      }
+    } else if (node.type === 'assignment') {
+      const left = node.childForFieldName('left');
+      if (left) {
+        if (
+          left.type === 'scope_resolution' &&
+          left.namedChildren.length === 2
+        ) {
+          const parentPart = left.namedChildren[0].text;
+          const childPart = left.namedChildren[1].text;
+          symbols.push({
+            name: childPart,
+            kind: 'const',
+            startLine,
+            endLine,
+            signature,
+          });
+          symbols.push({
+            name: childPart,
+            kind: 'const',
+            parent: parentPart,
+            startLine,
+            endLine,
+            signature,
+          });
+        } else if (
+          left.type === 'constant' ||
+          (left.type === 'identifier' && /^[A-Z]/.test(left.text))
+        ) {
+          const name = left.text;
+          symbols.push({
+            name,
+            kind: 'const',
+            startLine,
+            endLine,
+            signature,
+          });
+          if (parent) {
+            symbols.push({
+              name,
+              kind: 'const',
+              parent,
+              startLine,
+              endLine,
+              signature,
+            });
+          }
+        }
+      }
+    }
+  }
+}
+
+function extractRubySymbols(tree: Tree): SourceSymbol[] {
+  const symbols: SourceSymbol[] = [];
+  collectRubyScope(tree.rootNode, undefined, symbols);
   return symbols;
 }
 
@@ -1301,6 +1435,7 @@ const symbolExtractors = {
   '.js': extractTsSymbols,
   '.jsx': extractTsSymbols,
   '.py': extractPySymbols,
+  '.rb': extractRubySymbols,
   '.rs': extractRustSymbols,
   '.ts': extractTsSymbols,
   '.tsx': extractTsSymbols,

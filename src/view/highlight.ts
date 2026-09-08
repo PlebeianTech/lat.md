@@ -81,6 +81,7 @@ const languageByExtension: Record<string, string> = {
   '.js': 'javascript',
   '.jsx': 'javascript',
   '.py': 'python',
+  '.rb': 'ruby',
   '.rs': 'rust',
   '.ts': 'typescript',
   '.tsx': 'typescript',

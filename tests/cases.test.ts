@@ -1348,6 +1348,14 @@ describe('source-ref-java-valid', () => {
   });
 });
 
+describe('source-ref-rb-valid', () => {
+  // @lat: [[tests/check-md#Passes with valid links#Passes with Ruby source symbol links]]
+  it('resolves Ruby declarations and nested members without errors', async () => {
+    const { errors } = await checkMd(latDir('source-ref-rb-valid'));
+    expect(errors).toHaveLength(0);
+  });
+});
+
 describe('error-source-ref-rs-missing', () => {
   it('check md reports all missing Rust symbols', async () => {
     const { errors } = await checkMd(latDir('error-source-ref-rs-missing'));
@@ -1440,6 +1448,27 @@ describe('error-source-ref-java-missing', () => {
     );
     expect(
       byTarget.get('src/Greeter.java#Greeter#missingMethod')?.message,
+    ).toContain('symbol "Greeter#missingMethod" not found');
+  });
+});
+
+describe('error-source-ref-rb-missing', () => {
+  it('check md reports all missing Ruby symbols', async () => {
+    const { errors } = await checkMd(latDir('error-source-ref-rb-missing'));
+    expect(errors).toHaveLength(4);
+
+    const byTarget = new Map(errors.map((error) => [error.target, error]));
+    expect(byTarget.get('src/greeter.rb#nonexistent')?.message).toContain(
+      'symbol "nonexistent" not found',
+    );
+    expect(byTarget.get('src/greeter.rb#MissingClass')?.message).toContain(
+      'symbol "MissingClass" not found',
+    );
+    expect(byTarget.get('src/greeter.rb#MISSING_CONST')?.message).toContain(
+      'symbol "MISSING_CONST" not found',
+    );
+    expect(
+      byTarget.get('src/greeter.rb#Greeter#missingMethod')?.message,
     ).toContain('symbol "Greeter#missingMethod" not found');
   });
 });
@@ -1922,6 +1951,35 @@ describe('getSection', () => {
     expect(ref('src/Greeter.java#Marker#value')).toMatchObject({
       line: 63,
       endLine: 63,
+    });
+  });
+
+  it('Ruby: outgoingSourceRefs include annotated classes, methods, and member ranges', async () => {
+    const ctx = testCtx('source-ref-rb-valid');
+    const result = await getSection(ctx, 'lat.md/docs#Docs');
+    expect(result.kind).toBe('found');
+    if (result.kind !== 'found') return;
+    const ref = (target: string) =>
+      result.outgoingSourceRefs.find(
+        (reference) => reference.target === target,
+      );
+
+    expect(ref('src/greeter.rb#greet')).toMatchObject({ line: 3, endLine: 5 });
+    expect(ref('src/greeter.rb#Greeter')).toMatchObject({
+      line: 13,
+      endLine: 47,
+    });
+    expect(ref('src/greeter.rb#Greeter#greet')).toMatchObject({
+      line: 20,
+      endLine: 22,
+    });
+    expect(ref('src/greeter.rb#Greeter#default_greeter')).toMatchObject({
+      line: 24,
+      endLine: 26,
+    });
+    expect(ref('src/greeter.rb#SuperGreeter#super_greet')).toMatchObject({
+      line: 52,
+      endLine: 54,
     });
   });
 
