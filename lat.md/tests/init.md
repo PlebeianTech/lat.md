@@ -85,6 +85,10 @@ Generated agent guidance must remain valid Markdown wherever project layouts exp
 
 Every generated Markdown instruction template passes local graph validation, preventing setup-owned content from breaking `lat check` when an instruction file is symlinked into `lat.md/`.
 
+## Cursor init registers a postToolUse hook
+
+When Cursor is selected, `lat init` writes both a `stop` and a `postToolUse` entry to `.cursor/hooks.json`, deliberately not `afterFileEdit` — Cursor ignores that event's output, so a reminder sent from it could never reach the agent.
+
 ## Lat-owned build output ignore
 
 Initialization adds `.lat-build` to a Git project's root `.gitignore` while leaving platform-specific output to project configuration.
