@@ -256,6 +256,7 @@ function GraphCanvas({
         labelWeight: '400',
         minCameraRatio: 0.08,
         maxCameraRatio: 8,
+        zoomingRatio: 1.104,
         renderEdgeLabels: false,
         stagePadding: 40,
         zIndex: true,

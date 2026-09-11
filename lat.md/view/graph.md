@@ -99,6 +99,8 @@ The initial workspace favors direct exploration over a large settings surface.
 
 It includes pan, zoom, hover-neighbor highlighting, click selection, fit/reset, kind toggles for documents and code, embedding search, and directed edge arrows. Individual nodes cannot be dragged; their layout stays stable while dragging pans the graph.
 
+Scroll-wheel zoom uses a gentle 1.104 ratio per accepted event so mouse wheels and trackpads allow small camera adjustments.
+
 The text input follows the app buttons and debounces through the same indexed embedding search as `lat search`. Matching sections map to their document nodes and adjacent code nodes, filtering only the canvas with no result list or dropdown.
 
 Defer Obsidian-style color groups, user-tunable forces, animation history, saved filters, and local-depth graph mode. Their protocol can build on stable node kinds and edge provenance after the global graph is useful.
