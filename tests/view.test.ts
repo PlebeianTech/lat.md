@@ -203,7 +203,7 @@ describe('lat ui', () => {
     matches: [
       {
         reason: 'semantic match',
-        score: 0.82,
+        rankScore: 0.82,
         section: {
           id: 'lat.md/guide#Guide#Details',
           heading: 'Details',
@@ -896,7 +896,7 @@ describe('lat ui', () => {
         "manifestFile: new URL('./server-data/server.json'",
       );
       expect(appModule).toContain(
-        "indexFile: new URL('./server-data/vectors.db'",
+        "indexFile: new URL('./server-data/search-index.json'",
       );
       expect(appModule).toContain(
         'createSearchEngine: () => createEmbedder({ model: minilm })',
@@ -933,7 +933,14 @@ describe('lat ui', () => {
           file: section.file,
           heading: section.heading,
           content: section.firstParagraph,
-          score: 0.9,
+          rankScore: 0.9,
+          evidence: [],
+          diagnostics: {
+            lexicalCapped: false,
+            semanticCapped: false,
+            lexicalCandidates: 1,
+            semanticCandidates: 1,
+          },
         },
       ]);
       const closeSearch = vi.fn(async () => {});
@@ -944,6 +951,9 @@ describe('lat ui', () => {
       const createSearchEngine = vi.fn(async () => ({
         name: 'local:test',
         dimensions: 1,
+        maxInputTokens: 256,
+        tokenizerFingerprint: 'test',
+        countTokens: () => 1,
         embed: async () => [[0]],
       }));
       const search = await createPreindexedViewSearch(
@@ -992,7 +1002,7 @@ describe('lat ui', () => {
           results: [
             expect.objectContaining({
               path: documentPath,
-              score: 0.9,
+              rankScore: 0.9,
             }),
           ],
         });
@@ -1646,7 +1656,9 @@ describe('lat ui', () => {
           breadcrumbs: ['guide', 'Guide', 'Details'],
           description: 'Relative Markdown links preserve heading fragments.',
           url: '/guide#details',
-          score: 0.82,
+          rankScore: 0.82,
+          evidence: [],
+          introduction: 'Relative Markdown links preserve heading fragments.',
         },
       ],
     });
