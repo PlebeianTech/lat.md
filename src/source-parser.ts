@@ -1680,6 +1680,72 @@ const symbolExtractors = {
   '.tsx': extractTsSymbols,
 } satisfies Record<SourceFileExtension, (tree: Tree) => SourceSymbol[]>;
 
+function preprocessErb(content: string): string {
+  let result = '';
+  let inRuby = false;
+  let inComment = false;
+  let i = 0;
+
+  while (i < content.length) {
+    if (!inRuby && !inComment) {
+      if (content.startsWith('<%%', i)) {
+        result += '   ';
+        i += 3;
+      } else if (content.startsWith('<%#', i)) {
+        inComment = true;
+        result += '   ';
+        i += 3;
+      } else if (content.startsWith('<%', i)) {
+        inRuby = true;
+        let tagLen = 2;
+        while (
+          i + tagLen < content.length &&
+          ['=', '-', '~'].includes(content[i + tagLen])
+        ) {
+          tagLen++;
+        }
+        result += ' '.repeat(tagLen);
+        i += tagLen;
+      } else {
+        const ch = content[i];
+        result += ch === '\n' ? '\n' : ' ';
+        i++;
+      }
+    } else if (inComment) {
+      if (content.startsWith('%>', i)) {
+        inComment = false;
+        result += '  ';
+        i += 2;
+      } else if (content.startsWith('-%>', i) || content.startsWith('~%>', i)) {
+        inComment = false;
+        result += '   ';
+        i += 3;
+      } else {
+        const ch = content[i];
+        result += ch === '\n' ? '\n' : ' ';
+        i++;
+      }
+    } else {
+      if (content.startsWith('%%>', i)) {
+        result += '   ';
+        i += 3;
+      } else if (content.startsWith('%>', i)) {
+        inRuby = false;
+        result += '  ';
+        i += 2;
+      } else if (content.startsWith('-%>', i) || content.startsWith('~%>', i)) {
+        inRuby = false;
+        result += '   ';
+        i += 3;
+      } else {
+        result += content[i];
+        i++;
+      }
+    }
+  }
+  return result;
+}
+
 export async function parseSourceSymbols(
   filePath: string,
   content: string,
@@ -1690,7 +1756,9 @@ export async function parseSourceSymbols(
 
   const p = await ensureParser();
   p.setLanguage(lang);
-  const tree = p.parse(content);
+  const parsedContent =
+    ext === '.erb' && content.includes('<%') ? preprocessErb(content) : content;
+  const tree = p.parse(parsedContent);
   if (!tree) return [];
 
   try {

@@ -11,7 +11,18 @@ vi.mock('../src/walk.js', async (importOriginal) => {
 });
 
 vi.mock('../src/search/db.js', () => ({
-  openDb: vi.fn(() => ({})),
+  hasIndex: vi.fn(() => true),
+  openDb: vi.fn(() => ({
+    execute: vi.fn(async (statement: string | { sql: string }) => {
+      const sql = typeof statement === 'string' ? statement : statement.sql;
+      if (sql.includes('lexical_version')) {
+        const { LEXICAL_VERSION } = await import('../src/search/lexical.js');
+        return { rows: [{ value: LEXICAL_VERSION }] };
+      }
+      return { rows: [] };
+    }),
+    close: vi.fn(async () => {}),
+  })),
   ensureMeta: vi.fn(async () => {}),
   getStoredModel: vi.fn(async () => 'fake-model'),
   ensureSectionsSchema: vi.fn(async () => {}),
