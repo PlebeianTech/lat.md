@@ -256,6 +256,7 @@ function GraphCanvas({
         labelWeight: '400',
         minCameraRatio: 0.08,
         maxCameraRatio: 8,
+        zoomingRatio: 1.104,
         renderEdgeLabels: false,
         stagePadding: 40,
         zIndex: true,
@@ -731,7 +732,10 @@ export default function GraphView({
           for (const result of response.results) {
             pathScores.set(
               result.path,
-              Math.max(pathScores.get(result.path) ?? -Infinity, result.score),
+              Math.max(
+                pathScores.get(result.path) ?? -Infinity,
+                result.rankScore,
+              ),
             );
           }
           setSearchMatch({

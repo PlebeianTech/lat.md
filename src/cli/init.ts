@@ -20,7 +20,7 @@ import {
 } from './gen.js';
 import { getLlmKey, getRepoEmbedding, setRepoEmbedding } from '../config.js';
 import { makeStyler } from './context.js';
-import { closeDb, ensureMeta, getStoredModel, openDb } from '../search/db.js';
+import { closeDb, getStoredModel, openDb } from '../search/db.js';
 import { modelKey } from '../search/embedder.js';
 import { reindexCommand } from './reindex.js';
 import {
@@ -1118,11 +1118,10 @@ type EmbeddingBackend = 'local' | 'remote';
 async function readStoredEmbeddingModel(
   latDir: string,
 ): Promise<string | null> {
-  if (!existsSync(join(latDir, '.cache', 'vectors.db'))) return null;
+  if (!existsSync(join(latDir, '.cache', 'search.db'))) return null;
 
-  const db = openDb(latDir);
+  const db = openDb(latDir, undefined, true);
   try {
-    await ensureMeta(db);
     return await getStoredModel(db);
   } finally {
     await closeDb(db);

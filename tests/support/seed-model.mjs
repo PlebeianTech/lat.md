@@ -14,6 +14,7 @@ const db = openDb(latDir);
 try {
   await ensureMeta(db);
   await setStoredModel(db, model);
+  await db.checkpoint();
 } finally {
   await closeDb(db);
 }

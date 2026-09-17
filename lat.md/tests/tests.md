@@ -37,6 +37,7 @@ Shared patterns for writing and organizing tests in this project.
 - [Locate](locate.md) — Tests for \`findSections\` covering exact, subsection, and fuzzy matching strategies.
 - [MCP](mcp.md) — Functional tests for the MCP server. Spawns \`lat mcp\` against the \`basic-project\` fixture via the MCP client SDK and verifies each tool responds correctly.
 - [Parser Analysis Tests](analysis-tests.md) — These tests keep Markdown and source analysis deterministic, AST-free, serializable, and safely reusable across parser executions.
+- [PHP Source Parser](php-source-parser.md) — PHP source analysis and code-reference scanning cover Laravel application and test files without treating Blade attributes as code references.
 - [Ref Extraction](ref-extraction.md) — Tests for extracting wiki link references from parsed markdown files.
 - [Ref Resolution](ref-resolution.md) — Tests for wiki link and code ref resolution across vault subdirectories — ambiguous short refs, unique short refs, and fully qualified refs.
 - [Refs End-to-End](refs-e2e.md) — End-to-end tests for the \`lat refs\` command across multiple files.

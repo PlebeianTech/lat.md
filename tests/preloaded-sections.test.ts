@@ -100,7 +100,20 @@ describe('parses the lat.md tree once per prompt (lat-t1y.23)', () => {
     vi.mocked(
       (await import('../src/search/search.js')).searchSections,
     ).mockResolvedValue([
-      { id: featureId, file: '', heading: '', content: '', score: 1 },
+      {
+        id: featureId,
+        file: '',
+        heading: '',
+        content: '',
+        rankScore: 1,
+        evidence: [],
+        diagnostics: {
+          lexicalCapped: false,
+          semanticCapped: false,
+          lexicalCandidates: 1,
+          semanticCandidates: 1,
+        },
+      },
     ]);
 
     // The hook hands runSearch the analysis it already has; nothing is re-walked.

@@ -119,7 +119,7 @@ Existence does not imply navigation support: unsupported files and directories v
 
 ### Source Code Links
 
-Wiki links can reference symbols in TypeScript, JavaScript, Python, Ruby, Dart, Java, Rust, Go, and C source files:
+Wiki links can reference symbols in TypeScript, JavaScript, Python, Ruby, Dart, Java, Rust, Go, C, and PHP source files:
 
 - **`[[src/config.ts#getConfigDir]]`** — the `getConfigDir` function in `src/config.ts`
 - **`[[src/server.ts#App#listen]]`** — the `listen` method on class `App` in `src/server.ts`
@@ -129,15 +129,16 @@ Wiki links can reference symbols in TypeScript, JavaScript, Python, Ruby, Dart, 
 - **`[[src/Greeter.java#Greeter#greet]]`** — the `greet` method on class `Greeter` in Java
 - **`[[src/lib.rs#Greeter#greet]]`** — the `greet` method on struct `Greeter` in Rust
 - **`[[src/app.go#Greeter#Greet]]`** — the `Greet` method on type `Greeter` in Go
+- **`[[app/Services/Payments/StripeGateway.php#StripeGateway#verifyKey]]`** — the `verifyKey` method on class `StripeGateway` in PHP
 - **`[[src/app.h#Greeter]]`** — the `Greeter` struct in a C header
 - **`[[src/app.h#Greeter#prefix]]`** — the `prefix` field of struct `Greeter` in C
 - **`[[src/config.ts]]`** — link to the file itself (no symbol)
 
-Supported extensions: `.c`, `.dart`, `.go`, `.h`, `.java`, `.js`, `.jsx`, `.py`, `.rake`, `.rb`, `.rs`, `.ts`, `.tsx`. The typed [[src/source-formats.ts#SOURCE_FILE_EXTENSIONS]] registry governs source-link parsing, external source validation, and `@lat:` code-mention scanning.
+Supported extensions: `.c`, `.dart`, `.erb`, `.go`, `.h`, `.java`, `.js`, `.jsx`, `.php`, `.py`, `.rake`, `.rb`, `.rs`, `.ts`, `.tsx`. The typed [[src/source-formats.ts#SOURCE_FILE_EXTENSIONS]] registry governs source-link parsing, external source validation, and `@lat:` code-mention scanning.
 
 Python symbols: functions, classes, methods, module-level variables. Decorated definitions (`@decorator`) are unwrapped transparently — `[[file.py#my_func]]` resolves whether or not `my_func` has decorators, and `# @lat:` comments placed between decorators and the `def`/`class` line are scanned normally.
 
-Ruby and Rake symbols: classes, modules, methods, singleton methods (`def self.method`), constants, scoped declarations (`A::B`), and Rake tasks and namespaces (`task`, `multitask`, `file`, `namespace`). Methods support Ruby conventions including predicates (`valid?`), mutating methods (`save!`), setters (`count=`), and operators (`==`, `[]`). Scoped definitions resolve standalone and qualified. `# @lat:` comments in `.rb` and `.rake` files are scanned like other hash-commented languages.
+Ruby, Rake, and ERB symbols: classes, modules, methods, singleton methods (`def self.method`), constants, scoped declarations (`A::B`), and Rake tasks and namespaces (`task`, `multitask`, `file`, `namespace`). Methods support Ruby conventions including predicates (`valid?`), mutating methods (`save!`), setters (`count=`), and operators (`==`, `[]`). Scoped definitions resolve standalone and qualified. `# @lat:` and `<%# @lat:` comments in `.rb`, `.rake`, and `.erb` files are scanned like other hash-commented languages.
 
 Dart symbols: functions, getters, setters, classes, constructors, fields, mixins, named extensions, enums and values, extension types, type aliases, and top-level variables. Nested members use `[[file.dart#Type#member]]`; named constructors use their suffix (`#Type#named`), while unnamed constructors use the class name (`#Type#Type`). Operators retain Dart spelling, such as `[[file.dart#Greeter#operator ==]]`. Annotations are included in definition ranges, and `// @lat:` comments are scanned like other C-style source comments.
 
@@ -146,6 +147,10 @@ Java symbols: classes, interfaces, enums, records, annotation types, constructor
 Rust symbols: functions, structs, enums, traits, impl methods, consts, statics, type aliases. Methods are resolved via `impl` blocks — `[[file.rs#Type#method]]` matches any `impl Type { fn method() }` or `impl Trait for Type { fn method() }`.
 
 Go symbols: functions, types (structs, interfaces, type aliases), methods (with receiver), consts, vars. Methods are resolved via receiver type — `[[file.go#Type#Method]]` matches `func (t *Type) Method()`.
+
+PHP symbols: classes, interfaces, traits, enums, enum cases, methods, constants, properties, constructor-promoted properties, top-level functions, and top-level constants. Namespaces are omitted from symbol paths; `.blade.php` templates are tolerated as best-effort PHP input.
+
+Both namespace syntaxes and global namespace blocks are traversed, as are conditional declaration containers. Anonymous class and closure members are not exposed. Promoted properties are extracted from syntax nodes, including untyped and by-reference parameters. Definition ranges preserve attributes, modifiers, and property hooks; promoted properties use their individual parameter ranges. Tests: [[tests/php-source-parser#PHP Source Parser]].
 
 C symbols: functions (including pointer-returning like `char *func()`), structs, struct fields/members, enums, enum values (including anonymous enums and `typedef enum` members), typedefs, `#define` macros (both object-like and function-like), variables (including arrays). Struct fields are resolved via the parent struct — `[[file.h#Struct#field]]` matches any `field_declaration` inside `struct Struct { ... }`, including fields nested inside anonymous unions and structs. Enum values can be referenced standalone (`[[file.h#GREEN]]`) or qualified by their enum name (`[[file.h#Color#GREEN]]`); both forms work for named enums, `typedef enum`, and named `typedef enum`. Both `.c` and `.h` files are supported — include guards (`#ifndef`/`#endif`) are walked through transparently.
 
@@ -162,6 +167,8 @@ Source code is parsed lazily with tree-sitter (via `web-tree-sitter`). Only file
 Ordinary markdown links (`[text](path)`) to local files are validated for existence, so a moved or deleted file is caught the same way a stale `[[wiki link]]` is.
 
 Targets resolve against the containing file's directory. A link that leaves `lat.md/` (`../../AGENTS.md`) is checked like any other. Inline links, images, and reference definitions (`[id]: ./path.md`) all participate; code samples and bracket-like text in raw HTML do not.
+
+Ordinary relative links to text files outside the vault open the UI's code viewer, including files not yet added to Git. Paths resolve from the containing Markdown file; source-symbol fragments and query parameters are preserved. Swift, shell scripts, configuration files, and extensionless text can be viewed without symbol-parser support. Binary files are rejected; resources inside the vault retain their existing routes.
 
 Non-Markdown files stored inside `lat.md/` are valid only when ordinary Markdown links or images reference them. The live browser serves these contained resources and static exports copy only those the rendered documents use.
 

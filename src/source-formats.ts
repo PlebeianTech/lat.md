@@ -4,11 +4,13 @@ import { extname } from 'node:path';
 export const SOURCE_FILE_EXTENSIONS = [
   '.c',
   '.dart',
+  '.erb',
   '.go',
   '.h',
   '.java',
   '.js',
   '.jsx',
+  '.php',
   '.py',
   '.rake',
   '.rb',

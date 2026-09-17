@@ -171,20 +171,22 @@ describe('cli command surface', () => {
     const search = runCli('basic-project', ['search', '--help']);
     expect(search.exitCode).toBe(0);
     expect(search.stdout).toContain('--debug');
-    expect(search.stdout).toContain('show result similarity scores');
-    expect(search.stdout).toContain('--threshold <score>');
-    expect(search.stdout).toContain('default: 0.35');
+    expect(search.stdout).toContain(
+      'show retrieval scores and candidate diagnostics',
+    );
+    expect(search.stdout).toContain('--min-similarity <score>');
+    expect(search.stdout).toContain('default: 0.2');
 
     for (const threshold of ['-0.1', '1.1']) {
       const invalidThreshold = runCli('basic-project', [
         'search',
         'query',
-        '--threshold',
+        '--min-similarity',
         threshold,
       ]);
       expect(invalidThreshold.exitCode).toBe(1);
       expect(invalidThreshold.stderr).toContain(
-        'threshold must be a number from 0 to 1',
+        'min-similarity must be a number from 0 to 1',
       );
     }
   });
@@ -1407,6 +1409,14 @@ describe('source-ref-rake-valid', () => {
   // @lat: [[tests/check-md#Passes with valid links#Passes with Rake source symbol links]]
   it('resolves Rake tasks, namespaces, and helper functions without errors', async () => {
     const { errors } = await checkMd(latDir('source-ref-rake-valid'));
+    expect(errors).toHaveLength(0);
+  });
+});
+
+describe('source-ref-erb-valid', () => {
+  // @lat: [[tests/check-md#Passes with valid links#Passes with ERB source symbol links]]
+  it('resolves ERB declarations and helper methods without errors', async () => {
+    const { errors } = await checkMd(latDir('source-ref-erb-valid'));
     expect(errors).toHaveLength(0);
   });
 });

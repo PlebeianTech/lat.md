@@ -136,6 +136,13 @@ describe('source highlighting', () => {
     expect(treeClasses(rakeSource[0])).toContain('hljs-string');
     expect(treeText(rakeSource[0])).toContain('build');
 
+    const erbSource = highlightSource(
+      'app/views/index.html.erb',
+      'class Greeter; def greet; puts "hello"; end; end',
+    );
+    expect(treeClasses(erbSource[0])).toContain('hljs-title');
+    expect(treeText(erbSource[0])).toContain('Greeter');
+
     expect(highlightSource('notes.txt', '<safe>\n& literal')).toEqual([
       {
         version: 1,

@@ -57,6 +57,7 @@ import {
   validateDocumentRoutes,
   rewriteDocumentLink,
 } from '../src/view/document-route.js';
+import { rewriteLocalFileLink } from '../src/view/source-target.js';
 import { buildViewGraph } from '../src/view/graph.js';
 import { buildViewReferenceIndex } from '../src/view/references.js';
 import { renderMarkdown as renderMarkdownTree } from '../src/view/markdown.js';
@@ -172,7 +173,15 @@ async function renderMarkdown(
   ...args: Parameters<typeof renderMarkdownTree>
 ): Promise<Awaited<ReturnType<typeof renderMarkdownTree>> & { html: string }> {
   const rendered = await renderMarkdownTree(...args);
-  return { ...rendered, html: documentTreeToHtml(rendered.tree) };
+  // These assertions cover rendered content; source metadata is covered by
+  // search-highlights.test.ts against the unmodified document tree.
+  return {
+    ...rendered,
+    html: documentTreeToHtml(rendered.tree).replace(
+      / data-source-(?:start|end)-line="\d+"/g,
+      '',
+    ),
+  };
 }
 
 function viewDocumentHtml(document: ViewDocument): string {
@@ -202,7 +211,7 @@ describe('lat ui', () => {
     matches: [
       {
         reason: 'semantic match',
-        score: 0.82,
+        rankScore: 0.82,
         section: {
           id: 'lat.md/guide#Guide#Details',
           heading: 'Details',
@@ -895,7 +904,7 @@ describe('lat ui', () => {
         "manifestFile: new URL('./server-data/server.json'",
       );
       expect(appModule).toContain(
-        "indexFile: new URL('./server-data/vectors.db'",
+        "indexFile: new URL('./server-data/search.db'",
       );
       expect(appModule).toContain(
         'createSearchEngine: () => createEmbedder({ model: minilm })',
@@ -932,7 +941,14 @@ describe('lat ui', () => {
           file: section.file,
           heading: section.heading,
           content: section.firstParagraph,
-          score: 0.9,
+          rankScore: 0.9,
+          evidence: [],
+          diagnostics: {
+            lexicalCapped: false,
+            semanticCapped: false,
+            lexicalCandidates: 1,
+            semanticCandidates: 1,
+          },
         },
       ]);
       const closeSearch = vi.fn(async () => {});
@@ -943,6 +959,9 @@ describe('lat ui', () => {
       const createSearchEngine = vi.fn(async () => ({
         name: 'local:test',
         dimensions: 1,
+        maxInputTokens: 256,
+        tokenizerFingerprint: 'test',
+        countTokens: () => 1,
         embed: async () => [[0]],
       }));
       const search = await createPreindexedViewSearch(
@@ -991,7 +1010,7 @@ describe('lat ui', () => {
           results: [
             expect.objectContaining({
               path: documentPath,
-              score: 0.9,
+              rankScore: 0.9,
             }),
           ],
         });
@@ -1645,7 +1664,9 @@ describe('lat ui', () => {
           breadcrumbs: ['guide', 'Guide', 'Details'],
           description: 'Relative Markdown links preserve heading fragments.',
           url: '/guide#details',
-          score: 0.82,
+          rankScore: 0.82,
+          evidence: [],
+          introduction: 'Relative Markdown links preserve heading fragments.',
         },
       ],
     });
@@ -1695,8 +1716,8 @@ describe('lat ui', () => {
     expect(document).not.toHaveProperty('html');
     expect(document.frontmatter.requireCodeMention).toBe(false);
     expect(document.graphNodeIds).toEqual({ '': 'document:lat.md' });
-    expect(viewDocumentHtml(document)).toContain(
-      '<h1 id="view-project">View Project</h1>',
+    expect(viewDocumentHtml(document)).toMatch(
+      /<h1 id="view-project"[^>]*>View Project<\/h1>/,
     );
     expect(viewDocumentHtml(document)).toContain('href="/guide#details"');
     expect(viewDocumentHtml(document)).not.toContain('require-code-mention');
@@ -2336,6 +2357,114 @@ describe('lat ui', () => {
     expect(viewDocumentHtml(document)).not.toContain('require-code-mention');
   });
 
+  it('preserves source-link targets and keeps resource routes separate', () => {
+    expect(
+      rewriteLocalFileLink(
+        '../../src/new%20file.ts?at=12#hello',
+        'nested/guide.md',
+      ),
+    ).toBe('/code/src/new%20file.ts?at=12#hello');
+    expect(rewriteLocalFileLink('../src/app.ts', 'guide.md')).toBe(
+      '/code/src/app.ts',
+    );
+    expect(rewriteLocalFileLink('media/image.svg', 'guide.md')).toBe(
+      '/resources/media/image.svg',
+    );
+    expect(rewriteLocalFileLink('../guide.md#details', 'nested/guide.md')).toBe(
+      '/guide#details',
+    );
+    for (const url of [
+      'https://example.com/app.ts',
+      '/code/src/app.ts',
+      '#heading',
+    ]) {
+      expect(rewriteLocalFileLink(url, 'guide.md')).toBe(url);
+    }
+    expect(rewriteLocalFileLink('../../outside.ts', 'guide.md')).not.toMatch(
+      /^\/code\//,
+    );
+  });
+
+  it.each([false, true])(
+    'opens ordinary source links with Git tracked=%s',
+    async (tracked) => {
+      const root = mkdtempSync(join(tmpdir(), 'lat-source-links-'));
+      const vault = join(root, 'lat.md');
+      mkdirSync(join(vault, 'nested'), { recursive: true });
+      mkdirSync(join(root, 'src'));
+      execFileSync('git', ['init', '--quiet'], { cwd: root });
+      writeFileSync(
+        join(root, 'src', 'new file.ts'),
+        'export const hello = 1;\n',
+      );
+      writeFileSync(
+        join(vault, 'lat.md'),
+        '# Home\n\nSee [guide](nested/guide.md).\n',
+      );
+      writeFileSync(
+        join(vault, 'nested', 'guide.md'),
+        '# Guide\n\n[inline](../../src/new%20file.ts) and [reference][code].\n\n[code]: ../../src/new%20file.ts\n\n[[src/new file.ts]]\n',
+      );
+      for (const name of [
+        'Clock.swift',
+        'test.sh',
+        'App.entitlements',
+        'LICENSE',
+      ]) {
+        writeFileSync(join(root, 'src', name), 'plain text\n');
+      }
+      writeFileSync(join(root, 'src', 'binary.bin'), Buffer.from([0, 255, 1]));
+      if (tracked) execFileSync('git', ['add', 'src'], { cwd: root });
+      const server = await startViewServer(
+        { ...testContext(), projectRoot: root, latDir: vault },
+        { port: 0, clientDir, watch: false, git: false },
+      );
+      try {
+        const response = await fetch(
+          new URL('/api/document?path=nested/guide.md', server.url),
+        );
+        const doc = (await response.json()) as ViewDocument;
+        const html = viewDocumentHtml(doc);
+        expect(html).toContain('href="/code/src/new%20file.ts">inline');
+        expect(html).toContain('href="/code/src/new%20file.ts">reference');
+        expect(html).not.toContain('/resources/src/');
+        const shell = await fetch(
+          new URL('/code/src/new%20file.ts', server.url),
+        );
+        expect(shell.status).toBe(200);
+        const source = await fetch(
+          new URL('/api/source?path=src%2Fnew%20file.ts', server.url),
+        );
+        expect(source.status).toBe(200);
+        expect((await source.json()).content).toBe('export const hello = 1;\n');
+        for (const name of [
+          'Clock.swift',
+          'test.sh',
+          'App.entitlements',
+          'LICENSE',
+        ]) {
+          expect(
+            rewriteLocalFileLink(`../../src/${name}`, 'nested/guide.md'),
+          ).toBe(`/code/src/${name}`);
+          const response = await fetch(
+            new URL(`/api/source?path=src/${name}`, server.url),
+          );
+          expect(response.status).toBe(200);
+          expect((await response.json()).content).toBe('plain text\n');
+        }
+        for (const path of ['src/binary.bin', '../outside.ts']) {
+          const response = await fetch(
+            new URL(`/api/source?path=${encodeURIComponent(path)}`, server.url),
+          );
+          expect(response.status).toBe(404);
+        }
+      } finally {
+        await server.close();
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
   // @lat: [[lat.md/view/specs#View Tests#Resolves Markdown and source wiki links]]
   it('resolves Markdown and source wiki links', async () => {
     const response = await fetch(
@@ -2446,13 +2575,28 @@ describe('lat ui', () => {
     );
     expect(rakeLink.html).toContain('>RB</span>');
 
+    const erbLink = await renderMarkdown(
+      '[[app/views/index.html.erb#render]]',
+      'lat.md',
+      async () => ({
+        href: '/code/app/views/index.html.erb?symbol=render',
+        referenceCount: 0,
+      }),
+    );
+    expect(erbLink.html).toContain(
+      'class="code-link-language code-language-rb"',
+    );
+    expect(erbLink.html).toContain('>RB</span>');
+
     for (const referenceCount of [0, 1]) {
       const sparseReferences = await renderMarkdown(
         '[[orphan]]',
         'lat.md',
         async () => ({ href: '/orphan', referenceCount }),
       );
-      expect(sparseReferences.html).toBe('<p><a href="/orphan">orphan</a></p>');
+      expect(sparseReferences.html).toMatch(
+        /^<p[^>]*><a href="\/orphan">orphan<\/a><\/p>$/,
+      );
     }
   });
 
@@ -2714,8 +2858,8 @@ describe('lat ui', () => {
       'href="/lat#unreferenced"',
     );
     expect(documentTreeToHtml(sectionOutput.tree)).toContain('<blockquote>');
-    expect(documentTreeToHtml(sectionOutput.tree)).toContain(
-      '<h2 id="unreferenced">Unreferenced</h2>',
+    expect(documentTreeToHtml(sectionOutput.tree)).toMatch(
+      /<h2 id="unreferenced"[^>]*>Unreferenced<\/h2>/,
     );
 
     const referencedSectionOutputResponse = await fetch(
@@ -3206,8 +3350,8 @@ describe('lat ui git state', () => {
       ),
     );
     expect(replaced.html).toContain('<p class="git-removed">The top Git');
-    expect(replaced.html).toContain(
-      '<p class="git-added">Polling also detects commits',
+    expect(replaced.html).toMatch(
+      /<p class="git-added"[^>]*>Polling also detects commits/,
     );
     expect(replaced.html).not.toContain('<del class="git-removed">');
 
@@ -3283,7 +3427,7 @@ describe('lat ui git state', () => {
       '<del class="git-removed">old</del><ins class="git-added">new</ins> renderer stays',
     );
     expect(rendered.html).toContain('<tr class="git-removed">');
-    expect(rendered.html).toContain('<tr class="git-added">');
+    expect(rendered.html).toMatch(/<tr class="git-added"[^>]*>/);
   });
 
   it('colors whole-table fallbacks for incompatible table edits', async () => {

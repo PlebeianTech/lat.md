@@ -1,3 +1,4 @@
+import type { SearchEvidence, SearchDiagnostics } from './search/types.js';
 import GithubSlugger from 'github-slugger';
 import { toPosix } from './path.js';
 import type { ForkFrontmatter } from './fork/frontmatter-fields.js';
@@ -129,7 +130,7 @@ export function buildSectionSlugIndex(
   const aliases = new Map<string, string>();
   const stacks = new Map<
     string,
-    { depth: number; literal: string; slug: string }[]
+    { id: string; depth: number; literal: string; slug: string }[]
   >();
   const sluggers = new Map<string, GithubSlugger>();
 
@@ -152,8 +153,11 @@ export function buildSectionSlugIndex(
     const levels = [
       ...stack,
       {
+        id: section.id,
         depth: section.depth,
-        literal: section.heading.toLowerCase(),
+        literal: section.id
+          .slice((stack.at(-1)?.id ?? section.file).length + 1)
+          .toLowerCase(),
         slug: headingSlug.toLowerCase(),
       },
     ];
@@ -292,7 +296,13 @@ const MAX_DISTANCE_RATIO = 0.4;
 export type SectionMatch = {
   section: Section;
   reason: string;
-  score?: number;
+  rankScore?: number;
+  semanticSimilarity?: number;
+  lexicalScore?: number;
+  semanticRank?: number;
+  lexicalRank?: number;
+  evidence?: SearchEvidence[];
+  diagnostics?: SearchDiagnostics;
 };
 
 export function findSections(

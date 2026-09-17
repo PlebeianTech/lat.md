@@ -130,6 +130,7 @@ function CodeReference({ reference }: { reference: ViewCodeBackReference }) {
     ['.js', ['code-language-js', 'JS']],
     ['.jsx', ['code-language-js', 'JS']],
     ['.py', ['code-language-py', 'PY']],
+    ['.erb', ['code-language-rb', 'RB']],
     ['.rake', ['code-language-rb', 'RB']],
     ['.rb', ['code-language-rb', 'RB']],
     ['.rs', ['code-language-rs', 'RS']],
@@ -337,13 +338,30 @@ function DocumentElement({
       element
     );
   if (fenceKind) {
-    return (
+    const fence = (
       <MarkdownRichFence
         fallback={content}
         key={path}
         kind={fenceKind}
         source={node.children.map(documentNodeText).join('')}
       />
+    );
+    const classes = [node, ...node.children].flatMap((child) => {
+      if (child.type !== 'element') return [];
+      const value = child.properties.className;
+      return Array.isArray(value)
+        ? value.map(String)
+        : String(value ?? '').split(/\s+/);
+    });
+    const change = classes.includes('git-removed')
+      ? 'removed'
+      : classes.includes('git-added')
+        ? 'added'
+        : null;
+    return change ? (
+      <div className={`markdown-rich-fence-diff git-${change}`}>{fence}</div>
+    ) : (
+      fence
     );
   }
   const headingId =

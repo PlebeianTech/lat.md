@@ -19,6 +19,7 @@ import {
 const SOURCE_CACHE_FIXTURES = {
   '.c': { content: 'int cached(void) { return 1; }\n', symbol: 'cached' },
   '.dart': { content: 'int cached() => 1;\n', symbol: 'cached' },
+  '.erb': { content: 'def cached\n  1\nend\n', symbol: 'cached' },
   '.go': { content: 'package cache\nfunc Cached() {}\n', symbol: 'Cached' },
   '.h': { content: 'int cached(void);\n', symbol: 'cached' },
   '.java': { content: 'class Cached {}\n', symbol: 'Cached' },
@@ -27,6 +28,7 @@ const SOURCE_CACHE_FIXTURES = {
     content: 'export function cached() { return <div /> }\n',
     symbol: 'cached',
   },
+  '.php': { content: '<?php function cached() {}\n', symbol: 'cached' },
   '.py': { content: 'def cached():\n    return None\n', symbol: 'cached' },
   '.rake': { content: 'task :cached do\n  1\nend\n', symbol: 'cached' },
   '.rb': { content: 'def cached\n  1\nend\n', symbol: 'cached' },

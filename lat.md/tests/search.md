@@ -23,7 +23,7 @@ network, and no replay recording.
 The test covers indexing, hashing, vector insert, and KNN search. Fixture lives in
 `tests/cases/rag/lat.md/` (9 sections across 2 files). A supplementary `search (rag, hosted replay)`
 group exercises the hosted `fetch` backend against a local OpenAI-compatible replay server
-(`tests/rag-replay-server.ts`); it runs only when `tests/cases/rag/replay-data/` is present and is
+(`tests/rag-replay-server.ts`); it runs only when `tests/cases/rag/replay-data/owned-blocks-v1/` is present and is
 re-cooked with `pnpm cook-test-rag` if hosted chunking changes.
 
 ### Indexes all sections
@@ -37,12 +37,11 @@ first.
 
 ### Filters results below the similarity threshold
 
-Semantic search returns only candidates at or above the requested cosine-similarity threshold so
-callers can trade recall for less low-relevance noise.
+Semantic candidates must meet the requested cosine minimum. Independent lexical matches remain eligible below this threshold.
 
 ### Applies the shared default similarity threshold
 
-Every semantic-search path applies [[src/search/search.ts#DEFAULT_SEARCH_THRESHOLD]] unless its public interface supplies an
+Every semantic-search path applies [[src/search/search.ts#DEFAULT_MIN_SIMILARITY]] unless its public interface supplies an
 explicit override, keeping CLI, MCP, hooks, and UI ranking policy aligned.
 
 ### Applies the shared default result limit
@@ -56,8 +55,7 @@ section ranks first.
 
 ### Debug output includes similarity scores
 
-Search result formatting includes each cosine-similarity score when debug output is requested and
-keeps scores out of the normal output.
+Search debug output exposes the fused rank score and individual retrieval contributions while normal output shows source evidence.
 
 ### Deterministic embeddings
 
@@ -80,13 +78,9 @@ however many sections it holds: the parser reads it once and section slicing reu
 Before this was pinned, a 3.5 MB file holding 12k sections was re-read once per section — 12k
 times on every search.
 
-### Rebuilds a legacy cache with no recorded model
+### Builds a fresh index beside a legacy cache
 
-Seed a 1536-dim `sections` table with rows but no `meta.embedding_model`, then run a local-backed
-search: the mismatched table is dropped and rebuilt at 384 dims and the query succeeds.
-
-This is the pre-versioning `.cache` upgrade path — before, the stale table was queried and threw a
-raw dimension-mismatch error.
+Search ignores legacy database bytes and builds a fresh index using the currently selected embedding backend. An invalid legacy file must not prevent a successful local search.
 
 ### Reuses an indexed search session
 
@@ -103,3 +97,115 @@ The package build replaces wasm-bindgen's opaque filesystem loader with an expli
 ### Rejects unknown generated WASM glue
 
 The package build fails clearly when generated wasm-bindgen output no longer contains the loader shape Lat knows how to replace.
+
+## Hybrid Retrieval
+
+Tests in [[tests/hybrid-search.test.ts]] verify passage ownership, token safety, hybrid evidence, and transactional cache publication.
+
+### Keeps duplicate and formatted headings distinct
+
+Indexing preserves separate passages and search results for repeated or formatted headings. Incremental edits keep sibling content intact, and unchanged indexes refresh obsolete parser freshness metadata without re-embedding.
+
+Passing each search result ID or its short form to the section command core returns only the matching section body, excluding its siblings.
+
+### Preserves complete passage coverage
+
+Oversized prose, nested lists, code lines, table cells, and Unicode retain source coverage and fit the embedding model input budget without duplicating descendant content.
+
+### Rejects local embedding truncation
+
+The real local tokenizer counts the full input and the WASM embedder rejects text beyond its limit, including tokenizer configurations containing an embedded truncation setting.
+
+### Retrieves lexical evidence independently
+
+Exact identifiers remain discoverable below the semantic minimum, with evidence linked to source spans in the owning section.
+
+### Collapses before rank fusion
+
+Repeated passage owners collapse before ranks are assigned, and equal channel scores share a section rank.
+
+### Reuses vectors after source movement
+
+Adding blank lines changes source locations without re-embedding unchanged contextual inputs.
+
+### Keeps incremental FTS scores equal to fresh indexes
+
+Section replacements, deletions, and deleting all sections produce the same lexical scores and hybrid ranks as fresh indexing, while line-only edits reuse every embedding.
+
+### Repairs historical FTS statistics once without embedding
+
+An unchanged project repairs old lexical statistics without embedding calls. Failed maintenance rolls back scores and version metadata; subsequent no-op indexing does not rebuild FTS.
+
+### Rolls back failed FTS rebuilds
+
+A failed FTS rebuild restores the prior sections and searchable scores, and a subsequent successful indexing attempt applies the edit.
+
+### Publishes only successful indexes
+
+A failed build preserves the exact bytes and searchable content of search.db, removes staging files, and releases the writer lock.
+
+### Reuses a single database filename
+
+Repeated reindexing leaves search.db and an unlocked, persistent search-write.lock, without manifests or staging files. A writer discards abandoned staging files and sidecars. Unchanged incremental work preserves the published file.
+
+### Preserves the database when replacement fails
+
+A failed rename leaves search.db byte-for-byte intact, removes staging files, and releases the writer lock so a subsequent indexing attempt can succeed.
+
+### Preserves FTS rollback and portable copies
+
+Rolled-back writes do not leak into FTS; a checkpointed database retains scored search when copied and reopened.
+
+### Switches preview without changing relevance
+
+Passage, introduction, and combined previews use the same ranked match while changing only its presentation.
+
+### Ignores legacy caches
+
+Index publication ignores old databases, sidecars, and migration metadata. It starts without an inherited model and leaves legacy files untouched, even when they contain invalid data.
+
+### Serializes concurrent index writers
+
+Concurrent writers cannot interleave staging or replacement, and an existing snapshot reader remains usable after search.db is replaced.
+
+### Rejects invalid vectors before changing the index
+
+Missing or malformed embedding output fails before indexed data is modified, preserving previous retrieval evidence.
+
+### Validates hosted input and response ordering
+
+The hosted tokenizer rejects oversized input before network access, and response vectors are reordered to match input indices.
+
+### Overfetches toward unique sections
+
+Repeated passages from one owner trigger deeper candidate retrieval, while the hard passage budget reports exhaustion instead of pretending section recall is complete.
+
+### Keeps readers alive across process boundaries
+
+A child process can search its snapshot while the parent replaces search.db, and the child retains its original evidence until it closes.
+
+Readers on every platform use private copies so FTS can write without locking the published file. New sessions open the replacement database.
+
+### Stems English lexical fields and queries
+
+English inflections match across indexed fields and queries while original evidence, Unicode tokens, and exact identifier lookup remain intact. Updating a passage removes its old lexical terms.
+
+### Upgrades lexical indexes without embedding again
+
+An index with unstemmed FTS migrates to normalized lexical fields without regenerating vectors or changing source passages.
+
+### Packages stemmer runtime assets
+
+Server dependency tracing includes both the stemmer JavaScript glue and WASM binary so deployed search can initialize outside the workspace.
+
+### Ignores lock file contents
+
+Empty, malformed, or obsolete PID data does not block acquisition. Independent descriptors still exclude each other, and releasing a lock leaves its persistent file in place.
+
+### Never steals a live writer lock
+
+A contender times out while another process holds the lock, and a subsequent writer acquires it after normal release. Timeouts do not evict the owner.
+
+### Recovers from a killed writer
+
+Killing a writer before publication preserves search.db. Waiting processes acquire the kernel lock one at a time, discard abandoned staging data, and successfully publish a replacement.

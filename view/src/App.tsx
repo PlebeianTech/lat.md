@@ -23,7 +23,7 @@ import { MarkdownContent } from './MarkdownContent';
 import { DocumentModeSwitch, type DocumentMode } from './DocumentModeSwitch';
 import { DocumentToc } from './DocumentToc';
 import { fetchViewJson, prefetchViewDocument } from './data-source';
-import { mergeProjectChange } from './live-updates';
+import { mergeProjectChange, subscribeVisibleViewEvents } from './live-updates';
 import {
   documentPath,
   documentUrl,
@@ -50,6 +50,7 @@ import {
 } from './navigation';
 import { navigateAndCopySectionLink } from './section-back-references';
 import { SearchPage } from './SearchPage';
+import { applySearchHighlights } from './search-highlights';
 import { SectionOutputDialog } from './SectionOutputDialog';
 import { sourceLineId, SourceView } from './SourceView';
 import latLogoUrl from './logo.svg?url';
@@ -526,7 +527,6 @@ export function App() {
 
   useEffect(() => {
     if (staticView) return;
-    const events = new EventSource('/api/events');
     const updateGeneration = (event: MessageEvent<string>) => {
       try {
         const change = JSON.parse(event.data) as ViewProjectChange;
@@ -546,9 +546,7 @@ export function App() {
       updateGeneration(event);
       setConnectionRevision((value) => value + 1);
     };
-    events.addEventListener('ready', serverReady);
-    events.addEventListener('change', updateGeneration);
-    return () => events.close();
+    return subscribeVisibleViewEvents(serverReady, updateGeneration);
   }, [staticView]);
 
   useEffect(() => {
@@ -636,6 +634,12 @@ export function App() {
   }, [graphActive, page]);
 
   useLayoutEffect(() => {
+    const matches = applySearchHighlights(
+      window.document.querySelector<HTMLElement>('.markdown'),
+      page?.kind === 'markdown'
+        ? new URL(location, window.location.origin).search
+        : '',
+    );
     if (!page || positionedLocation.current === location) return;
     if (graphActive) {
       window.scrollTo({ top: 0, behavior: 'instant' });
@@ -656,14 +660,17 @@ export function App() {
       return;
     }
     if (page.kind === 'markdown') {
-      scrollToDocumentLocation(
-        window.location.hash,
-        {
-          getElementById: (id) => window.document.getElementById(id),
-          scrollTo: (options) => window.scrollTo(options),
-        },
-        page.document.tableOfContents.find((item) => item.depth === 1)?.id,
-      );
+      if (matches[0]) {
+        matches[0].scrollIntoView({ behavior: 'instant', block: 'center' });
+      } else
+        scrollToDocumentLocation(
+          window.location.hash,
+          {
+            getElementById: (id) => window.document.getElementById(id),
+            scrollTo: (options) => window.scrollTo(options),
+          },
+          page.document.tableOfContents.find((item) => item.depth === 1)?.id,
+        );
     } else {
       const line = page.source.focus?.startLine;
       if (line) {
@@ -675,7 +682,7 @@ export function App() {
       }
     }
     positionedLocation.current = location;
-  }, [graphActive, historyScroll, location, page]);
+  }, [graphActive, historyScroll, location, page, editingDocument]);
 
   function saveCurrentScroll(): void {
     window.history.replaceState(

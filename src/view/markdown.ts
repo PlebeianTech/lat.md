@@ -397,6 +397,7 @@ function codeLanguage(target: string): {
       return { className: 'code-language-js', label: 'JS' };
     case '.py':
       return { className: 'code-language-py', label: 'PY' };
+    case '.erb':
     case '.rake':
     case '.rb':
       return { className: 'code-language-rb', label: 'RB' };
@@ -593,6 +594,11 @@ export async function renderMarkdown(
       node.url = options.rewriteMarkdownLink(node.url);
     }
   });
+  visit(tree, 'definition', (node) => {
+    if (options.rewriteMarkdownLink) {
+      node.url = options.rewriteMarkdownLink(node.url);
+    }
+  });
 
   const firstHeading = tree.children.find((node) => node.type === 'heading');
   const title = firstHeading
@@ -680,6 +686,14 @@ export async function renderMarkdown(
   });
 
   const hast = await documentTreeProcessor.run(tree);
+  // Attach source ranges after sanitization, before positions are discarded.
+  visit(hast, 'element', (node) => {
+    if (!/^(p|pre|li|tr|h[1-6])$/.test(node.tagName) || !node.position) return;
+    node.properties['data-source-start-line'] =
+      node.position.start.line + (options.lineOffset ?? 0);
+    node.properties['data-source-end-line'] =
+      node.position.end.line + (options.lineOffset ?? 0);
+  });
   return {
     tree: decorateExternalSiteLinks(toViewDocumentTree(hast)),
     title,

@@ -45,6 +45,7 @@ const languageAliases: Record<string, string> = {
   css: 'css',
   dart: 'dart',
   diff: 'diff',
+  erb: 'ruby',
   go: 'go',
   h: 'c',
   html: 'xml',
@@ -75,6 +76,7 @@ const languageAliases: Record<string, string> = {
 const languageByExtension: Record<string, string> = {
   '.c': 'c',
   '.dart': 'dart',
+  '.erb': 'ruby',
   '.go': 'go',
   '.h': 'c',
   '.java': 'java',

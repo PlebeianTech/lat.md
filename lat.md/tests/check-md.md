@@ -50,3 +50,7 @@ Given links to Ruby declarations and nested members, [[cli#check#md]] resolves c
 ### Passes with Rake source symbol links
 
 Given links to Rake tasks and namespaces in `.rake` files, [[cli#check#md]] resolves tasks, namespaces, nested tasks, and helper functions with complete source ranges.
+
+### Passes with ERB source symbol links
+
+Given links to declarations in `.erb` files, [[cli#check#md]] resolves classes, methods, and helper functions within embedded Ruby blocks.

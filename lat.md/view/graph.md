@@ -83,7 +83,7 @@ Outlined, translucent nodes remain distinguishable when overlapping. The circle 
 
 The selected node keeps a stronger fill, visible label, and foreground position even while another node is hovered. Unrelated connections stay visible rather than disappearing during selection.
 
-With no semantic filter, node radius reflects incoming references. Search preserves each hit's cosine score, rolls a document's strongest section hit into its graph node, gives adjacent code that score, and normalizes visible radii across the current result set.
+Without a search filter, node radius reflects incoming references. [[view/src/GraphView.tsx]] uses each hit's hybrid `rankScore` from the [[rag-architecture#Result contract]], rolls a document's strongest section hit into its graph node, gives adjacent code that score, and normalizes visible radii across the current result set. Cosine similarity is a separate optional diagnostic; it does not control graph sizing.
 
 A node click navigates to its canonical document or source URL and renders the right pane with existing APIs and presentation: documents reuse the Markdown payload, while source and code-reference nodes reuse the source payload and focused line or symbol.
 
@@ -98,6 +98,8 @@ The left half remains the interaction and Fit area even though the canvas extend
 The initial workspace favors direct exploration over a large settings surface.
 
 It includes pan, zoom, hover-neighbor highlighting, click selection, fit/reset, kind toggles for documents and code, embedding search, and directed edge arrows. Individual nodes cannot be dragged; their layout stays stable while dragging pans the graph.
+
+Scroll-wheel zoom uses a gentle 1.104 ratio per accepted event so mouse wheels and trackpads allow small camera adjustments.
 
 The text input follows the app buttons and debounces through the same indexed embedding search as `lat search`. Matching sections map to their document nodes and adjacent code nodes, filtering only the canvas with no result list or dropdown.
 

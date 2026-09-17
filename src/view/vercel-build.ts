@@ -11,6 +11,7 @@ import {
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { nodeFileTrace } from '@vercel/nft';
 import { LAT_UI_CONTENT_SECURITY_POLICY } from '@lat.md/server';
+import { INDEX_FILE, hasIndex } from '../search/db.js';
 
 type FileTraceResult = {
   fileList: Set<string>;
@@ -155,6 +156,13 @@ export async function buildVercelOutput(
   for (const warning of trace.warnings) {
     options.warn?.(`Node file trace: ${warning.message}`);
   }
+
+  // Keep the database in the function even if tracing cannot infer the asset.
+  if (!hasIndex(join(artifactDir, 'server-data'))) {
+    throw new Error('Missing hybrid search database; rebuild this deployment.');
+  }
+  trace.fileList.add('server-data/server.json');
+  trace.fileList.add(`server-data/${INDEX_FILE}`);
 
   await mkdir(dirname(outputDir), { recursive: true });
   const stagingDir = await mkdtemp(

@@ -1,3 +1,4 @@
+import { INDEX_FILE } from '../search/db.js';
 import { copyFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import type { ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -120,7 +121,7 @@ async function prepareServerView(
     }
     await mkdir(runtimeCacheDir, { recursive: true });
     try {
-      await copyFile(indexFile, join(runtimeCacheDir, 'vectors.db'));
+      await copyFile(indexFile, join(runtimeCacheDir, INDEX_FILE));
     } catch (error) {
       if (ownsCache) {
         await removeRuntimeCache(runtimeCacheDir);

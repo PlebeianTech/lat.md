@@ -1,0 +1,13 @@
+<%# @lat: [[lat.md/docs#Docs]] %>
+<%
+class UserView
+  def render_badge
+    "badge"
+  end
+end
+
+def format_user(name)
+  name.capitalize
+end
+%>
+<div><%= format_user(@user.name) %></div>
