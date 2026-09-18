@@ -108,13 +108,15 @@ The workflow still attempts a `fork-N` tag afterwards, best-effort and never fat
 npm view @plebeiantech/lat.md dist-tags
 ```
 
-## Why mise needs a settings exclude
+## Why mise needs settings excludes
 
-`mise use -g npm:@plebeiantech/lat.md@latest` resolves through npm's `latest` dist-tag, and mise applies two filters of its own before it will accept a version.
+Mise requires both release age and trust policy exceptions when installing this fork via its package installer.
 
-Only one of them bites. `prereleases` defaults to false and hides every `-fork.N` build from `mise ls-remote`, but an explicit `@latest` resolves through the dist-tag and is unaffected. `minimum_release_age` is the real obstacle: it quarantines anything published within roughly the last day, stable releases included, so a new fork build is invisible until the window passes.
+Two separate checks affect installations under mise's default installer (aube).
 
-`minimum_release_age_excludes` waives it for one package. That is preferable to setting `prereleases` globally, which would apply to every tool mise manages.
+The `minimum_release_age` check quarantines newly published versions, which `minimum_release_age_excludes` waives for `npm:@plebeiantech/lat.md`. `prereleases` defaults to false and hides every `-fork.N` build from `mise ls-remote`, but an explicit `@latest` resolves through the dist-tag and is unaffected.
+
+In addition, aube enforces `trustPolicy=no-downgrade`. Because upstream published `@lat.md/embed@0.2.0` with GitHub Actions SLSA provenance but published `@lat.md/embed@0.2.1` manually without attestations, aube flags the dependency as a trust downgrade unless waived via `trust_policy_excludes = ["@lat.md/embed@0.2.1"]` on the tool definition.
 
 ## Plugin distribution
 
