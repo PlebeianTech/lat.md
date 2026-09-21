@@ -27,27 +27,28 @@ try {
   lock.importers = { '.': lock.importers['packages/core'] };
   await writeFile(join(runtime, 'pnpm-lock.yaml'), stringify(lock));
   const runner = process.env.npm_execpath;
-  const result = spawnSync(
-    runner
-      ? process.execPath
-      : process.platform === 'win32'
-        ? 'pnpm.cmd'
-        : 'pnpm',
-    [
-      ...(runner ? [runner] : []),
-      'install',
-      '--prod',
-      '--frozen-lockfile',
-      '--ignore-scripts',
-      '--config.node-linker=hoisted',
-      '--registry=https://registry.npmjs.org',
-    ],
-    {
-      cwd: runtime,
-      stdio: 'inherit',
-      shell: !runner && process.platform === 'win32',
-    },
-  );
+  const isJs =
+    runner &&
+    (runner.endsWith('.js') ||
+      runner.endsWith('.cjs') ||
+      runner.endsWith('.mjs'));
+  const cmd = isJs
+    ? process.execPath
+    : runner ?? (process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm');
+  const args = [
+    ...(isJs && runner ? [runner] : []),
+    'install',
+    '--prod',
+    '--frozen-lockfile',
+    '--ignore-scripts',
+    '--config.node-linker=hoisted',
+    '--registry=https://registry.npmjs.org',
+  ];
+  const result = spawnSync(cmd, args, {
+    cwd: runtime,
+    stdio: 'inherit',
+    shell: !runner && process.platform === 'win32',
+  });
   if (result.status !== 0)
     throw result.error || new Error('Action runtime installation failed');
   await rm(join(runtime, 'node_modules/.bin'), {

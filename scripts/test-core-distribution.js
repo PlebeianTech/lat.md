@@ -34,7 +34,15 @@ function run(command, args, cwd = root, expected = 0) {
 }
 function pnpm(args, cwd) {
   assert.ok(process.env.npm_execpath, 'Run this test through pnpm test:core');
-  return run(process.execPath, [process.env.npm_execpath, ...args], cwd);
+  const runner = process.env.npm_execpath;
+  if (
+    runner.endsWith('.js') ||
+    runner.endsWith('.cjs') ||
+    runner.endsWith('.mjs')
+  ) {
+    return run(process.execPath, [runner, ...args], cwd);
+  }
+  return run(runner, args, cwd);
 }
 function pack(path, out) {
   mkdirSync(out, { recursive: true });

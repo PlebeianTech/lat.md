@@ -62,6 +62,16 @@ jobs:
             *-fork.*) ;;
             *) echo "Refusing to release $VER: not a -fork version." >&2; exit 1 ;;
           esac
+          CORE_NAME=$(node -p "require('./packages/core/package.json').name")
+          if [ "$CORE_NAME" != "@plebeiantech/lat.md-core" ]; then
+            echo "Refusing to publish core as '$CORE_NAME'." >&2
+            exit 1
+          fi
+          CORE_VER=$(node -p "require('./packages/core/package.json').version")
+          if [ "$CORE_VER" != "$VER" ]; then
+            echo "Core package version $CORE_VER does not match root version $VER." >&2
+            exit 1
+          fi
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             if [ "${GITHUB_REF_NAME}" != "v$VER" ]; then
               echo "Tag ${GITHUB_REF_NAME} does not match package.json version v$VER." >&2
@@ -239,10 +249,6 @@ jobs:
             echo "No NPM_TOKEN and no OIDC credential — skipping the npm publish."
             exit 0
           fi
-          if npm view "@plebeiantech/lat.md@$VER" version >/dev/null 2>&1; then
-            echo "@plebeiantech/lat.md@$VER is already published, skipping."
-            exit 0
-          fi
           # A dist-tag is required, not cosmetic: every fork release is a
           # semver prerelease (the -fork.N suffix), and npm refuses to publish
           # one without an explicit --tag rather than silently moving `latest`.
@@ -253,8 +259,17 @@ jobs:
           # under fork-N instead would strand `latest` on whichever build went
           # out first, and `mise use -g npm:@plebeiantech/lat.md@latest`
           # resolves through that tag.
-          (cd packages/core && npm publish --provenance --access public --tag latest)
-          npm publish "./release/${TGZ}" --provenance --access public --tag latest
+          if ! npm view "@plebeiantech/lat.md-core@$VER" version >/dev/null 2>&1; then
+            (cd packages/core && npm publish --provenance --access public --tag latest)
+          else
+            echo "@plebeiantech/lat.md-core@$VER is already published, skipping."
+          fi
+
+          if ! npm view "@plebeiantech/lat.md@$VER" version >/dev/null 2>&1; then
+            npm publish "./release/${TGZ}" --provenance --access public --tag latest
+          else
+            echo "@plebeiantech/lat.md@$VER is already published, skipping."
+          fi
 
           # The per-release fork-N tag is a convenience, not load-bearing:
           # pinning works by exact version regardless. It needs dist-tag
@@ -265,3 +280,4 @@ jobs:
           else
             echo "Could not add the $FORKTAG tag — Trusted Publishing credentials are publish-scoped. Pin by exact version instead: @plebeiantech/lat.md@$VER"
           fi
+          npm dist-tag add "@plebeiantech/lat.md-core@$VER" "$FORKTAG" 2>/dev/null || true

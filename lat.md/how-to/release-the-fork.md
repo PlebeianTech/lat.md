@@ -7,7 +7,7 @@ Cutting a release and installing the result. The reasoning behind each rule is i
 Cutting a release is a deliberate act, triggered by a tag rather than by a merge.
 
 1. **Write the notes** — `.github/release-notes/vX.Y.Z-fork.N.md`, saying what changed and why. Optional but expected; see [[fork-publishing#Publishing#Release notes]]
-2. **Bump the version** — `version` in the root `package.json`, keeping the `-fork.N` suffix. Commit message: `Bump to X.Y.Z-fork.N`
+2. **Bump the version** — `version` in root `package.json` and `packages/core/package.json`, keeping the `-fork.N` suffix. Commit message: `Bump to X.Y.Z-fork.N`
 3. **Verify green** — `pnpm buildall && pnpm test`, and `lat check` on this repository's own `lat.md/`
 4. **Tag** — `git tag vX.Y.Z-fork.N` and push the tag. The tag must match `package.json` exactly; [[fork-publishing#Publishing#Release Workflow]] refuses the release otherwise
 5. **Install anywhere** — `npm i -g` against the release asset URL

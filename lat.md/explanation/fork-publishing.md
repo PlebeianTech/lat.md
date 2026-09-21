@@ -66,11 +66,11 @@ GitHub Actions workflow at `.github/workflows/publish.yml`, triggered by a `v*` 
 
 1. **Toolchain setup** — Node 22 + pnpm and a Rust toolchain with the `wasm32-unknown-unknown` target, plus ripgrep so both code-ref scan paths are exercised
 2. **Build and tests** — `pnpm install --frozen-lockfile`, `pnpm buildall`, then `pnpm vitest run`
-3. **Release guards** — three guards, each failing the run rather than cutting a bad release: the package name must be exactly `@plebeiantech/lat.md`, the version must carry a `-fork.` suffix, and a tag must equal `v$VERSION`
-4. **Packing** — `pnpm pack`, which rewrites the `workspace:*` deps to their published versions. That rewrite is also a hazard; see [[fork-publishing#Publishing#The vendored UI server]]
+3. **Release guards** — guards failing the run rather than cutting a bad release: package name must be `@plebeiantech/lat.md`, core must be `@plebeiantech/lat.md-core` with matching version, version must carry a `-fork.` suffix, and tag must equal `v$VERSION`
+4. **Packing** — `pnpm pack` for both the main CLI and core
 5. **Installability** — the tarball is installed into a prefix outside the repository and run from there, so a package that cannot be installed fails the release instead of reaching npm
-6. **Publishing to npm** — `npm publish --provenance --access public --tag fork-N`, then `npm dist-tag add ... latest`. Last so it cannot block the release; skipped when the version is already on npm, or when neither an OIDC credential nor an `NPM_TOKEN` is available
-7. **The GitHub Release** — creates the `vX.Y.Z-fork.N` release with both asset names attached, or uploads to an existing one with `--clobber`. Runs before the publish step above
+6. **Publishing to npm** — core is published first, then the main package with `npm publish --provenance --access public --tag latest`, followed by `fork-N` dist-tags. Last so it cannot block the release; skipped when already on npm, or when neither OIDC nor `NPM_TOKEN` is available
+7. **The GitHub Release** — creates the `vX.Y.Z-fork.N` release with all tarball assets attached, or uploads to an existing one with `--clobber`. Runs before the publish step above
 
 The job holds only `contents: write`; with no `NPM_TOKEN` set, nothing in it contacts a registry at all.
 
@@ -94,7 +94,7 @@ A classic `NPM_TOKEN` secret still works as a fallback, and the step accepts eit
 
 The publish is signed with `--provenance`, and npm rejects the upload unless `package.json`'s `repository.url` names the repository the workflow ran in.
 
-A fork inherits upstream's URL, so this fails with a `422` naming both URLs until the field is repointed at the fork. Nothing else validates it, and a local `npm publish` without provenance accepts the stale value happily — the mismatch only surfaces in CI.
+A fork inherits upstream's URL, so this fails with a `422` naming both URLs until the field is repointed at the fork. Both root and `packages/core/package.json` must name the fork repository. Nothing else validates it, and a local `npm publish` without provenance accepts the stale value happily — the mismatch only surfaces in CI.
 
 ## Dist-tags
 
