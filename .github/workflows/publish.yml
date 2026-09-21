@@ -259,7 +259,10 @@ jobs:
           # under fork-N instead would strand `latest` on whichever build went
           # out first, and `mise use -g npm:@plebeiantech/lat.md@latest`
           # resolves through that tag.
-          if ! npm view "@plebeiantech/lat.md-core@$VER" version >/dev/null 2>&1; then
+          if ! npm view "@plebeiantech/lat.md-core" version >/dev/null 2>&1; then
+            echo "First publish of core package. OIDC requires the package to exist. Dropping --provenance."
+            (cd packages/core && npm publish --access public --tag latest)
+          elif ! npm view "@plebeiantech/lat.md-core@$VER" version >/dev/null 2>&1; then
             (cd packages/core && npm publish --provenance --access public --tag latest)
           else
             echo "@plebeiantech/lat.md-core@$VER is already published, skipping."

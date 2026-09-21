@@ -96,6 +96,8 @@ The publish is signed with `--provenance`, and npm rejects the upload unless `pa
 
 A fork inherits upstream's URL, so this fails with a `422` naming both URLs until the field is repointed at the fork. Both root and `packages/core/package.json` must name the fork repository. Nothing else validates it, and a local `npm publish` without provenance accepts the stale value happily — the mismatch only surfaces in CI.
 
+Because npm's Trusted Publishing requires a package to exist before it can be configured, new packages cannot generate provenance on their very first release. The workflow detects a first publish and automatically drops the `--provenance` flag, relying on a classic token to create the package so OIDC can be configured for the next build.
+
 ## Dist-tags
 
 Every fork version is a semver **prerelease** — the `-fork.N` suffix guarantees it — so npm refuses to publish it without an explicit `--tag` rather than silently moving `latest`.

@@ -1,6 +1,6 @@
 {
   "name": "@plebeiantech/lat.md-core",
-  "version": "0.12.3-fork.19",
+  "version": "0.12.3-fork.20",
   "description": "Lat knowledge graph validation and navigation without UI or search",
   "type": "module",
   "license": "MIT",
