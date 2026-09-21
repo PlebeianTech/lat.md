@@ -21,7 +21,10 @@ import {
   type Section,
 } from '@plebeiantech/lat.md-core/lattice';
 import { scanCodeRefs } from '@plebeiantech/lat.md-core/code-refs';
-import { DIATAXIS_MODES, MODE_DIRS } from '@plebeiantech/lat.md-core/cli/check-mode';
+import {
+  DIATAXIS_MODES,
+  MODE_DIRS,
+} from '@plebeiantech/lat.md-core/cli/check-mode';
 import { readProvenance } from '@plebeiantech/lat.md-core/cli/check-status';
 import { cleanUntrustedId } from '@plebeiantech/lat.md-core/untrusted';
 import { toPosix } from '@plebeiantech/lat.md-core/path';
@@ -272,7 +275,8 @@ export async function loadWorkingTreeFiles(
   latticeDir: string,
   projectRoot: string,
 ): Promise<GraphSourceFile[]> {
-  const { listLatticeFiles } = await import('@plebeiantech/lat.md-core/lattice');
+  const { listLatticeFiles } =
+    await import('@plebeiantech/lat.md-core/lattice');
   const { readFile } = await import('node:fs/promises');
   const paths = await listLatticeFiles(latticeDir);
   const files: GraphSourceFile[] = [];

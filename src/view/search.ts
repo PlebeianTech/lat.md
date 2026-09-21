@@ -1,4 +1,7 @@
-import type { Section, SectionMatch } from '@plebeiantech/lat.md-core/lattice-model';
+import type {
+  Section,
+  SectionMatch,
+} from '@plebeiantech/lat.md-core/lattice-model';
 import type { ViewSearchResponse } from './protocol.js';
 import { viewSearchResult } from './search-result.js';
 

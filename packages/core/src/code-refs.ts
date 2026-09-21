@@ -480,7 +480,7 @@ function parseGrepOutput(
     const file = toPosix(decode(record.data.path)).replace(/^\.\//, '');
     const lineNumber = record.data.line_number;
     if (!Number.isSafeInteger(lineNumber) || lineNumber < 1) continue;
-    
+
     // Extract targets using the same regex and literal-span filtering as the
     // TS fallback, so both scan paths agree regardless of whether ripgrep is
     // installed.

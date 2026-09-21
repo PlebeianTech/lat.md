@@ -1,5 +1,8 @@
 import { agentInvocation } from './agent-invocation.js';
-import { projectWritePath, writeProjectFile } from '@plebeiantech/lat.md-core/project-write';
+import {
+  projectWritePath,
+  writeProjectFile,
+} from '@plebeiantech/lat.md-core/project-write';
 import { existsSync, cpSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
@@ -31,7 +34,10 @@ import {
   contentHash,
 } from '@plebeiantech/lat.md-core/init-version';
 import { getLocalVersion, fetchLatestVersion } from '../version.js';
-import { selectMenu, type SelectOption } from '@plebeiantech/lat.md-core/cli/select-menu';
+import {
+  selectMenu,
+  type SelectOption,
+} from '@plebeiantech/lat.md-core/cli/select-menu';
 import { checklistMenu } from './checklist-menu.js';
 import { writeForkInstructions } from './fork-instructions.js';
 import { offerRequireMode, writeForkScaffold } from './fork-scaffold.js';
@@ -232,7 +238,11 @@ export function syncLatHooks(
     ],
   });
 
-  writeProjectFile(root, settingsPath, JSON.stringify(settings, null, 2) + '\n');
+  writeProjectFile(
+    root,
+    settingsPath,
+    JSON.stringify(settings, null, 2) + '\n',
+  );
 }
 
 function cursorHooksTemplate(style: LatCommandStyle): string {

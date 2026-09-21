@@ -404,6 +404,7 @@ describe('lat hook UserPromptSubmit federation (end to end)', () => {
           CQ_LOCAL_DB_PATH: join(caseDir, 'does-not-exist.db'),
           HOME: emptyHome,
           USERPROFILE: emptyHome,
+          XDG_CACHE_HOME: join(tmpdir(), 'lat-fed-test-cache'),
         },
       },
     );

@@ -1,11 +1,20 @@
 import { existsSync, openSync, readSync, closeSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
-import { findLatticeDir, findSections } from '@plebeiantech/lat.md-core/lattice';
+import {
+  findLatticeDir,
+  findSections,
+} from '@plebeiantech/lat.md-core/lattice';
 import { commandProjectAnalysis } from '@plebeiantech/lat.md-core/project-analysis';
-import { plainStyler, type CmdContext } from '@plebeiantech/lat.md-core/context';
+import {
+  plainStyler,
+  type CmdContext,
+} from '@plebeiantech/lat.md-core/context';
 import { expandPrompt } from '@plebeiantech/lat.md-core/cli/expand';
 import { runSearch } from '../cli/search.js';
-import { getSection, formatSectionOutput } from '@plebeiantech/lat.md-core/cli/section';
+import {
+  getSection,
+  formatSectionOutput,
+} from '@plebeiantech/lat.md-core/cli/section';
 import {
   getStopStatus,
   formatStopReason,
@@ -441,7 +450,8 @@ export async function handleAntigravityPostToolUse(
     const latDir = findLatticeDir(workspacePath) ?? findLatticeDir();
     if (latDir) {
       try {
-        const { checkIndex } = await import('@plebeiantech/lat.md-core/cli/check');
+        const { checkIndex } =
+          await import('@plebeiantech/lat.md-core/cli/check');
         await checkIndex(latDir, undefined, { fix: true });
       } catch {}
     }

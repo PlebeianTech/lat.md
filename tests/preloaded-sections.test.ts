@@ -5,7 +5,7 @@ import { join } from 'node:path';
 // preloaded-sections parameter into a session memoised on the command context,
 // so the property under test is unchanged but the seam moved: what proves one
 // parse per prompt is now that every caller shares one `ctx`.
-vi.mock('../src/walk.js', async (importOriginal) => {
+vi.mock('@plebeiantech/lat.md-core/walk', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@plebeiantech/lat.md-core/walk')>();
   return { ...actual, walkEntries: vi.fn(actual.walkEntries) };
 });
@@ -18,6 +18,15 @@ vi.mock('../src/search/db.js', () => ({
       if (sql.includes('lexical_version')) {
         const { LEXICAL_VERSION } = await import('../src/search/lexical.js');
         return { rows: [{ value: LEXICAL_VERSION }] };
+      }
+      if (sql.includes('meta')) {
+        const { LEXICAL_VERSION } = await import('../src/search/lexical.js');
+        return {
+          rows: [
+            { key: 'embedding_model', value: 'fake-model' },
+            { key: 'lexical_version', value: LEXICAL_VERSION },
+          ],
+        };
       }
       return { rows: [] };
     }),
@@ -35,6 +44,7 @@ vi.mock('../src/search/embedder.js', () => ({
 
 vi.mock('../src/search/search.js', () => ({
   searchSections: vi.fn(async () => []),
+  prepareSearchQuery: vi.fn(async () => [0, 0, 0]),
 }));
 
 const clean = join(import.meta.dirname, 'cases', 'hook-clean');

@@ -3,12 +3,23 @@ import { lstatSync, readFileSync } from 'node:fs';
 import { dirname, extname, join } from 'node:path';
 import { findLatticeDir } from '@plebeiantech/lat.md-core/project-discovery';
 import { findSections } from '@plebeiantech/lat.md-core/lattice-model';
-import { plainStyler, type CmdContext } from '@plebeiantech/lat.md-core/context';
+import {
+  plainStyler,
+  type CmdContext,
+} from '@plebeiantech/lat.md-core/context';
 import { expandPrompt } from '@plebeiantech/lat.md-core/cli/expand';
 import { runSearch } from './search.js';
 import { DEFAULT_SEARCH_LIMIT } from '../search/search.js';
-import { getSection, formatSectionOutput } from '@plebeiantech/lat.md-core/cli/section';
-import { checkMd, checkCodeRefs, checkIndex, checkSections } from '@plebeiantech/lat.md-core/cli/check';
+import {
+  getSection,
+  formatSectionOutput,
+} from '@plebeiantech/lat.md-core/cli/section';
+import {
+  checkMd,
+  checkCodeRefs,
+  checkIndex,
+  checkSections,
+} from '@plebeiantech/lat.md-core/cli/check';
 import { CheckRunContext } from '@plebeiantech/lat.md-core/cli/check-context';
 import { isSourceFileExtension } from '@plebeiantech/lat.md-core/source-formats';
 import { commandProjectAnalysis } from '@plebeiantech/lat.md-core/project-analysis';

@@ -3,7 +3,10 @@ import { ReindexRequiredError } from './embedder.js';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { hasIndex } from './db.js';
-import type { Section, SectionMatch } from '@plebeiantech/lat.md-core/lattice-model';
+import type {
+  Section,
+  SectionMatch,
+} from '@plebeiantech/lat.md-core/lattice-model';
 import { closeDb, openDb, type SearchDb } from './db.js';
 import { embedderForIndex, type CreateSearchEngine } from './embedder.js';
 import {

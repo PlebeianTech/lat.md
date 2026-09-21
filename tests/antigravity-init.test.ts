@@ -115,7 +115,9 @@ describe('antigravity init', () => {
             gitignored.push(entry);
           },
           hasMcpServer: () => false,
-          addMcpServer: (_path, key) => {
+          addMcpServer: (...args: unknown[]) => {
+            const key =
+              args.length >= 3 ? (args[2] as string) : (args[1] as string);
             mcpConfigs[key] = { command: 'lat', args: ['mcp'] };
           },
         });

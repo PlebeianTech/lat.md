@@ -4,7 +4,11 @@ import { hasIndex } from '../search/db.js';
 import { embeddingFingerprint } from '../search/chunks.js';
 import { writeIndex } from '../search/cache.js';
 import { dirname, join } from 'node:path';
-import type { CmdContext, CmdResult, Styler } from '@plebeiantech/lat.md-core/context';
+import type {
+  CmdContext,
+  CmdResult,
+  Styler,
+} from '@plebeiantech/lat.md-core/context';
 import {
   openDb,
   ensureMeta,
@@ -41,8 +45,14 @@ import {
   commandProjectAnalysis,
   type MarkdownProjectAnalysis,
 } from '@plebeiantech/lat.md-core/project-analysis';
-import { formatSectionPreview, formatNavHints } from '@plebeiantech/lat.md-core/format';
-import { provenanceNote, formatProvenanceNote } from '@plebeiantech/lat.md-core/cli/check-status';
+import {
+  formatSectionPreview,
+  formatNavHints,
+} from '@plebeiantech/lat.md-core/format';
+import {
+  provenanceNote,
+  formatProvenanceNote,
+} from '@plebeiantech/lat.md-core/cli/check-status';
 
 export type SearchResult = {
   query: string;
