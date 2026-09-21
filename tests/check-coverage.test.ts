@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkCoverage } from '../src/cli/check-coverage.js';
+import { checkCoverage } from '@lat.md/core/cli/check-coverage';
 
 const ROOT_INDEX = '# Demo\n\nThe root index for a fixture project.\n';
 

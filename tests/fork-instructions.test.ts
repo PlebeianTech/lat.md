@@ -9,7 +9,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { writeInitMeta } from '../src/init-version.js';
+import { writeInitMeta } from '@lat.md/core/init-version';
 import {
   extractForkBlock,
   readForkConventions,

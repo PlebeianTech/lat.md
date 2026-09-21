@@ -5,7 +5,7 @@ lat:
 
 # Check Coverage
 
-Tests for [[src/cli/check-coverage.ts#checkCoverage]], the floor that fails a `lat.md/` tree holding documents that no `@lat:` ref anywhere in the codebase reaches.
+Tests for [[packages/core/src/cli/check-coverage.ts#checkCoverage]], the floor that fails a `lat.md/` tree holding documents that no `@lat:` ref anywhere in the codebase reaches.
 
 Tests in `tests/check-coverage.test.ts`. Half of them assert the message rather than the verdict, because the message is what has to answer the two reasons an agent gives for skipping the ref.
 

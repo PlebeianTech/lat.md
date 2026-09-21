@@ -113,8 +113,9 @@ export type SetupAntigravityOptions = {
     ask: (message: string) => Promise<boolean>,
   ) => Promise<string | null>;
   ensureGitignored: (root: string, entry: string) => void;
-  hasMcpServer: (configPath: string, key: string) => boolean;
+  hasMcpServer: (root: string, configPath: string, key: string) => boolean;
   addMcpServer: (
+    root: string,
     configPath: string,
     key: string,
     style: 'global' | 'local' | 'npx',
@@ -230,10 +231,10 @@ export async function setupAntigravity(
   ensureGitignored(root, '.gemini');
 
   const mcpPath = join(root, '.mcp.json');
-  if (hasMcpServer(mcpPath, 'mcpServers')) {
+  if (hasMcpServer(root, mcpPath, 'mcpServers')) {
     console.log(styleText('green', '  MCP server') + ' already configured');
   } else {
-    addMcpServer(mcpPath, 'mcpServers', style);
+    addMcpServer(root, mcpPath, 'mcpServers', style);
     console.log(
       styleText('green', '  MCP server') + ' registered in .mcp.json',
     );

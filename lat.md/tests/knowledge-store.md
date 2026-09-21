@@ -62,7 +62,7 @@ A hyphenated tag whose first word contains a non-ASCII letter (`café-pin`) stil
 
 ## federateTags: hostile tag and id content
 
-Tag values and document ids come from repository frontmatter, which is attacker-controlled wherever `lat` runs in a repo nobody here owns. Federation output quotes them through [[src/untrusted.ts]] rather than trusting them verbatim.
+Tag values and document ids come from repository frontmatter, which is attacker-controlled wherever `lat` runs in a repo nobody here owns. Federation output quotes them through [[packages/core/src/untrusted.ts]] rather than trusting them verbatim.
 
 ### Emits a tag containing a newline on one line
 

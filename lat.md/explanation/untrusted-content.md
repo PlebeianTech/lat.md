@@ -1,6 +1,6 @@
 # Untrusted Content
 
-Framing and sanitization for repository text placed in front of a model. Implementation: [[src/untrusted.ts]].
+Framing and sanitization for repository text placed in front of a model. Implementation: [[packages/core/src/untrusted.ts]].
 
 A document under `lat.md/`, or anything resolved from it, is attacker-controlled the moment an agent runs `lat` in a repository nobody here owns. Text pulled from such a document must reach the model marked as **data, never as instruction**.
 
@@ -16,7 +16,7 @@ Emit it once per block, at the top. Repeating it per item trains the reader to s
 
 ## Sanitization
 
-[[src/untrusted.ts#cleanUntrusted]] strips control characters and invisible Unicode, collapses the result to a single line, trims it, and caps its length. The two prompt-facing entry points neutralize structural delimiters on top of that.
+[[packages/core/src/untrusted.ts#cleanUntrusted]] strips control characters and invisible Unicode, collapses the result to a single line, trims it, and caps its length. The two prompt-facing entry points neutralize structural delimiters on top of that.
 
 Order matters: control and hidden characters must be removed *before* whitespace is collapsed. Otherwise a stripped control character leaves the two words that surrounded it touching with no space between them.
 
@@ -49,7 +49,7 @@ Five characters let repository text break out of the structure it is embedded in
 - `[` and `]` close a rendered `[[wiki link]]` early, or forge a whole one, so text can pose as a resolved reference.
 - `|` is the wiki-link alias separator, so everything after it renders as free-form display text.
 
-The pass runs in both entry points that build agent-facing text — [[src/untrusted.ts#quoteUntrusted]] for body prose and [[src/untrusted.ts#cleanUntrustedId]] for ids — not in the raw cleaner underneath them. Prose is the text an attacker controls most completely, since an id at least has to survive resolution first.
+The pass runs in both entry points that build agent-facing text — [[packages/core/src/untrusted.ts#quoteUntrusted]] for body prose and [[packages/core/src/untrusted.ts#cleanUntrustedId]] for ids — not in the raw cleaner underneath them. Prose is the text an attacker controls most completely, since an id at least has to survive resolution first.
 
 Markdown does not hold the close tag back. A backslash escape (`\<`) and an inline code span both deliver a literal `</lat-context>` into a section's first paragraph, where an unescaped one would have stayed an inline HTML node and been dropped.
 
@@ -57,7 +57,7 @@ The cost is that legitimate brackets and pipes in a paragraph are rewritten too.
 
 Every replacement is one character for one, so the length cap counts the same before and after it, and it can run either side of truncation.
 
-[[src/untrusted.ts#cleanUntrusted]] itself is left alone. Its one raw caller is the generated Markdown index, which escapes its own labels and destinations — replacing a `]` before that escaping would only swap one defence for another, and the index is a Markdown document rather than a prompt block, so no container close is in play.
+[[packages/core/src/untrusted.ts#cleanUntrusted]] itself is left alone. Its one raw caller is the generated Markdown index, which escapes its own labels and destinations — replacing a `]` before that escaping would only swap one defence for another, and the index is a Markdown document rather than a prompt block, so no container close is in play.
 
 ### Truncation
 
@@ -69,9 +69,9 @@ A lone surrogate is not valid UTF-8 and does not survive re-encoding, so a naive
 
 Two entry points, chosen by what the text *is* rather than where it came from.
 
-[[src/untrusted.ts#quoteUntrusted]] cleans, downgrades inner double quotes to single quotes, and wraps the result in double quotes. Use it for body text — a paragraph, a summary, a memory's contents.
+[[packages/core/src/untrusted.ts#quoteUntrusted]] cleans, downgrades inner double quotes to single quotes, and wraps the result in double quotes. Use it for body text — a paragraph, a summary, a memory's contents.
 
-[[src/untrusted.ts#cleanUntrustedId]] cleans without quoting and **without truncating**. Use it for anything that is itself an identifier: a section id, a file path, a match reason. An id must still round-trip as a working `[[ref]]` after cleaning, and truncating a heading chain or a path would break it as a reference.
+[[packages/core/src/untrusted.ts#cleanUntrustedId]] cleans without quoting and **without truncating**. Use it for anything that is itself an identifier: a section id, a file path, a match reason. An id must still round-trip as a working `[[ref]]` after cleaning, and truncating a heading chain or a path would break it as a reference.
 
 Both neutralize the same structural delimiters; they differ only in the quoting and the length cap.
 

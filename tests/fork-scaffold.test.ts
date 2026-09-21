@@ -9,8 +9,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkMode } from '../src/cli/check-mode.js';
-import { parseFrontmatter } from '../src/lattice.js';
+import { checkMode } from '@lat.md/core/cli/check-mode';
+import { parseFrontmatter } from '@lat.md/core/lattice';
 import {
   listModeDirs,
   offerRequireMode,

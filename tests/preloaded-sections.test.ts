@@ -6,7 +6,7 @@ import { join } from 'node:path';
 // so the property under test is unchanged but the seam moved: what proves one
 // parse per prompt is now that every caller shares one `ctx`.
 vi.mock('../src/walk.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/walk.js')>();
+  const actual = await importOriginal<typeof import('@lat.md/core/walk')>();
   return { ...actual, walkEntries: vi.fn(actual.walkEntries) };
 });
 
@@ -61,10 +61,10 @@ function makeCtx() {
 describe('parses the lat.md tree once per prompt (lat-t1y.23)', () => {
   // @lat: [[hook#Parses the lat.md tree once per prompt (lat-t1y.23)#expandPrompt reuses the analysis memoised on its context]]
   it('expandPrompt reuses the analysis memoised on its context', async () => {
-    const { walkEntries } = await import('../src/walk.js');
-    const { expandPrompt } = await import('../src/cli/expand.js');
+    const { walkEntries } = await import('@lat.md/core/walk');
+    const { expandPrompt } = await import('@lat.md/core/cli/expand');
     const { commandProjectAnalysis } = await import(
-      '../src/project-analysis.js'
+      '@lat.md/core/project-analysis'
     );
     const spy = vi.mocked(walkEntries);
 
@@ -95,10 +95,10 @@ describe('parses the lat.md tree once per prompt (lat-t1y.23)', () => {
 
   // @lat: [[hook#Parses the lat.md tree once per prompt (lat-t1y.23)#runSearch resolves matches from a supplied analysis without re-parsing the tree]]
   it('runSearch resolves matches from a supplied analysis without re-parsing the tree', async () => {
-    const { walkEntries } = await import('../src/walk.js');
+    const { walkEntries } = await import('@lat.md/core/walk');
     const { runSearch } = await import('../src/cli/search.js');
     const { commandProjectAnalysis } = await import(
-      '../src/project-analysis.js'
+      '@lat.md/core/project-analysis'
     );
     const spy = vi.mocked(walkEntries);
 

@@ -5,7 +5,7 @@ lat:
 
 # Fork Scaffold
 
-Tests for [[src/cli/fork-scaffold.ts]], which gives a freshly created `lat.md/` the four Diátaxis directories, and for the `require-mode` gate in [[src/cli/check-mode.ts#checkMode]] that the scaffold turns on.
+Tests for [[src/cli/fork-scaffold.ts]], which gives a freshly created `lat.md/` the four Diátaxis directories, and for the `require-mode` gate in [[packages/core/src/cli/check-mode.ts#checkMode]] that the scaffold turns on.
 
 Tests in `tests/fork-scaffold.test.ts`. The scaffold and the gate are tested together because neither is worth much alone: structure without a gate is a suggestion, and a gate without structure is an error message with nowhere to point.
 
@@ -27,7 +27,7 @@ Every shape that can hold a mapping key gains one: a `lat:` mapping, a flow mapp
 
 [[src/cli/fork-scaffold.ts#planRequireMode]] parses and re-emits through the YAML document API rather than editing lines. Line surgery has to answer from raw text every question the parser already answers — where the block ends, which indented lines are this mapping's children rather than the next key's, whether the value on the `lat:` line is a flow mapping or an anchor — and each wrong answer was its own defect. A flow mapping and an anchor were refused although both merge cleanly; a bare `lat:` beside `authors:` was refused because the scan for the first child walked out of the block and found `- ada`; a block sequence produced frontmatter that no longer parsed at all.
 
-The `----` case is the sharpest, because nothing failed. The fence pattern here required the closing marker to end its line and [[src/lattice.ts#parseFrontmatter]]'s did not, so one reader saw frontmatter and the other saw none — and a second block was prepended above a live one. The original stayed in the file, still looking authoritative, with every field it declared silently no longer read. The two patterns are now the same pattern.
+The `----` case is the sharpest, because nothing failed. The fence pattern here required the closing marker to end its line and [[packages/core/src/lattice.ts#parseFrontmatter]]'s did not, so one reader saw frontmatter and the other saw none — and a second block was prepended above a live one. The original stayed in the file, still looking authoritative, with every field it declared silently no longer read. The two patterns are now the same pattern.
 
 ## An explicit answer is left alone
 

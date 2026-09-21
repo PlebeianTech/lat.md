@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { join } from 'node:path';
-import { parseFrontmatter, LAT_FIELDS } from '../src/lattice.js';
+import { parseFrontmatter, LAT_FIELDS } from '@lat.md/core/lattice';
 
 describe('parseFrontmatter', () => {
   it('sets requireCodeMention when lat.require-code-mention is true', () => {
@@ -125,7 +125,7 @@ describe('checkFrontmatter over fixture trees', () => {
   // @lat: [[frontmatter-placement#checkFrontmatter over fixture trees#Names the field and shows the nested form as the fix]]
   it('names the field and shows the nested form as the fix', async () => {
     const { checkFrontmatter } =
-      await import('../src/cli/check-frontmatter.js');
+      await import('@lat.md/core/cli/check-frontmatter');
     const errors = await checkFrontmatter(lat('frontmatter-root-misplaced'));
     expect(errors).toHaveLength(1);
     expect(errors[0].message).toContain('require-code-mention');
@@ -135,7 +135,7 @@ describe('checkFrontmatter over fixture trees', () => {
   // @lat: [[frontmatter-placement#checkFrontmatter over fixture trees#Passes the nested form and an unrelated root key]]
   it('passes the nested form and an unrelated root key', async () => {
     const { checkFrontmatter } =
-      await import('../src/cli/check-frontmatter.js');
+      await import('@lat.md/core/cli/check-frontmatter');
     expect(await checkFrontmatter(lat('frontmatter-root-nested'))).toEqual([]);
     expect(await checkFrontmatter(lat('frontmatter-root-unknown-key'))).toEqual(
       [],
@@ -145,7 +145,7 @@ describe('checkFrontmatter over fixture trees', () => {
   // @lat: [[frontmatter-placement#checkFrontmatter over fixture trees#Reports a malformed block rather than losing the field in silence]]
   it('reports a malformed block rather than losing the field in silence', async () => {
     const { checkFrontmatter } =
-      await import('../src/cli/check-frontmatter.js');
+      await import('@lat.md/core/cli/check-frontmatter');
     const errors = await checkFrontmatter(lat('frontmatter-root-malformed'));
     expect(errors).toHaveLength(1);
     expect(errors[0].message).toContain('not valid YAML');

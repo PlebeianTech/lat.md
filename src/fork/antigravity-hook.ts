@@ -1,11 +1,11 @@
 import { existsSync, openSync, readSync, closeSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
-import { findLatticeDir, findSections } from '../lattice.js';
-import { commandProjectAnalysis } from '../project-analysis.js';
-import { plainStyler, type CmdContext } from '../context.js';
-import { expandPrompt } from '../cli/expand.js';
+import { findLatticeDir, findSections } from '@lat.md/core/lattice';
+import { commandProjectAnalysis } from '@lat.md/core/project-analysis';
+import { plainStyler, type CmdContext } from '@lat.md/core/context';
+import { expandPrompt } from '@lat.md/core/cli/expand';
 import { runSearch } from '../cli/search.js';
-import { getSection, formatSectionOutput } from '../cli/section.js';
+import { getSection, formatSectionOutput } from '@lat.md/core/cli/section';
 import {
   getStopStatus,
   formatStopReason,
@@ -441,7 +441,7 @@ export async function handleAntigravityPostToolUse(
     const latDir = findLatticeDir(workspacePath) ?? findLatticeDir();
     if (latDir) {
       try {
-        const { checkIndex } = await import('../cli/check.js');
+        const { checkIndex } = await import('@lat.md/core/cli/check');
         await checkIndex(latDir, undefined, { fix: true });
       } catch {}
     }

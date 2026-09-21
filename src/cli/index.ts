@@ -53,11 +53,84 @@ function parseSimilarityThreshold(value: string): number {
   return threshold;
 }
 
-const { program, args } = createCli({
-  name: 'lat',
-  search: true,
-  version: packageVersion(import.meta.url),
-});
+import { existsSync } from 'node:fs';
+import { resolveCheckContext } from '@lat.md/core/cli/context';
+
+type CheckTargetArgs = { args: string[]; target?: string };
+function splitCheckTarget(args: string[], name: string): CheckTargetArgs {
+  let commandIndex = -1;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--dir') {
+      i++;
+      continue;
+    }
+    if (arg.startsWith('--dir=')) continue;
+    if (arg.startsWith('-')) continue;
+    commandIndex = i;
+    break;
+  }
+
+  if (commandIndex === -1 || args[commandIndex] !== 'check') {
+    return { args };
+  }
+
+  const checkArgs: string[] = [];
+  let target: string | undefined;
+
+  for (let i = 0; i < args.length; i++) {
+    if (i > commandIndex && args[i] === '--' && i + 1 < args.length) {
+      target = args[i + 1];
+      break;
+    }
+    checkArgs.push(args[i]);
+  }
+
+  return { args: checkArgs, target };
+}
+
+const checkTargetArgs = splitCheckTarget(process.argv.slice(2), 'lat');
+const program = new Command();
+program
+  .name('lat')
+  .version(packageVersion(import.meta.url))
+  .description('Lat knowledge graph validation and navigation')
+  .option('--dir <directory>', 'run in a different directory', '.');
+
+if (checkTargetArgs.args.includes('--verbose')) process.noDeprecation = false;
+else process.noDeprecation = true;
+
+const args = checkTargetArgs.args;
+
+program
+  .command('locate')
+  .description('Find section(s) by name or text')
+  .argument('<query>', 'name or text to search for')
+  .action(async (query: string) => {
+    const ctx = resolveContext(program.opts());
+    const { locateCommand } = await import('@lat.md/core/cli/locate');
+    handleResult(await locateCommand(ctx, query));
+  });
+
+program
+  .command('section')
+  .description('Show a section with its content, outgoing refs, and incoming refs')
+  .argument('<query>', 'section id to look up')
+  .action(async (query: string) => {
+    const ctx = resolveContext(program.opts());
+    const { sectionCommand } = await import('@lat.md/core/cli/section');
+    handleResult(await sectionCommand(ctx, query));
+  });
+
+program
+  .command('paths')
+  .description('Show configuration, cache, and temporary file locations')
+  .option('--config', 'show only the user configuration file path')
+  .action(async (options: { config?: boolean }) => {
+    const { pathsCommand } = await import('@lat.md/core/cli/paths');
+    console.log(pathsCommand({ ...program.opts(), ...options }));
+  });
+
 async function runUi(opts: UiRunOptions): Promise<void> {
   const ctx = resolveContext(program.opts());
   const { uiCommand } = await import('./ui.js');
@@ -163,7 +236,7 @@ program
       process.exit(1);
     }
     const ctx = resolveContext(program.opts());
-    const { refsCommand } = await import('./refs.js');
+    const { refsCommand } = await import('@lat.md/core/cli/refs');
     handleResult(await refsCommand(ctx, query, scope));
   });
 
@@ -196,7 +269,7 @@ external
       },
     ) => {
       const ctx = resolveContext(program.opts());
-      const { externalAddCommand } = await import('./external.js');
+      const { externalAddCommand } = await import('@lat.md/core/cli/external');
       handleResult(await externalAddCommand(ctx, handle, repo, opts));
     },
   );
@@ -207,7 +280,7 @@ external
   .option('--json', 'emit structured JSON')
   .action(async (source: string, opts: { json?: boolean }) => {
     const ctx = resolveContext(program.opts());
-    const { externalShowCommand } = await import('./external.js');
+    const { externalShowCommand } = await import('@lat.md/core/cli/external');
     handleResult(await externalShowCommand(ctx, source, !!opts.json));
   });
 
@@ -216,7 +289,7 @@ external
   .option('--json', 'emit structured JSON')
   .action(async (opts: { json?: boolean }) => {
     const ctx = resolveContext(program.opts());
-    const { externalListCommand } = await import('./external.js');
+    const { externalListCommand } = await import('@lat.md/core/cli/external');
     handleResult(await externalListCommand(ctx, !!opts.json));
   });
 
@@ -228,7 +301,7 @@ const check = program
   .option('--profile', 'show detailed validation timing')
   .action(async (opts: { fix?: boolean; profile?: boolean }) => {
     const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
-    const { checkAllCommand } = await import('./check.js');
+    const { checkAllCommand } = await import('@lat.md/core/cli/check');
     handleResult(
       await checkAllCommand(ctx, {
         fix: opts.fix,
@@ -243,7 +316,7 @@ check
   .description('Validate wiki links in markdown files')
   .action(async () => {
     const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
-    const { checkMdCommand } = await import('./check.js');
+    const { checkMdCommand } = await import('@lat.md/core/cli/check');
     handleResult(await checkMdCommand(ctx));
   });
 
@@ -253,7 +326,7 @@ check
   .description('Validate relative markdown links')
   .action(async () => {
     const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
-    const { checkLinksCommand } = await import('./check.js');
+    const { checkLinksCommand } = await import('@lat.md/core/cli/check');
     handleResult(await checkLinksCommand(ctx));
   });
 
@@ -263,7 +336,7 @@ check
   .description('Validate @lat code references and coverage')
   .action(async () => {
     const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
-    const { checkCodeRefsCommand } = await import('./check.js');
+    const { checkCodeRefsCommand } = await import('@lat.md/core/cli/check');
     handleResult(await checkCodeRefsCommand(ctx));
   });
 
@@ -279,7 +352,7 @@ check
   // read it off `check.opts()` instead.
   .action(async () => {
     const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
-    const { checkIndexCommand } = await import('./check.js');
+    const { checkIndexCommand } = await import('@lat.md/core/cli/check');
     handleResult(await checkIndexCommand(ctx, { fix: check.opts().fix }));
   });
 
@@ -289,7 +362,7 @@ check
   .description('Validate section leading paragraphs')
   .action(async () => {
     const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
-    const { checkSectionsCommand } = await import('./check.js');
+    const { checkSectionsCommand } = await import('@lat.md/core/cli/check');
     handleResult(await checkSectionsCommand(ctx));
   });
 
@@ -299,7 +372,7 @@ check
   .description('Validate Diátaxis modes and document shape')
   .action(async () => {
     const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
-    const { checkModeCommand } = await import('./check.js');
+    const { checkModeCommand } = await import('@lat.md/core/cli/check');
     handleResult(await checkModeCommand(ctx));
   });
 
@@ -309,7 +382,7 @@ check
   .description('Validate provenance status and detect stale reviews')
   .action(async () => {
     const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
-    const { checkStatusCommand } = await import('./check.js');
+    const { checkStatusCommand } = await import('@lat.md/core/cli/check');
     handleResult(await checkStatusCommand(ctx));
   });
 
@@ -329,7 +402,7 @@ async function runExpand(
     process.exit(1);
   }
   const ctx = resolveContext(program.opts());
-  const { expandCommand } = await import('./expand.js');
+  const { expandCommand } = await import('@lat.md/core/cli/expand');
   const result = await expandCommand(ctx, text);
   if (result.isError) {
     console.error(result.output);
@@ -478,7 +551,7 @@ program
   .command('config')
   .description('Show configuration file path')
   .action(async () => {
-    const { getConfigPath } = await import('../config.js');
+    const { getConfigPath } = await import('@lat.md/core/config');
     const configPath = getConfigPath();
     const exists = existsSync(configPath);
     console.log(`Config file: ${configPath}${exists ? '' : ' (not found)'}`);

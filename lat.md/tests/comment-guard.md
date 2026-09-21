@@ -24,7 +24,7 @@ Lines carrying `@lat:` are dropped before counting, so a write consisting only o
 
 ## Honours an explicit ignore token
 
-A line carrying the `lat:ignore` token is dropped before counting, matching the token [[src/code-refs.ts]] already honours.
+A line carrying the `lat:ignore` token is dropped before counting, matching the token [[packages/core/src/code-refs.ts]] already honours.
 
 The opt-out is per line rather than per file so a deliberate exception stays visible in the diff instead of silently disarming the gate for everything that follows. The filter lives in [[src/cli/comment-reminder.ts#isCandidateCommentLine]] so both halves honour it identically — see [[comment-reminder#Honours the same opt-out token as the guard]].
 
@@ -52,7 +52,7 @@ The diffing is scoped to this half. [[comment-reminder]] still speaks for the sa
 
 An `Edit` whose `new_string` carries an unchanged doc comment along with the code it changes is not denied.
 
-`new_string` looks like a delta but is not one: it re-emits the lines bracketing the change, so editing code next to a JSDoc block counted that block as freshly written prose. Observed live on `cleanUntrusted` in [[src/untrusted.ts]] — the denial cost a security-relevant doc comment, because the only exits on offer were deleting it or exempting it line by line.
+`new_string` looks like a delta but is not one: it re-emits the lines bracketing the change, so editing code next to a JSDoc block counted that block as freshly written prose. Observed live on `cleanUntrusted` in [[packages/core/src/untrusted.ts]] — the denial cost a security-relevant doc comment, because the only exits on offer were deleting it or exempting it line by line.
 
 Asserted twice, once with the payload's `old_string` and once without, because the two take different baselines and only the first is the shape a real agent sends.
 

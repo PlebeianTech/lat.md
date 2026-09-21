@@ -84,7 +84,7 @@ When neither the index path nor its temporary write path is a symlink, `writeGen
 
 ## Directory index entry parsing
 
-`parseIndexEntries` reads generated (`- [Title](name)`) and legacy wiki-link (`- [[name]]`) bullets from an index file, and must not confuse an external link for either, per [[src/cli/link-scheme.ts#isLatticeLocalDest]].
+`parseIndexEntries` reads generated (`- [Title](name)`) and legacy wiki-link (`- [[name]]`) bullets from an index file, and must not confuse an external link for either, per [[packages/core/src/cli/link-scheme.ts#isLatticeLocalDest]].
 
 ### External link bullets are ignored
 
@@ -100,11 +100,11 @@ A destination like `weird:name.md` matches the URL-scheme grammar despite having
 
 ### Destination shapes that are not child names
 
-A destination's first path segment is not automatically a child name: `./notes.md` names `notes.md`, `page.md#intro` names `page.md`, and `../outside.md` names no child at all, per [[src/cli/link-scheme.ts#indexEntryNameFromDest]].
+A destination's first path segment is not automatically a child name: `./notes.md` names `notes.md`, `page.md#intro` names `page.md`, and `../outside.md` names no child at all, per [[packages/core/src/cli/link-scheme.ts#indexEntryNameFromDest]].
 
 ## Splicing preserves hand-written content
 
-`spliceIndexContent` rewrites only the region between `<!-- lat:index:begin -->` / `<!-- lat:index:end -->` markers, per [[src/cli/gen-index.ts#spliceIndexContent]].
+`spliceIndexContent` rewrites only the region between `<!-- lat:index:begin -->` / `<!-- lat:index:end -->` markers, per [[packages/core/src/cli/gen-index.ts#spliceIndexContent]].
 
 ### Hand-written content below the generated list survives
 

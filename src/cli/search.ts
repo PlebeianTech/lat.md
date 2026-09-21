@@ -40,9 +40,9 @@ import {
   analyzeMarkdownProject,
   commandProjectAnalysis,
   type MarkdownProjectAnalysis,
-} from '../project-analysis.js';
-import { formatSectionPreview, formatNavHints } from '../format.js';
-import { provenanceNote, formatProvenanceNote } from './check-status.js';
+} from '@lat.md/core/project-analysis';
+import { formatSectionPreview, formatNavHints } from '@lat.md/core/format';
+import { provenanceNote, formatProvenanceNote } from '@lat.md/core/cli/check-status';
 
 export type SearchResult = {
   query: string;

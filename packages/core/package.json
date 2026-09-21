@@ -52,6 +52,10 @@
       "types": "./dist/cli/locate.d.ts",
       "import": "./dist/cli/locate.js"
     },
+    "./cli/paths": {
+      "types": "./dist/cli/paths.d.ts",
+      "import": "./dist/cli/paths.js"
+    },
     "./cli/refs": {
       "types": "./dist/cli/refs.d.ts",
       "import": "./dist/cli/refs.js"
@@ -203,6 +207,38 @@
     "./project-write": {
       "types": "./dist/project-write.d.ts",
       "import": "./dist/project-write.js"
+    },
+    "./cli/check-mode": {
+      "types": "./dist/cli/check-mode.d.ts",
+      "import": "./dist/cli/check-mode.js"
+    },
+    "./cli/check-status": {
+      "types": "./dist/cli/check-status.d.ts",
+      "import": "./dist/cli/check-status.js"
+    },
+    "./cli/check-frontmatter": {
+      "types": "./dist/cli/check-frontmatter.d.ts",
+      "import": "./dist/cli/check-frontmatter.js"
+    },
+    "./cli/check-coverage": {
+      "types": "./dist/cli/check-coverage.d.ts",
+      "import": "./dist/cli/check-coverage.js"
+    },
+    "./cli/link-scheme": {
+      "types": "./dist/cli/link-scheme.d.ts",
+      "import": "./dist/cli/link-scheme.js"
+    },
+    "./cli/gen-index": {
+      "types": "./dist/cli/gen-index.d.ts",
+      "import": "./dist/cli/gen-index.js"
+    },
+    "./untrusted": {
+      "types": "./dist/untrusted.d.ts",
+      "import": "./dist/untrusted.js"
+    },
+    "./fork/frontmatter-fields": {
+      "types": "./dist/fork/frontmatter-fields.d.ts",
+      "import": "./dist/fork/frontmatter-fields.js"
     }
   },
   "files": [

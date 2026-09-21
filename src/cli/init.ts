@@ -217,7 +217,6 @@ export function syncLatHooks(
     });
   }
 
-<<<<<<< HEAD
   // PostToolUse fires the `// @lat:` comment reminder — only after Edit/Write,
   // never on every tool call.
   if (!Array.isArray(hooks.PostToolUse)) {
@@ -233,14 +232,7 @@ export function syncLatHooks(
     ],
   });
 
-  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
-=======
-  writeProjectFile(
-    root,
-    settingsPath,
-    JSON.stringify(settings, null, 2) + '\n',
-  );
->>>>>>> 1effc1d014608fe8ba3171b9683c7858821c44c3
+  writeProjectFile(root, settingsPath, JSON.stringify(settings, null, 2) + '\n');
 }
 
 function cursorHooksTemplate(style: LatCommandStyle): string {

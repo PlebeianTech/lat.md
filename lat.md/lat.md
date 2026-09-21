@@ -9,6 +9,7 @@ This directory defines the high-level concepts, business logic, and architecture
 - [External Sources](external-sources.md) — External sources let Lat resolve pinned files and fragments from other Git repositories without making those repositories part of the local project.
 - [How-to](how-to/how-to.md) — Recipes for tasks that recur, written for someone who already knows what they want.
 - [Markdown](markdown.md) — Extensions to standard markdown used in \`lat.md\` files.
+- [Package Distribution](package-distribution.md) — Lat separates core validation and navigation from the full CLI. The same core checker also powers a portable GitHub Action artifact, built and released from this repository.
 - [Parsed Analysis](architecture-analysis.md) — Lat turns local Markdown, external documents, and referenced source files into serializable semantic facts so commands can share parser results without retaining syntax trees.
 - [Parser](parser.md) — Markdown parsing uses unified/remark v11. Parser-native trees stay inside parsing, \[\[architecture-analysis|analysis\]\], and presentation; browsers receive the stable view tree, while commands use the AST-free analysis model. Fidelity is verified by \[\[tests/roundtrip\]\].
 - [RAG Architecture](rag-architecture.md) — Lat retrieves sections through owned passages, English-stemmed full-text search, and embedding similarity. This page is the implementation reference; \[\[cli#search\]\] documents command usage and \[\[tests/search\]\] defines the test contracts.

@@ -22,7 +22,7 @@ Shared patterns for writing and organizing tests in this project.
 - [Check Sections](check-sections.md) — Validates that every section in \`lat.md/\` has a well-formed leading paragraph.
 - [Comment Guard](comment-guard.md) — Functional tests for the blocking half of the comment convention: the \`PreToolUse\` gate that refuses an \`Edit\`/\`Write\`/\`MultiEdit\` writing a multi-line rationale comment, and tells the agent to move the prose into \`lat.md/\` behind a \`@lat:\` pointer.
 - [Comment Reminder](comment-reminder.md) — Functional tests for the write-side \`@lat:\` comment reminder: the \`PostToolUse\` hook heuristic that nudges an agent to add a code ref when it writes a rationale-bearing comment, and the per-agent dispatch that reaches it.
-- [Configuration](config.md) — Tests in \`tests/config.test.ts\` verify durable user-level configuration behavior in an isolated XDG directory.
+- [Configuration](config.md) — Tests verify durable user configuration and read-only storage diagnostics in isolated XDG directories.
 - [Diátaxis Mode Check](mode.md) — Tests for \`checkMode\`'s exemption of imperative sentences that appear inside code samples rather than ordinary prose, for \`lat check mode\` \(see \[\[cli#check\]\]\).
 - [Expand](expand.md) — Tests for the \`lat expand\` command that resolves \`\[\[refs\]\]\` and appends context blocks.
 - [External Sources](external-tests.md) — External-source tests verify pinned remote content is resolved reproducibly and safely across every Lat interface.
@@ -36,6 +36,7 @@ Shared patterns for writing and organizing tests in this project.
 - [Knowledge Store Additional Coverage](knowledge-store.md) — Additional coverage for the \`Store\` implementations under \[\[src/knowledge/index.ts\]\] added after their original tests were written: per-store concurrency \(lat-t1y.22\), locale/encoding edge cases, and federation hardening against hostile tag/id content.
 - [Locate](locate.md) — Tests for \`findSections\` covering exact, subsection, and fuzzy matching strategies.
 - [MCP](mcp.md) — Functional tests for the MCP server. Spawns \`lat mcp\` against the \`basic-project\` fixture via the MCP client SDK and verifies each tool responds correctly.
+- [Package Distribution](distribution-tests.md) — Distribution tests exercise packed installations and the relocated check action outside the development workspace, ensuring dependencies and assets are sufficient without workspace fallbacks.
 - [Parser Analysis Tests](analysis-tests.md) — These tests keep Markdown and source analysis deterministic, AST-free, serializable, and safely reusable across parser executions.
 - [PHP Source Parser](php-source-parser.md) — PHP source analysis and code-reference scanning cover Laravel application and test files without treating Blade attributes as code references.
 - [Ref Extraction](ref-extraction.md) — Tests for extracting wiki link references from parsed markdown files.

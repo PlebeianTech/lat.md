@@ -6,9 +6,9 @@ import {
   checkStatus,
   hashReviewedBody,
   provenanceNote,
-} from '../src/cli/check-status.js';
-import { getSection, formatSectionOutput } from '../src/cli/section.js';
-import { plainStyler, type CmdContext } from '../src/context.js';
+} from '@lat.md/core/cli/check-status';
+import { getSection, formatSectionOutput } from '@lat.md/core/cli/section';
+import { plainStyler, type CmdContext } from '@lat.md/core/context';
 
 const casesDir = join(import.meta.dirname, 'cases');
 const cliPath = join(

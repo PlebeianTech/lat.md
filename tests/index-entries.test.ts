@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { join } from 'node:path';
-import { checkIndex } from '../src/cli/check.js';
+import { checkIndex } from '@lat.md/core/cli/check';
 
 const casesDir = join(import.meta.dirname, 'cases');
 

@@ -4,7 +4,7 @@ lat:
 ---
 # Untrusted Text Additional Coverage
 
-Additional coverage for [[src/untrusted.ts]] beyond its original core tests: wider invisible-Unicode stripping and the `cleanUntrustedId` helper for values embedded into ids and headings rather than quoted prose.
+Additional coverage for [[packages/core/src/untrusted.ts]] beyond its original core tests: wider invisible-Unicode stripping and the `cleanUntrustedId` helper for values embedded into ids and headings rather than quoted prose.
 
 Tests in `tests/untrusted.test.ts`.
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { join } from 'node:path';
-import { scanCodeRefs, hasRipgrep } from '../src/code-refs.js';
-import { checkCodeRefs } from '../src/cli/check.js';
+import { scanCodeRefs, hasRipgrep } from '@lat.md/core/code-refs';
+import { checkCodeRefs } from '@lat.md/core/cli/check';
 
 // lat-t1y.38: `lat:ignore` opt-out must not match as a bare substring.
 //

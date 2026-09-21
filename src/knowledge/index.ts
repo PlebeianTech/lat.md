@@ -1,11 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parseFrontmatter } from '../lattice.js';
+import { parseFrontmatter } from '@lat.md/core/lattice';
 import {
   UNTRUSTED_NOTICE,
   quoteUntrusted,
   cleanUntrustedId,
-} from '../untrusted.js';
+} from '@lat.md/core/untrusted';
 import { tagsToTerms, capHits } from './ranking.js';
 import type { Store, StoreName, KnowledgeHit, TaggedDoc } from './types.js';
 

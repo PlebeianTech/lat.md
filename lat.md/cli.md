@@ -109,7 +109,7 @@ Two validations:
 1. Every `// @lat: [[...]]` or `# @lat: [[...]]` comment in source code must point to a real section in `lat.md/`
 2. For files with [[markdown#Frontmatter#require-code-mention]], every leaf section must be referenced by at least one `// @lat:` comment in the codebase
 
-A third validation runs only as part of a full `lat check` and has no subcommand of its own: a tree holding documents that **no** `@lat:` ref anywhere reaches is an error, whatever its frontmatter says. Implementation: [[src/cli/check-coverage.ts#checkCoverage]]. The reasoning is in [[fork#The code-ref floor]].
+A third validation runs only as part of a full `lat check` and has no subcommand of its own: a tree holding documents that **no** `@lat:` ref anywhere reaches is an error, whatever its frontmatter says. Implementation: [[packages/core/src/cli/check-coverage.ts#checkCoverage]]. The reasoning is in [[fork#The code-ref floor]].
 
 ### sections
 
@@ -137,7 +137,7 @@ Only `.md` files participate in index validation — non-markdown files are repo
 
 Directory walking uses [[dev-process#File Walking]] to respect `.gitignore` rules — hidden/ignored entries (`.cache`, `.obsidian`, etc.) are automatically excluded.
 
-`lat check index --fix` and the top-level `lat check --fix` regenerate index files from frontmatter instead of merely reporting them stale. `--fix` on the full `lat check` only ever touches index files — every other validator in the group has no mechanical fix. A subdirectory index is regenerated before its parent so a parent listing sees the subdirectory's final state. Special characters in a title (`]`, `(`, a literal percent-encoded sequence in a filename) are escaped in the generated link rather than left to break or duplicate it. The generated list lives between `<!-- lat:index:begin -->` / `<!-- lat:index:end -->` markers; `--fix` rewrites only that region, and refuses to touch the file if the markers are malformed, so hand-written content elsewhere in the index is never deleted. On the full `lat check`, the generating pass runs first and alone, on its own run context: the other validators run concurrently over a shared parse cache and read the files `--fix` rewrites, so overlapping them would make the run's verdict depend on scheduling. Implementation: [[src/cli/check.ts]].
+`lat check index --fix` and the top-level `lat check --fix` regenerate index files from frontmatter instead of merely reporting them stale. `--fix` on the full `lat check` only ever touches index files — every other validator in the group has no mechanical fix. A subdirectory index is regenerated before its parent so a parent listing sees the subdirectory's final state. Special characters in a title (`]`, `(`, a literal percent-encoded sequence in a filename) are escaped in the generated link rather than left to break or duplicate it. The generated list lives between `<!-- lat:index:begin -->` / `<!-- lat:index:end -->` markers; `--fix` rewrites only that region, and refuses to touch the file if the markers are malformed, so hand-written content elsewhere in the index is never deleted. On the full `lat check`, the generating pass runs first and alone, on its own run context: the other validators run concurrently over a shared parse cache and read the files `--fix` rewrites, so overlapping them would make the run's verdict depend on scheduling. Implementation: [[packages/core/src/cli/check.ts]].
 
 ### Frontmatter placement
 
@@ -150,11 +150,11 @@ Two problems are reported, both of which fail **open** and are therefore silent 
 1. **Root-level field** — a known `lat:` field written at the document root instead of nested under `lat:`. The error text includes the corrected frontmatter block to paste.
 2. **Unparseable or unknown** — frontmatter that YAML cannot parse, or a key under `lat:` that nothing reads.
 
-Failing open is the whole reason this exists. A misplaced or unparseable `require-code-mention` turns a validation *off*, and `lat check` then reports success on a file whose leaf sections are no longer required to carry `@lat:` coverage. Nothing else in the output says the rule stopped applying. Implementation: [[src/cli/check-frontmatter.ts#checkFrontmatter]].
+Failing open is the whole reason this exists. A misplaced or unparseable `require-code-mention` turns a validation *off*, and `lat check` then reports success on a file whose leaf sections are no longer required to carry `@lat:` coverage. Nothing else in the output says the rule stopped applying. Implementation: [[packages/core/src/cli/check-frontmatter.ts#checkFrontmatter]].
 
 ### mode
 
-Validate the `mode` field under a document's `lat:` frontmatter against the Diátaxis mode content rules. See [[markdown#Frontmatter#mode]] for the field itself. Implementation: [[src/cli/check-mode.ts]].
+Validate the `mode` field under a document's `lat:` frontmatter against the Diátaxis mode content rules. See [[markdown#Frontmatter#mode]] for the field itself. Implementation: [[packages/core/src/cli/check-mode.ts]].
 
 When the root index sets [[markdown#Frontmatter#require-mode]], the same check also reports any document that declares no mode and sits in no mode directory. Without that flag a flat document is simply unchecked, which is how a tree can pass while none of its content has ever been measured against a mode rule.
 
@@ -162,7 +162,7 @@ When the root index sets [[markdown#Frontmatter#require-mode]], the same check a
 
 Validate the `status`/`reviewed-hash` provenance fields under a document's `lat:` frontmatter.
 
-A `human-reviewed` document may carry a `reviewed-hash` — a hash of its body text at review time, ignoring the heading and frontmatter. If the document's current hash no longer matches, the review is stale and `lat check status` reports it along with the current hash to record. An unrecognized `status` value is also an error. A document with no `status` field, or a `human-reviewed` one with no `reviewed-hash`, passes silently — older trees predate the field and must not turn red on upgrade. Implementation: [[src/cli/check-status.ts]].
+A `human-reviewed` document may carry a `reviewed-hash` — a hash of its body text at review time, ignoring the heading and frontmatter. If the document's current hash no longer matches, the review is stale and `lat check status` reports it along with the current hash to record. An unrecognized `status` value is also an error. A document with no `status` field, or a `human-reviewed` one with no `reviewed-hash`, passes silently — older trees predate the field and must not turn red on upgrade. Implementation: [[packages/core/src/cli/check-status.ts]].
 
 `lat check status` errors also count toward the total reported by a plain `lat check`, and the same provenance is surfaced inline above a quoted section's body by [[cli#section]] (e.g. `[unreviewed -- written by an agent, not checked by a person]`, `[stale review -- the text changed after a person checked it]`).
 

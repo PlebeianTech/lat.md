@@ -34,7 +34,7 @@ function collapsibleResult(
 const LAT = __LAT_INVOCATION__;
 
 function run(args: string[], cwd?: string): string {
-  const { execFileSync } = require("child_process") as typeof import("child_process");
+  const { execFileSync } = require("child_process") as typeof import('child_process');
   return execFileSync(LAT.command, [...LAT.args, ...args], {
     cwd: cwd ?? process.cwd(),
     encoding: "utf-8",
@@ -307,7 +307,7 @@ export default function (pi: ExtensionAPI) {
     let needsSync = false;
     let codeLines = 0;
     try {
-      const { execSync } = require("child_process") as typeof import("child_process");
+      const { execSync } = require("child_process") as typeof import('child_process');
       const numstat = execSync("git diff HEAD --numstat", {
         encoding: "utf-8",
         cwd: process.cwd(),
