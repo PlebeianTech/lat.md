@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { existsSync, rmSync, cpSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { checkIndex } from '@lat.md/core/cli/check';
+import { checkIndex } from '@plebeiantech/lat.md-core/cli/check';
 
 // Regression test for lat-t1y.31: `check` and `check index` both declared a
 // `--fix` option. Commander resolves `--fix` against the parent command in

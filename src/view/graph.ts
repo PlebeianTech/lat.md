@@ -5,7 +5,7 @@ import {
   flattenSections,
   resolveRef,
   type Section,
-} from '@lat.md/core/lattice-model';
+} from '@plebeiantech/lat.md-core/lattice-model';
 import type {
   ViewDocumentError,
   ViewGraph,
@@ -24,11 +24,11 @@ import type { ViewGitSnapshot } from './git.js';
 import type {
   ExternalResolver,
   ExternalTarget,
-} from '@lat.md/core/external-sources';
+} from '@plebeiantech/lat.md-core/external-sources';
 import {
   isDocumentPath,
   stripDocumentExtension,
-} from '@lat.md/core/document-formats';
+} from '@plebeiantech/lat.md-core/document-formats';
 import { documentUrl } from './document-route.js';
 
 function encodedPath(path: string): string {

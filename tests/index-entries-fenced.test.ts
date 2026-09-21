@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { join } from 'node:path';
-import { checkIndex } from '@lat.md/core/cli/check';
-import { fencedLineMask } from '@lat.md/core/cli/gen-index';
+import { checkIndex } from '@plebeiantech/lat.md-core/cli/check';
+import { fencedLineMask } from '@plebeiantech/lat.md-core/cli/gen-index';
 
 const casesDir = join(import.meta.dirname, 'cases');
 

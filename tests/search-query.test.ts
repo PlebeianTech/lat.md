@@ -1,7 +1,7 @@
 import { LEXICAL_VERSION } from '../src/search/lexical.js';
 vi.mock('node:fs', () => ({ existsSync: () => true }));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Section } from '@lat.md/core/lattice-model';
+import type { Section } from '@plebeiantech/lat.md-core/lattice-model';
 
 const mocks = vi.hoisted(() => ({
   hasIndex: vi.fn(),

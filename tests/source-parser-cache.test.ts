@@ -3,18 +3,18 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { PARSER_CACHE_VERSION } from '@lat.md/core/parser-cache';
+import { PARSER_CACHE_VERSION } from '@plebeiantech/lat.md-core/parser-cache';
 import {
   SourceParserRuntime,
   clearSymbolCache,
   resolveSourceSymbol,
   sourceAnalysisCachePath,
   type SourceFileAnalysis,
-} from '@lat.md/core/source-parser';
+} from '@plebeiantech/lat.md-core/source-parser';
 import {
   SOURCE_FILE_EXTENSIONS,
   type SourceFileExtension,
-} from '@lat.md/core/source-formats';
+} from '@plebeiantech/lat.md-core/source-formats';
 
 const SOURCE_CACHE_FIXTURES = {
   '.c': { content: 'int cached(void) { return 1; }\n', symbol: 'cached' },

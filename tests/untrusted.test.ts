@@ -6,8 +6,8 @@ import {
   quoteUntrusted,
   cleanUntrustedId,
   UNTRUSTED_NOTICE,
-} from '@lat.md/core/untrusted';
-import { parseSections } from '@lat.md/core/lattice';
+} from '@plebeiantech/lat.md-core/untrusted';
+import { parseSections } from '@plebeiantech/lat.md-core/lattice';
 
 const casesDir = join(import.meta.dirname, 'cases');
 

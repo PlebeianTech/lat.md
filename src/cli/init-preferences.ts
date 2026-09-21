@@ -1,4 +1,4 @@
-import { projectWritePath, writeProjectFile } from '@lat.md/core/project-write';
+import { projectWritePath, writeProjectFile } from '@plebeiantech/lat.md-core/project-write';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { isMap, parseDocument } from 'yaml';

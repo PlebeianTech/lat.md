@@ -1,5 +1,5 @@
 import { runIndex } from '../cli/search.js';
-import type { MarkdownProjectAnalysis } from '@lat.md/core/project-analysis';
+import type { MarkdownProjectAnalysis } from '@plebeiantech/lat.md-core/project-analysis';
 
 export type ServerIndexRequest = {
   latDir: string;

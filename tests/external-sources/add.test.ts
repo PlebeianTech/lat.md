@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { plainStyler } from '@lat.md/core/context';
+import { plainStyler } from '@plebeiantech/lat.md-core/context';
 
 const {
   addCanonicalExternalSource,
@@ -14,14 +14,14 @@ const {
 }));
 
 vi.mock('node:readline/promises', () => ({ createInterface }));
-vi.mock('@lat.md/core/cli/select-menu', () => ({ selectMenu }));
-vi.mock('@lat.md/core/external-sources', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@lat.md/core/external-sources')>()),
+vi.mock('@plebeiantech/lat.md-core/cli/select-menu', () => ({ selectMenu }));
+vi.mock('@plebeiantech/lat.md-core/external-sources', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@plebeiantech/lat.md-core/external-sources')>()),
   addCanonicalExternalSource,
   resolveExternalCommit,
 }));
 
-import { externalAddCommand } from '@lat.md/core/cli/external';
+import { externalAddCommand } from '@plebeiantech/lat.md-core/cli/external';
 
 describe('lat external add', () => {
   let stdinIsTTY: PropertyDescriptor | undefined;

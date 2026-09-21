@@ -6,7 +6,7 @@ import { createClient } from '@libsql/client';
 import { rmDirBestEffort } from '../util.js';
 import { join } from 'node:path';
 import { federateTags } from '../../src/knowledge/index.js';
-import { UNTRUSTED_NOTICE } from '@lat.md/core/untrusted';
+import { UNTRUSTED_NOTICE } from '@plebeiantech/lat.md-core/untrusted';
 import type {
   KnowledgeHit,
   Store,

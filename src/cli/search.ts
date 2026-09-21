@@ -4,7 +4,7 @@ import { hasIndex } from '../search/db.js';
 import { embeddingFingerprint } from '../search/chunks.js';
 import { writeIndex } from '../search/cache.js';
 import { dirname, join } from 'node:path';
-import type { CmdContext, CmdResult, Styler } from '@lat.md/core/context';
+import type { CmdContext, CmdResult, Styler } from '@plebeiantech/lat.md-core/context';
 import {
   openDb,
   ensureMeta,
@@ -14,7 +14,7 @@ import {
   dropSections,
   closeDb,
 } from '../search/db.js';
-import { getLlmKey } from '@lat.md/core/config';
+import { getLlmKey } from '@plebeiantech/lat.md-core/config';
 import {
   embedderForIndex,
   modelKey,
@@ -28,8 +28,8 @@ import {
   type IndexStats,
 } from '../search/index.js';
 import { searchSections, prepareSearchQuery } from '../search/search.js';
-import type { SectionMatch } from '@lat.md/core/lattice-model';
-import type { Section } from '@lat.md/core/lattice-model';
+import type { SectionMatch } from '@plebeiantech/lat.md-core/lattice-model';
+import type { Section } from '@plebeiantech/lat.md-core/lattice-model';
 import {
   indexMetadata,
   sameIndexMetadata,
@@ -40,9 +40,9 @@ import {
   analyzeMarkdownProject,
   commandProjectAnalysis,
   type MarkdownProjectAnalysis,
-} from '@lat.md/core/project-analysis';
-import { formatSectionPreview, formatNavHints } from '@lat.md/core/format';
-import { provenanceNote, formatProvenanceNote } from '@lat.md/core/cli/check-status';
+} from '@plebeiantech/lat.md-core/project-analysis';
+import { formatSectionPreview, formatNavHints } from '@plebeiantech/lat.md-core/format';
+import { provenanceNote, formatProvenanceNote } from '@plebeiantech/lat.md-core/cli/check-status';
 
 export type SearchResult = {
   query: string;

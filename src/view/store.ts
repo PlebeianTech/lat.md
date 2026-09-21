@@ -1,4 +1,4 @@
-import { repositoryFilePath } from '@lat.md/core/repository-path';
+import { repositoryFilePath } from '@plebeiantech/lat.md-core/repository-path';
 import { randomUUID } from 'node:crypto';
 import { watch as watchFiles, type FSWatcher } from 'node:fs';
 import {
@@ -21,16 +21,16 @@ import {
   createCodeReferenceDiscovery,
   LAT_REF_RE,
   type CodeRef,
-} from '@lat.md/core/code-refs';
+} from '@plebeiantech/lat.md-core/code-refs';
 import {
   createExternalResolver,
   type ExternalResolver,
-} from '@lat.md/core/external-sources';
-import type { Section } from '@lat.md/core/lattice-model';
-import { listLatticeFiles } from '@lat.md/core/project-discovery';
-import { analyzeMarkdownPath } from '@lat.md/core/markdown-analysis-cache';
-import { isSourceFileExtension } from '@lat.md/core/source-formats';
-import { toPosix } from '@lat.md/core/path';
+} from '@plebeiantech/lat.md-core/external-sources';
+import type { Section } from '@plebeiantech/lat.md-core/lattice-model';
+import { listLatticeFiles } from '@plebeiantech/lat.md-core/project-discovery';
+import { analyzeMarkdownPath } from '@plebeiantech/lat.md-core/markdown-analysis-cache';
+import { isSourceFileExtension } from '@plebeiantech/lat.md-core/source-formats';
+import { toPosix } from '@plebeiantech/lat.md-core/path';
 import { renderMarkdown } from './markdown.js';
 import { buildViewDiagnostics } from './diagnostics.js';
 import {

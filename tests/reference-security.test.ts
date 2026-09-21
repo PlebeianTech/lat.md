@@ -3,11 +3,11 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile, symlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { scanCodeRefs } from '@lat.md/core/code-refs';
-import { getSection } from '@lat.md/core/cli/section';
-import { plainStyler } from '@lat.md/core/context';
-import { resolveSourceSymbol } from '@lat.md/core/source-parser';
-import { analyzeMarkdownFile } from '@lat.md/core/markdown-analysis';
+import { scanCodeRefs } from '@plebeiantech/lat.md-core/code-refs';
+import { getSection } from '@plebeiantech/lat.md-core/cli/section';
+import { plainStyler } from '@plebeiantech/lat.md-core/context';
+import { resolveSourceSymbol } from '@plebeiantech/lat.md-core/source-parser';
+import { analyzeMarkdownFile } from '@plebeiantech/lat.md-core/markdown-analysis';
 
 const roots: string[] = [];
 afterEach(async () => {

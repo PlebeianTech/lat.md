@@ -3,16 +3,16 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { analyzeMarkdownFile } from '@lat.md/core/markdown-analysis';
+import { analyzeMarkdownFile } from '@plebeiantech/lat.md-core/markdown-analysis';
 import {
   PARSER_CACHE_VERSION,
   markdownAnalysisCachePath,
-} from '@lat.md/core/markdown-analysis-cache';
+} from '@plebeiantech/lat.md-core/markdown-analysis-cache';
 import {
   analyzeMarkdownProject,
   MarkdownProjectSession,
-} from '@lat.md/core/project-analysis';
-import type { ParserImportEvent } from '@lat.md/core/parser-import';
+} from '@plebeiantech/lat.md-core/project-analysis';
+import type { ParserImportEvent } from '@plebeiantech/lat.md-core/parser-import';
 
 const temporaryRoots: string[] = [];
 

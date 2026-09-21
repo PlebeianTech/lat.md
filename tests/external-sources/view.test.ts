@@ -8,8 +8,8 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { plainStyler, type CmdContext } from '@lat.md/core/context';
-import { parsedCachePath } from '@lat.md/core/parser-cache';
+import { plainStyler, type CmdContext } from '@plebeiantech/lat.md-core/context';
+import { parsedCachePath } from '@plebeiantech/lat.md-core/parser-cache';
 import type {
   ViewDocument,
   ViewExternalDocument,

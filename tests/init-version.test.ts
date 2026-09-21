@@ -8,7 +8,7 @@ import {
   readFileHash,
   contentHash,
   writeInitMeta,
-} from '@lat.md/core/init-version';
+} from '@plebeiantech/lat.md-core/init-version';
 
 describe('init-version', () => {
   let latDir: string;

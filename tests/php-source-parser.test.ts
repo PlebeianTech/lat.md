@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parseSourceSymbols } from '@lat.md/core/source-parser';
-import { checkMd } from '@lat.md/core/cli/check';
+import { parseSourceSymbols } from '@plebeiantech/lat.md-core/source-parser';
+import { checkMd } from '@plebeiantech/lat.md-core/cli/check';
 import { fileURLToPath } from 'node:url';
 
 describe('PHP source parser', () => {

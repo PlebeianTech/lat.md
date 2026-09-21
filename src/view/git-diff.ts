@@ -6,8 +6,8 @@ import type {
   Table,
   TableRow,
 } from 'mdast';
-import { parse } from '@lat.md/core/parser';
-import type { WikiLink } from '@lat.md/core/extensions/wiki-link/types';
+import { parse } from '@plebeiantech/lat.md-core/parser';
+import type { WikiLink } from '@plebeiantech/lat.md-core/extensions/wiki-link/types';
 
 type DiffKind = 'added' | 'removed';
 type SequenceChange<T> =

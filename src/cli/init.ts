@@ -1,5 +1,5 @@
 import { agentInvocation } from './agent-invocation.js';
-import { projectWritePath, writeProjectFile } from '@lat.md/core/project-write';
+import { projectWritePath, writeProjectFile } from '@plebeiantech/lat.md-core/project-write';
 import { existsSync, cpSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
@@ -18,8 +18,8 @@ import {
   getLlmKey,
   getRepoEmbedding,
   setRepoEmbedding,
-} from '@lat.md/core/config';
-import { makeStyler } from '@lat.md/core/cli/context';
+} from '@plebeiantech/lat.md-core/config';
+import { makeStyler } from '@plebeiantech/lat.md-core/cli/context';
 import { closeDb, getStoredModel, openDb } from '../search/db.js';
 import { modelKey } from '../search/embedder.js';
 import { reindexCommand } from './reindex.js';
@@ -29,9 +29,9 @@ import {
   readInitVersion,
   readFileHash,
   contentHash,
-} from '@lat.md/core/init-version';
+} from '@plebeiantech/lat.md-core/init-version';
 import { getLocalVersion, fetchLatestVersion } from '../version.js';
-import { selectMenu, type SelectOption } from '@lat.md/core/cli/select-menu';
+import { selectMenu, type SelectOption } from '@plebeiantech/lat.md-core/cli/select-menu';
 import { checklistMenu } from './checklist-menu.js';
 import { writeForkInstructions } from './fork-instructions.js';
 import { offerRequireMode, writeForkScaffold } from './fork-scaffold.js';
@@ -1640,7 +1640,7 @@ export async function initCmd(targetDir?: string): Promise<void> {
     );
 
     // Suggest ripgrep if not available
-    const { hasRipgrep } = await import('@lat.md/core/code-refs');
+    const { hasRipgrep } = await import('@plebeiantech/lat.md-core/code-refs');
     if (!(await hasRipgrep())) {
       console.log('');
       console.log(

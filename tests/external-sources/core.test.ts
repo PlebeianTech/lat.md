@@ -22,7 +22,7 @@ import {
   normalizeExternalRepoUrl,
   parseExternalTarget,
   readExternalCacheMetadata,
-} from '@lat.md/core/external-sources';
+} from '@plebeiantech/lat.md-core/external-sources';
 import {
   createExternalGitFixture,
   createExternalProject,

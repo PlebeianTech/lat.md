@@ -3,18 +3,18 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { plainStyler, type CmdContext } from '@lat.md/core/context';
-import { checkAllCommand } from '@lat.md/core/cli/check';
-import { expandCommand } from '@lat.md/core/cli/expand';
+import { plainStyler, type CmdContext } from '@plebeiantech/lat.md-core/context';
+import { checkAllCommand } from '@plebeiantech/lat.md-core/cli/check';
+import { expandCommand } from '@plebeiantech/lat.md-core/cli/expand';
 import {
   externalAddCommand,
   externalListCommand,
   externalShowCommand,
-} from '@lat.md/core/cli/external';
+} from '@plebeiantech/lat.md-core/cli/external';
 import { ensureLatLocalConfigIgnored } from '../../src/cli/init.js';
-import { refsCommand } from '@lat.md/core/cli/refs';
-import { sectionCommand } from '@lat.md/core/cli/section';
-import { externalCachePaths } from '@lat.md/core/external-sources';
+import { refsCommand } from '@plebeiantech/lat.md-core/cli/refs';
+import { sectionCommand } from '@plebeiantech/lat.md-core/cli/section';
+import { externalCachePaths } from '@plebeiantech/lat.md-core/external-sources';
 import {
   createExternalGitFixture,
   createExternalProject,

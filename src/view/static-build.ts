@@ -12,9 +12,9 @@ import {
 } from 'node:fs/promises';
 import { dirname, join, parse, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { CmdContext } from '@lat.md/core/context';
-import { isDocumentPath } from '@lat.md/core/document-formats';
-import type { ExternalResolver } from '@lat.md/core/external-sources';
+import type { CmdContext } from '@plebeiantech/lat.md-core/context';
+import { isDocumentPath } from '@plebeiantech/lat.md-core/document-formats';
+import type { ExternalResolver } from '@plebeiantech/lat.md-core/external-sources';
 import type {
   ViewDocument,
   ViewExternalDocument,

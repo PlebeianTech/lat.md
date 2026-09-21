@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Command, InvalidArgumentError } from 'commander';
-import { createCli, handleResult, packageVersion } from '@lat.md/core/cli';
-import { resolveContext } from '@lat.md/core/cli/context';
+import { createCli, handleResult, packageVersion } from '@plebeiantech/lat.md-core/cli';
+import { resolveContext } from '@plebeiantech/lat.md-core/cli/context';
 import {
   DEFAULT_SEARCH_LIMIT,
   DEFAULT_MIN_SIMILARITY,
@@ -54,7 +54,7 @@ function parseSimilarityThreshold(value: string): number {
 }
 
 import { existsSync } from 'node:fs';
-import { resolveCheckContext } from '@lat.md/core/cli/context';
+import { resolveCheckContext } from '@plebeiantech/lat.md-core/cli/context';
 
 type CheckTargetArgs = { args: string[]; target?: string };
 function splitCheckTarget(args: string[], name: string): CheckTargetArgs {
@@ -108,7 +108,7 @@ program
   .argument('<query>', 'name or text to search for')
   .action(async (query: string) => {
     const ctx = resolveContext(program.opts());
-    const { locateCommand } = await import('@lat.md/core/cli/locate');
+    const { locateCommand } = await import('@plebeiantech/lat.md-core/cli/locate');
     handleResult(await locateCommand(ctx, query));
   });
 
@@ -118,7 +118,7 @@ program
   .argument('<query>', 'section id to look up')
   .action(async (query: string) => {
     const ctx = resolveContext(program.opts());
-    const { sectionCommand } = await import('@lat.md/core/cli/section');
+    const { sectionCommand } = await import('@plebeiantech/lat.md-core/cli/section');
     handleResult(await sectionCommand(ctx, query));
   });
 
@@ -127,7 +127,7 @@ program
   .description('Show configuration, cache, and temporary file locations')
   .option('--config', 'show only the user configuration file path')
   .action(async (options: { config?: boolean }) => {
-    const { pathsCommand } = await import('@lat.md/core/cli/paths');
+    const { pathsCommand } = await import('@plebeiantech/lat.md-core/cli/paths');
     console.log(pathsCommand({ ...program.opts(), ...options }));
   });
 
@@ -236,7 +236,7 @@ program
       process.exit(1);
     }
     const ctx = resolveContext(program.opts());
-    const { refsCommand } = await import('@lat.md/core/cli/refs');
+    const { refsCommand } = await import('@plebeiantech/lat.md-core/cli/refs');
     handleResult(await refsCommand(ctx, query, scope));
   });
 
@@ -269,7 +269,7 @@ external
       },
     ) => {
       const ctx = resolveContext(program.opts());
-      const { externalAddCommand } = await import('@lat.md/core/cli/external');
+      const { externalAddCommand } = await import('@plebeiantech/lat.md-core/cli/external');
       handleResult(await externalAddCommand(ctx, handle, repo, opts));
     },
   );
@@ -280,7 +280,7 @@ external
   .option('--json', 'emit structured JSON')
   .action(async (source: string, opts: { json?: boolean }) => {
     const ctx = resolveContext(program.opts());
-    const { externalShowCommand } = await import('@lat.md/core/cli/external');
+    const { externalShowCommand } = await import('@plebeiantech/lat.md-core/cli/external');
     handleResult(await externalShowCommand(ctx, source, !!opts.json));
   });
 
@@ -289,7 +289,7 @@ external
   .option('--json', 'emit structured JSON')
   .action(async (opts: { json?: boolean }) => {
     const ctx = resolveContext(program.opts());
-    const { externalListCommand } = await import('@lat.md/core/cli/external');
+    const { externalListCommand } = await import('@plebeiantech/lat.md-core/cli/external');
     handleResult(await externalListCommand(ctx, !!opts.json));
   });
 
@@ -301,7 +301,7 @@ const check = program
   .option('--profile', 'show detailed validation timing')
   .action(async (opts: { fix?: boolean; profile?: boolean }) => {
     const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
-    const { checkAllCommand } = await import('@lat.md/core/cli/check');
+    const { checkAllCommand } = await import('@plebeiantech/lat.md-core/cli/check');
     handleResult(
       await checkAllCommand(ctx, {
         fix: opts.fix,
@@ -316,7 +316,7 @@ check
   .description('Validate wiki links in markdown files')
   .action(async () => {
     const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
-    const { checkMdCommand } = await import('@lat.md/core/cli/check');
+    const { checkMdCommand } = await import('@plebeiantech/lat.md-core/cli/check');
     handleResult(await checkMdCommand(ctx));
   });
 
@@ -326,7 +326,7 @@ check
   .description('Validate relative markdown links')
   .action(async () => {
     const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
-    const { checkLinksCommand } = await import('@lat.md/core/cli/check');
+    const { checkLinksCommand } = await import('@plebeiantech/lat.md-core/cli/check');
     handleResult(await checkLinksCommand(ctx));
   });
 
@@ -336,7 +336,7 @@ check
   .description('Validate @lat code references and coverage')
   .action(async () => {
     const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
-    const { checkCodeRefsCommand } = await import('@lat.md/core/cli/check');
+    const { checkCodeRefsCommand } = await import('@plebeiantech/lat.md-core/cli/check');
     handleResult(await checkCodeRefsCommand(ctx));
   });
 
@@ -352,7 +352,7 @@ check
   // read it off `check.opts()` instead.
   .action(async () => {
     const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
-    const { checkIndexCommand } = await import('@lat.md/core/cli/check');
+    const { checkIndexCommand } = await import('@plebeiantech/lat.md-core/cli/check');
     handleResult(await checkIndexCommand(ctx, { fix: check.opts().fix }));
   });
 
@@ -362,7 +362,7 @@ check
   .description('Validate section leading paragraphs')
   .action(async () => {
     const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
-    const { checkSectionsCommand } = await import('@lat.md/core/cli/check');
+    const { checkSectionsCommand } = await import('@plebeiantech/lat.md-core/cli/check');
     handleResult(await checkSectionsCommand(ctx));
   });
 
@@ -372,7 +372,7 @@ check
   .description('Validate Diátaxis modes and document shape')
   .action(async () => {
     const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
-    const { checkModeCommand } = await import('@lat.md/core/cli/check');
+    const { checkModeCommand } = await import('@plebeiantech/lat.md-core/cli/check');
     handleResult(await checkModeCommand(ctx));
   });
 
@@ -382,7 +382,7 @@ check
   .description('Validate provenance status and detect stale reviews')
   .action(async () => {
     const ctx = resolveCheckContext(program.opts(), checkTargetArgs.target);
-    const { checkStatusCommand } = await import('@lat.md/core/cli/check');
+    const { checkStatusCommand } = await import('@plebeiantech/lat.md-core/cli/check');
     handleResult(await checkStatusCommand(ctx));
   });
 
@@ -402,7 +402,7 @@ async function runExpand(
     process.exit(1);
   }
   const ctx = resolveContext(program.opts());
-  const { expandCommand } = await import('@lat.md/core/cli/expand');
+  const { expandCommand } = await import('@plebeiantech/lat.md-core/cli/expand');
   const result = await expandCommand(ctx, text);
   if (result.isError) {
     console.error(result.output);
@@ -551,7 +551,7 @@ program
   .command('config')
   .description('Show configuration file path')
   .action(async () => {
-    const { getConfigPath } = await import('@lat.md/core/config');
+    const { getConfigPath } = await import('@plebeiantech/lat.md-core/config');
     const configPath = getConfigPath();
     const exists = existsSync(configPath);
     console.log(`Config file: ${configPath}${exists ? '' : ' (not found)'}`);

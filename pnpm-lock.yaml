@@ -11,9 +11,6 @@ importers:
       '@asciidoctor/core':
         specifier: 4.0.6
         version: 4.0.6
-      '@lat.md/core':
-        specifier: workspace:*
-        version: link:packages/core
       '@lat.md/embed':
         specifier: workspace:*
         version: link:packages/embed
@@ -29,6 +26,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.27.1
         version: 1.27.1(zod@4.3.6)
+      '@plebeiantech/lat.md-core':
+        specifier: workspace:*
+        version: link:packages/core
       '@tursodatabase/database':
         specifier: 0.7.2
         version: 0.7.2

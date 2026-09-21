@@ -19,12 +19,12 @@ import {
   parseFrontmatter,
   resolveRef,
   type Section,
-} from '@lat.md/core/lattice';
-import { scanCodeRefs } from '@lat.md/core/code-refs';
-import { DIATAXIS_MODES, MODE_DIRS } from '@lat.md/core/cli/check-mode';
-import { readProvenance } from '@lat.md/core/cli/check-status';
-import { cleanUntrustedId } from '@lat.md/core/untrusted';
-import { toPosix } from '@lat.md/core/path';
+} from '@plebeiantech/lat.md-core/lattice';
+import { scanCodeRefs } from '@plebeiantech/lat.md-core/code-refs';
+import { DIATAXIS_MODES, MODE_DIRS } from '@plebeiantech/lat.md-core/cli/check-mode';
+import { readProvenance } from '@plebeiantech/lat.md-core/cli/check-status';
+import { cleanUntrustedId } from '@plebeiantech/lat.md-core/untrusted';
+import { toPosix } from '@plebeiantech/lat.md-core/path';
 
 const execFileAsync = promisify(execFile);
 
@@ -272,7 +272,7 @@ export async function loadWorkingTreeFiles(
   latticeDir: string,
   projectRoot: string,
 ): Promise<GraphSourceFile[]> {
-  const { listLatticeFiles } = await import('@lat.md/core/lattice');
+  const { listLatticeFiles } = await import('@plebeiantech/lat.md-core/lattice');
   const { readFile } = await import('node:fs/promises');
   const paths = await listLatticeFiles(latticeDir);
   const files: GraphSourceFile[] = [];

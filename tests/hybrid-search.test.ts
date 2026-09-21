@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createEmbedder } from '@lat.md/embed';
 import minilm from '@lat.md/embed-minilm-fp16';
-import { analyzeMarkdownProject } from '@lat.md/core/project-analysis';
+import { analyzeMarkdownProject } from '@plebeiantech/lat.md-core/project-analysis';
 import { chunkFile } from '../src/search/chunks.js';
 import {
   SearchDb,
@@ -34,9 +34,9 @@ import { searchSections, collapse } from '../src/search/search.js';
 import { openIndexedSearchSession } from '../src/search/query.js';
 import { acquireSearchAccess } from '../src/search/lock.js';
 import { writeIndex } from '../src/search/cache.js';
-import { formatResultList } from '@lat.md/core/format';
-import { getSection } from '@lat.md/core/cli/section';
-import { plainStyler } from '@lat.md/core/context';
+import { formatResultList } from '@plebeiantech/lat.md-core/format';
+import { getSection } from '@plebeiantech/lat.md-core/cli/section';
+import { plainStyler } from '@plebeiantech/lat.md-core/context';
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();

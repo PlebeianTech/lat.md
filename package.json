@@ -1,6 +1,6 @@
 {
   "name": "@plebeiantech/lat.md",
-  "version": "0.12.3-fork.18",
+  "version": "0.12.3-fork.19",
   "description": "A knowledge graph for your codebase, written in markdown",
   "type": "module",
   "packageManager": "pnpm@10.30.2",
@@ -52,7 +52,7 @@
     "format": "prettier --write \"src/**/*.ts\" \"packages/core/src/**/*.ts\" \"packages/server/src/**/*.ts\" \"view/**/*.{ts,tsx,css,html}\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"packages/core/src/**/*.ts\" \"packages/server/src/**/*.ts\" \"view/**/*.{ts,tsx,css,html}\"",
     "cook-test-rag": "tsx scripts/cook-test-rag.ts",
-    "build:core": "pnpm --filter @lat.md/core build",
+    "build:core": "pnpm --filter @plebeiantech/lat.md-core build",
     "build:action": "pnpm build:core && node scripts/build-check-action.mjs",
     "test:core": "node --test scripts/test-core-distribution.js",
     "test:action": "node --test scripts/test-check-action.js"
@@ -128,6 +128,6 @@
     "unist-util-visit": "^5.0.0",
     "yaml": "^2.8.2",
     "zod": "^4.3.6",
-    "@lat.md/core": "workspace:*"
+    "@plebeiantech/lat.md-core": "workspace:*"
   }
 }

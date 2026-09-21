@@ -17,8 +17,8 @@ import {
   type LatServerApp,
   type LatServerRequestHandler,
 } from '@lat.md/server';
-import { plainStyler, type CmdContext } from '@lat.md/core/context';
-import { sectionCommand } from '@lat.md/core/cli/section';
+import { plainStyler, type CmdContext } from '@plebeiantech/lat.md-core/context';
+import { sectionCommand } from '@plebeiantech/lat.md-core/cli/section';
 import {
   DEFAULT_VIEW_LOGO_TEXT,
   type ViewDocumentEditRequest,

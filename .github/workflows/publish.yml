@@ -98,6 +98,7 @@ jobs:
         run: |
           mkdir -p release
           pnpm pack --pack-destination release
+          (cd packages/core && pnpm pack --pack-destination ../../release)
           # A second copy under a version-free name, so
           # /releases/latest/download/lat.md-latest.tgz is a URL that never
           # needs editing. GitHub's `latest` redirect resolves the release but
@@ -115,7 +116,7 @@ jobs:
       # in place would find the workspace links again and pass regardless.
       - name: Install the packed tarball and run it
         run: |
-          npm install --prefix "$RUNNER_TEMP/smoke" --no-audit --no-fund "./release/${TGZ}"
+          npm install --prefix "$RUNNER_TEMP/smoke" --no-audit --no-fund "./release/${TGZ}" "./release/plebeiantech-lat.md-core-${VER}.tgz"
           LAT="$RUNNER_TEMP/smoke/node_modules/.bin/lat"
           GOT=$("$LAT" --version)
           if [ "$GOT" != "$VER" ]; then
@@ -252,6 +253,7 @@ jobs:
           # under fork-N instead would strand `latest` on whichever build went
           # out first, and `mise use -g npm:@plebeiantech/lat.md@latest`
           # resolves through that tag.
+          (cd packages/core && npm publish --provenance --access public --tag latest)
           npm publish "./release/${TGZ}" --provenance --access public --tag latest
 
           # The per-release fork-N tag is a convenience, not load-bearing:

@@ -21,8 +21,8 @@ import {
   INIT_VERSION,
   readInitVersion,
   writeInitMeta,
-} from '@lat.md/core/init-version';
-import { analyzeMarkdownFile } from '@lat.md/core/markdown-analysis';
+} from '@plebeiantech/lat.md-core/init-version';
+import { analyzeMarkdownFile } from '@plebeiantech/lat.md-core/markdown-analysis';
 import {
   readAgentsTemplate,
   readCursorRulesTemplate,
@@ -64,7 +64,7 @@ const {
   setRepoEmbedding: vi.fn(),
 }));
 
-vi.mock('@lat.md/core/config', () => ({
+vi.mock('@plebeiantech/lat.md-core/config', () => ({
   getLlmKey,
   getRepoEmbedding,
   setRepoEmbedding,
@@ -76,7 +76,7 @@ vi.mock('../src/version.js', () => ({
 vi.mock('../src/cli/checklist-menu.js', () => ({
   checklistMenu: vi.fn(async () => []),
 }));
-vi.mock('@lat.md/core/cli/select-menu', () => ({ selectMenu }));
+vi.mock('@plebeiantech/lat.md-core/cli/select-menu', () => ({ selectMenu }));
 vi.mock('node:readline/promises', () => ({
   createInterface: vi.fn(() => ({
     question: vi.fn(async () => 'n'),

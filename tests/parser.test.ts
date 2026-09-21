@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execSync } from 'child_process';
-import { parse, toMarkdown } from '@lat.md/core/parser';
+import { parse, toMarkdown } from '@plebeiantech/lat.md-core/parser';
 import { visit } from 'unist-util-visit';
-import type { WikiLink } from '@lat.md/core/extensions/wiki-link/index';
+import type { WikiLink } from '@plebeiantech/lat.md-core/extensions/wiki-link/index';
 
 describe('typecheck', () => {
   it('passes tsc --noEmit on the entire codebase', () => {

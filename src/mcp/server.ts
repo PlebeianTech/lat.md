@@ -2,26 +2,26 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { dirname } from 'node:path';
-import { findLatticeDir } from '@lat.md/core/project-discovery';
+import { findLatticeDir } from '@plebeiantech/lat.md-core/project-discovery';
 import {
   plainStyler,
   type CmdContext,
   type CmdResult,
-} from '@lat.md/core/context';
-import { locateCommand } from '@lat.md/core/cli/locate';
-import { sectionCommand } from '@lat.md/core/cli/section';
+} from '@plebeiantech/lat.md-core/context';
+import { locateCommand } from '@plebeiantech/lat.md-core/cli/locate';
+import { sectionCommand } from '@plebeiantech/lat.md-core/cli/section';
 import { searchCommand } from '../cli/search.js';
 import {
   DEFAULT_SEARCH_LIMIT,
   DEFAULT_MIN_SIMILARITY,
 } from '../search/search.js';
-import { expandCommand } from '@lat.md/core/cli/expand';
-import { checkAllCommand } from '@lat.md/core/cli/check';
-import { refsCommand, type Scope } from '@lat.md/core/cli/refs';
+import { expandCommand } from '@plebeiantech/lat.md-core/cli/expand';
+import { checkAllCommand } from '@plebeiantech/lat.md-core/cli/check';
+import { refsCommand, type Scope } from '@plebeiantech/lat.md-core/cli/refs';
 import {
   externalListCommand,
   externalShowCommand,
-} from '@lat.md/core/cli/external';
+} from '@plebeiantech/lat.md-core/cli/external';
 
 function toMcp(result: CmdResult) {
   const content = [{ type: 'text' as const, text: result.output }];

@@ -6,8 +6,8 @@ import { dirname, join, relative, sep } from 'node:path';
 import {
   normalizeRepositoryPath,
   inspectRepositoryPath,
-} from '@lat.md/core/repository-path';
-import { walkEntries } from '@lat.md/core/walk';
+} from '@plebeiantech/lat.md-core/repository-path';
+import { walkEntries } from '@plebeiantech/lat.md-core/walk';
 
 const exec = promisify(execFile);
 const portable = (path: string) => path.split(sep).join('/');

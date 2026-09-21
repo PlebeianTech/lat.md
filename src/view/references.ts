@@ -1,18 +1,18 @@
 import { relative, resolve } from 'node:path';
-import type { CodeRef } from '@lat.md/core/code-refs';
+import type { CodeRef } from '@plebeiantech/lat.md-core/code-refs';
 import {
   buildFileIndex,
   buildSectionSlugIndex,
   flattenSections,
   resolveRef,
   type Section,
-} from '@lat.md/core/lattice-model';
+} from '@plebeiantech/lat.md-core/lattice-model';
 import {
   analyzeMarkdownFile,
   type MarkdownFileAnalysis,
   type MarkdownParagraph,
-} from '@lat.md/core/markdown-analysis';
-import { toPosix } from '@lat.md/core/path';
+} from '@plebeiantech/lat.md-core/markdown-analysis';
+import { toPosix } from '@plebeiantech/lat.md-core/path';
 import { renderMarkdown, type WikiLinkResolver } from './markdown.js';
 import type {
   ViewCodeBackReference,

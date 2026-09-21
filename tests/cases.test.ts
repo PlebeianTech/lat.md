@@ -12,18 +12,18 @@ import {
   extractRefs,
   buildFileIndex,
   resolveRef,
-} from '@lat.md/core/lattice';
-import { formatSectionPreview } from '@lat.md/core/format';
-import { plainStyler, type CmdContext } from '@lat.md/core/context';
+} from '@plebeiantech/lat.md-core/lattice';
+import { formatSectionPreview } from '@plebeiantech/lat.md-core/format';
+import { plainStyler, type CmdContext } from '@plebeiantech/lat.md-core/context';
 import {
   checkMd,
   checkCodeRefs,
   checkIndex,
   checkSections,
-} from '@lat.md/core/cli/check';
-import { discoverSourceFiles, scanCodeRefs } from '@lat.md/core/code-refs';
-import { findRefs } from '@lat.md/core/cli/refs';
-import { getSection, formatSectionOutput } from '@lat.md/core/cli/section';
+} from '@plebeiantech/lat.md-core/cli/check';
+import { discoverSourceFiles, scanCodeRefs } from '@plebeiantech/lat.md-core/code-refs';
+import { findRefs } from '@plebeiantech/lat.md-core/cli/refs';
+import { getSection, formatSectionOutput } from '@plebeiantech/lat.md-core/cli/section';
 
 // eslint-disable-next-line no-control-regex
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '');

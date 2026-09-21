@@ -9,8 +9,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkMode } from '@lat.md/core/cli/check-mode';
-import { parseFrontmatter } from '@lat.md/core/lattice';
+import { checkMode } from '@plebeiantech/lat.md-core/cli/check-mode';
+import { parseFrontmatter } from '@plebeiantech/lat.md-core/lattice';
 import {
   listModeDirs,
   offerRequireMode,

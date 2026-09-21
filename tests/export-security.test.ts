@@ -11,7 +11,7 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { plainStyler } from '@lat.md/core/context';
+import { plainStyler } from '@plebeiantech/lat.md-core/context';
 import { buildStaticView } from '../src/view/static-build.js';
 import { createViewStore } from '../src/view/store.js';
 import {

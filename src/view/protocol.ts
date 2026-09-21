@@ -52,14 +52,14 @@ export type ViewSearchResponse = {
   results: ViewSearchResult[];
 };
 
-import type { ViewDocumentTree } from '@lat.md/core/document-tree';
+import type { ViewDocumentTree } from '@plebeiantech/lat.md-core/document-tree';
 export type {
   ViewDocumentProperty,
   ViewDocumentText,
   ViewDocumentElement,
   ViewDocumentNode,
   ViewDocumentTree,
-} from '@lat.md/core/document-tree';
+} from '@plebeiantech/lat.md-core/document-tree';
 
 export type ViewSectionCommandOutput = {
   output: string;

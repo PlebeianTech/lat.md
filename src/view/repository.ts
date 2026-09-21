@@ -15,23 +15,23 @@ import {
   flattenSections,
   resolveRef,
   type Section,
-} from '@lat.md/core/lattice-model';
+} from '@plebeiantech/lat.md-core/lattice-model';
 import {
   createExternalResolver,
   type ExternalResolver,
-} from '@lat.md/core/external-sources';
+} from '@plebeiantech/lat.md-core/external-sources';
 import {
   addExternalDocumentAliasAnchors,
   externalDocumentSections,
-} from '@lat.md/core/external-documents';
-import type { ExternalTarget } from '@lat.md/core/external-sources';
+} from '@plebeiantech/lat.md-core/external-documents';
+import type { ExternalTarget } from '@plebeiantech/lat.md-core/external-sources';
 import {
   resolveSourceSymbol,
   SourceParserRuntime,
   type SourceSymbol,
-} from '@lat.md/core/source-parser';
-import { isSourceFileExtension } from '@lat.md/core/source-formats';
-import { toPosix } from '@lat.md/core/path';
+} from '@plebeiantech/lat.md-core/source-parser';
+import { isSourceFileExtension } from '@plebeiantech/lat.md-core/source-formats';
+import { toPosix } from '@plebeiantech/lat.md-core/path';
 import { renderExternalDocumentTree } from './external-document-tree.js';
 import { visitDocumentElements } from './document-tree.js';
 import type { ViewExternalDocument, ViewSourceDocument } from './protocol.js';

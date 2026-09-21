@@ -7,12 +7,12 @@ import {
   analyzeExternalDocumentCached,
   externalDocumentAnalysisCachePath,
   type ExternalDocumentAnalysis,
-} from '@lat.md/core/external-documents';
-import { markdownAnalysisCachePath } from '@lat.md/core/markdown-analysis-cache';
-import { hashParserContent, writeParsedCache } from '@lat.md/core/parser-cache';
-import { analyzeMarkdownProject } from '@lat.md/core/project-analysis';
+} from '@plebeiantech/lat.md-core/external-documents';
+import { markdownAnalysisCachePath } from '@plebeiantech/lat.md-core/markdown-analysis-cache';
+import { hashParserContent, writeParsedCache } from '@plebeiantech/lat.md-core/parser-cache';
+import { analyzeMarkdownProject } from '@plebeiantech/lat.md-core/project-analysis';
 
-vi.mock('@lat.md/core/markdown-analysis', () => {
+vi.mock('@plebeiantech/lat.md-core/markdown-analysis', () => {
   throw new Error('Markdown analyzer loaded on a warm cache path');
 });
 vi.mock('rst-compiler', () => {

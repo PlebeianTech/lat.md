@@ -51,8 +51,6 @@ jobs:
       # buildall = packages (WASM engine + fp16 weights + tsc) then top-level lat.
       - run: pnpm buildall
       - run: pnpm vitest run --reporter=verbose
-<<<<<<< HEAD
-
       # Validate lat.md/ with the binary this commit just built, not with a
       # published one. The fork's index entries are Markdown links where
       # upstream's are wiki links, so upstream's `lat` reports every index file
@@ -68,6 +66,7 @@ jobs:
       - name: Install the packed tarball and run it
         run: |
           pnpm pack --pack-destination "$RUNNER_TEMP/pack"
+          (cd packages/core && pnpm pack --pack-destination "$RUNNER_TEMP/pack")
           npm install --prefix "$RUNNER_TEMP/smoke" --no-audit --no-fund "$RUNNER_TEMP"/pack/*.tgz
           "$RUNNER_TEMP/smoke/node_modules/.bin/lat" --version
           # The view server is the only importer of the vendored Express
@@ -76,8 +75,7 @@ jobs:
             await import('$RUNNER_TEMP/smoke/node_modules/@plebeiantech/lat.md/dist/src/view/server.js');
             console.log('view server module loads');
           "
-=======
+
       - run: pnpm test:core
         env:
           LAT_TEST_FULL_PACKAGE: '1'
->>>>>>> 1effc1d014608fe8ba3171b9683c7858821c44c3

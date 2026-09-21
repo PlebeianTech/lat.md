@@ -3,8 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkMode } from '@lat.md/core/cli/check-mode';
-import { INIT_VERSION, readInitVersion } from '@lat.md/core/init-version';
+import { checkMode } from '@plebeiantech/lat.md-core/cli/check-mode';
+import { INIT_VERSION, readInitVersion } from '@plebeiantech/lat.md-core/init-version';
 
 const casesDir = join(import.meta.dirname, 'cases');
 const cliPath = join(

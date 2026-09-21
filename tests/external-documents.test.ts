@@ -9,11 +9,11 @@ import {
   analyzeExternalDocumentCached,
   externalDocumentAnalysisCachePath,
   findExternalDocumentSection,
-} from '@lat.md/core/external-documents';
+} from '@plebeiantech/lat.md-core/external-documents';
 import { renderExternalDocumentTree } from '../src/view/external-document-tree.js';
 import { documentTreeToHtml } from './document-tree.js';
-import { PARSER_CACHE_VERSION } from '@lat.md/core/parser-cache';
-import type { ParserImportEvent } from '@lat.md/core/parser-import';
+import { PARSER_CACHE_VERSION } from '@plebeiantech/lat.md-core/parser-cache';
+import type { ParserImportEvent } from '@plebeiantech/lat.md-core/parser-import';
 import { rmDirBestEffort } from './util.js';
 
 describe('external document formats', () => {

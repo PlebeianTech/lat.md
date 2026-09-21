@@ -4,7 +4,7 @@ import {
   type Embedder,
 } from '@lat.md/embed';
 import minilm from '@lat.md/embed-minilm-fp16';
-import { getLlmKey, getRepoEmbedding } from '@lat.md/core/config';
+import { getLlmKey, getRepoEmbedding } from '@plebeiantech/lat.md-core/config';
 
 export type { Embedder };
 export { EmbeddingAuthError };

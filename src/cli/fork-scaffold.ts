@@ -2,14 +2,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { styleText } from 'node:util';
 import { isMap, isScalar, isSeq, parseDocument } from 'yaml';
-import { parseFrontmatter } from '@lat.md/core/lattice';
-import type { CheckError } from '@lat.md/core/cli/check';
+import { parseFrontmatter } from '@plebeiantech/lat.md-core/lattice';
+import type { CheckError } from '@plebeiantech/lat.md-core/cli/check';
 import {
   DIATAXIS_MODES,
   MODE_DIRS,
   checkMode,
   indexNameFor,
-} from '@lat.md/core/cli/check-mode';
+} from '@plebeiantech/lat.md-core/cli/check-mode';
 
 /**
  * Give a freshly created `lat.md/` the Diátaxis shape, and turn the gate on.

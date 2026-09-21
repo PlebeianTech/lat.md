@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { styleText } from 'node:util';
-import { contentHash, readFileHash } from '@lat.md/core/init-version';
+import { contentHash, readFileHash } from '@plebeiantech/lat.md-core/init-version';
 import { findTemplatesDir } from './templates.js';
 
 /**

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { join } from 'node:path';
 import { mkdtemp, cp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { checkIndex } from '@lat.md/core/cli/check';
+import { checkIndex } from '@plebeiantech/lat.md-core/cli/check';
 
 const casesDir = join(import.meta.dirname, 'cases');
 

@@ -9,11 +9,11 @@ import {
   hasRipgrep,
   scanCodeRefs,
   type ScanResult,
-} from '@lat.md/core/code-refs';
+} from '@plebeiantech/lat.md-core/code-refs';
 import {
   isSourceFilePath,
   SOURCE_FILE_EXTENSIONS,
-} from '@lat.md/core/source-formats';
+} from '@plebeiantech/lat.md-core/source-formats';
 
 const roots: string[] = [];
 

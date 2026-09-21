@@ -1,12 +1,12 @@
 import type {
   SearchEvidence,
   SearchDiagnostics,
-} from '@lat.md/core/search-metadata';
+} from '@plebeiantech/lat.md-core/search-metadata';
 export type {
   SourceSpan,
   SearchEvidence,
   SearchDiagnostics,
-} from '@lat.md/core/search-metadata';
+} from '@plebeiantech/lat.md-core/search-metadata';
 export type SearchResult = {
   id: string;
   file: string;

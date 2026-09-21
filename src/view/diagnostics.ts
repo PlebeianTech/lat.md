@@ -3,18 +3,18 @@ import { extname, relative, resolve, dirname } from 'node:path';
 import {
   ambiguousRefMessage,
   repositoryRefError,
-} from '@lat.md/core/cli/check';
+} from '@plebeiantech/lat.md-core/cli/check';
 import {
   buildFileIndex,
   buildSectionSlugIndex,
   flattenSections,
   resolveRef,
   type Section,
-} from '@lat.md/core/lattice-model';
-import { SourceParserRuntime } from '@lat.md/core/source-parser';
-import type { ExternalResolver } from '@lat.md/core/external-sources';
-import { toPosix } from '@lat.md/core/path';
-import { parseLocalMarkdownTarget } from '@lat.md/core/markdown-validation';
+} from '@plebeiantech/lat.md-core/lattice-model';
+import { SourceParserRuntime } from '@plebeiantech/lat.md-core/source-parser';
+import type { ExternalResolver } from '@plebeiantech/lat.md-core/external-sources';
+import { toPosix } from '@plebeiantech/lat.md-core/path';
+import { parseLocalMarkdownTarget } from '@plebeiantech/lat.md-core/markdown-validation';
 import type { ViewDocumentError } from './protocol.js';
 import type {
   ViewCodeReferenceFile,

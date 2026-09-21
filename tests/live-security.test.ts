@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request, type IncomingMessage } from 'node:http';
-import { plainStyler } from '@lat.md/core/context';
+import { plainStyler } from '@plebeiantech/lat.md-core/context';
 import { startViewServer, type ViewServer } from '../src/view/server.js';
 import { trustedLiveRequest } from '../src/view/request-security.js';
 
