@@ -1,3 +1,4 @@
+import { repositoryFilePath } from '@lat.md/core/repository-path';
 import { randomUUID } from 'node:crypto';
 import { watch as watchFiles, type FSWatcher } from 'node:fs';
 import {
@@ -20,16 +21,16 @@ import {
   createCodeReferenceDiscovery,
   LAT_REF_RE,
   type CodeRef,
-} from '../code-refs.js';
+} from '@lat.md/core/code-refs';
 import {
   createExternalResolver,
   type ExternalResolver,
-} from '../external-sources.js';
-import type { Section } from '../lattice-model.js';
-import { listLatticeFiles } from '../project-discovery.js';
-import { analyzeMarkdownPath } from '../markdown-analysis-cache.js';
-import { isSourceFileExtension } from '../source-formats.js';
-import { toPosix } from '../path.js';
+} from '@lat.md/core/external-sources';
+import type { Section } from '@lat.md/core/lattice-model';
+import { listLatticeFiles } from '@lat.md/core/project-discovery';
+import { analyzeMarkdownPath } from '@lat.md/core/markdown-analysis-cache';
+import { isSourceFileExtension } from '@lat.md/core/source-formats';
+import { toPosix } from '@lat.md/core/path';
 import { renderMarkdown } from './markdown.js';
 import { buildViewDiagnostics } from './diagnostics.js';
 import {
@@ -66,6 +67,7 @@ import {
   getViewExternal,
   getViewSource,
   ViewDocumentNotFoundError,
+  ViewSourceNotFoundError,
 } from './repository.js';
 import {
   buildViewReferenceIndex,
@@ -96,6 +98,8 @@ export type ViewProjectSnapshot = {
 };
 
 export type ViewStoreOptions = {
+  /** Export-only allowlist, applied before source/backlink/resource reads. */
+  publishable?: (path: string) => Promise<boolean>;
   codeExcludePaths?: string[];
   debounceMs?: number;
   git?: boolean;
@@ -178,7 +182,9 @@ async function loadCodeReferenceFiles(
   await Promise.all(
     [...refsByFile].map(async ([path, fileRefs]) => {
       try {
-        const content = await readFile(resolve(projectRoot, path), 'utf8');
+        const safePath = await repositoryFilePath(projectRoot, path);
+        if (!safePath) return;
+        const content = await readFile(safePath, 'utf8');
         files.set(path, { path, lines: content.split('\n'), refs: fileRefs });
       } catch {
         // A file may disappear between the project scan and this read.
@@ -191,6 +197,7 @@ async function loadCodeReferenceFiles(
 async function scanCodeState(
   projectRoot: string,
   excludedPaths: readonly string[] = [],
+  publishable?: (path: string) => Promise<boolean>,
 ): Promise<{
   files: Map<string, ViewCodeReferenceFile>;
   scope: Set<string>;
@@ -202,9 +209,17 @@ async function scanCodeState(
   ]);
   const allowed = (path: string) =>
     !excludedCodePath(projectRoot, path, excludedPaths);
-  const files = sourceFiles.filter(allowed);
-  const refs = scan.refs.filter((ref) => allowed(ref.file));
+  const candidates = sourceFiles.filter(allowed);
+  const decisions = await Promise.all(
+    candidates.map(
+      (path) => publishable?.(projectPath(projectRoot, path)) ?? true,
+    ),
+  );
+  const files = candidates.filter((_, index) => decisions[index]);
   const scope = new Set(files.map((path) => projectPath(projectRoot, path)));
+  const refs = scan.refs.filter(
+    (ref) => allowed(ref.file) && scope.has(ref.file),
+  );
   return {
     files: await loadCodeReferenceFiles(projectRoot, refs),
     scope,
@@ -454,6 +469,7 @@ export class ViewStore {
       snapshot.allSections,
       snapshot.references,
       snapshot.external,
+      this.options.publishable,
     );
     return (await renderMarkdown(markdown, requestedPath, resolver)).tree;
   }
@@ -478,6 +494,7 @@ export class ViewStore {
       snapshot.allSections,
       snapshot.references,
       snapshot.external,
+      this.options.publishable,
     );
     const rendered = await renderMarkdown(
       file.content,
@@ -545,6 +562,7 @@ export class ViewStore {
             snapshot.allSections,
             snapshot.references,
             snapshot.external,
+            this.options.publishable,
           ),
       ),
       frontmatter: {
@@ -581,6 +599,15 @@ export class ViewStore {
   }
 
   async getDocumentResource(requestedPath: string): Promise<Buffer> {
+    if (
+      this.options.publishable &&
+      !(await this.options.publishable(
+        projectPath(this.projectRoot, resolve(this.latDir, requestedPath)),
+      ))
+    )
+      throw new ViewDocumentNotFoundError(
+        `Resource is excluded from publication: ${requestedPath}`,
+      );
     if (
       !requestedPath ||
       requestedPath.includes('\\') ||
@@ -650,12 +677,19 @@ export class ViewStore {
     return operation;
   }
 
-  getSource(
+  async getSource(
     requestedPath: string,
     requestedSymbol = '',
     origin?: { sectionId: string; line: number },
     requestedLine = 0,
   ): Promise<ViewSourceDocument> {
+    if (
+      this.options.publishable &&
+      !(await this.options.publishable(requestedPath))
+    )
+      throw new ViewSourceNotFoundError(
+        `Source is excluded from publication: ${requestedPath}`,
+      );
     const snapshot = this.snapshotValue;
     return getViewSource(
       this.latDir,
@@ -666,6 +700,7 @@ export class ViewStore {
       requestedLine,
       snapshot.allSections,
       snapshot.references,
+      this.options.publishable,
     );
   }
 
@@ -678,6 +713,7 @@ export class ViewStore {
       snapshot.external,
       snapshot.allSections,
       snapshot.references,
+      this.options.publishable,
     );
   }
 
@@ -878,6 +914,7 @@ export class ViewStore {
       const nextCode = await scanCodeState(
         this.projectRoot,
         this.options.codeExcludePaths,
+        this.options.publishable,
       );
       codeFiles = nextCode.files;
       this.codeScope = nextCode.scope;
@@ -952,7 +989,7 @@ export async function createViewStore(
     await Promise.all([
       realpath(latDir),
       listLatticeFiles(latDir),
-      scanCodeState(projectRoot, options.codeExcludePaths),
+      scanCodeState(projectRoot, options.codeExcludePaths, options.publishable),
       options.git === false
         ? Promise.resolve(null)
         : findViewGitRepository(projectRoot, latDir),

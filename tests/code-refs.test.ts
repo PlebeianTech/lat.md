@@ -9,11 +9,11 @@ import {
   hasRipgrep,
   scanCodeRefs,
   type ScanResult,
-} from '../src/code-refs.js';
+} from '@lat.md/core/code-refs';
 import {
   isSourceFilePath,
   SOURCE_FILE_EXTENSIONS,
-} from '../src/source-formats.js';
+} from '@lat.md/core/source-formats';
 
 const roots: string[] = [];
 
@@ -224,7 +224,7 @@ describe('supported source code-reference scanning', () => {
       expectRegisteredSourcesOnly(preferred, preferredFiles);
       if (rgAvailable) {
         expect(scanOperations).toContain('scan @lat references with ripgrep');
-        expect(scanOperations).not.toContain('list source files with ripgrep');
+        expect(scanOperations).toContain('list source files with ripgrep');
       }
 
       process.env._LAT_DISABLE_RG = '1';

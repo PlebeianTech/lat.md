@@ -1,26 +1,11 @@
 #!/usr/bin/env node
-
-// Suppress deprecation warnings from transitive dependencies unless --verbose
-if (!process.argv.includes('--verbose')) {
-  process.noDeprecation = true;
-}
-
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
-import { resolveCheckContext, resolveContext } from './context.js';
-import type { CmdResult } from '../context.js';
+import { createCli, handleResult, packageVersion } from '@lat.md/core/cli';
+import { resolveContext } from '@lat.md/core/cli/context';
 import {
   DEFAULT_SEARCH_LIMIT,
   DEFAULT_MIN_SIMILARITY,
 } from '../search/search.js';
-
-type CheckTargetArgs = {
-  args: string[];
-  target?: string;
-};
-
 function parsePort(value: string): number {
   if (!/^\d+$/.test(value)) {
     throw new InvalidArgumentError('port must be an integer from 1 to 65535');
@@ -68,99 +53,11 @@ function parseSimilarityThreshold(value: string): number {
   return threshold;
 }
 
-/** Reserve `-- <directory>` for an explicit check target. */
-function splitCheckTarget(args: string[]): CheckTargetArgs {
-  let commandIndex = -1;
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === '--dir') {
-      i++;
-      continue;
-    }
-    if (arg.startsWith('--dir=')) continue;
-    if (arg.startsWith('-')) continue;
-    commandIndex = i;
-    break;
-  }
-
-  if (commandIndex === -1 || args[commandIndex] !== 'check') {
-    return { args };
-  }
-
-  const separatorIndex = args.indexOf('--', commandIndex + 1);
-  if (separatorIndex === -1) return { args };
-
-  const targets = args.slice(separatorIndex + 1);
-  if (targets.length !== 1 || targets[0] === '') {
-    console.error(
-      'error: `lat check --` expects exactly one directory after `--`',
-    );
-    process.exit(1);
-  }
-
-  return {
-    args: args.slice(0, separatorIndex),
-    target: targets[0],
-  };
-}
-
-const checkTargetArgs = splitCheckTarget(process.argv.slice(2));
-
-function findPackageJson(): string {
-  let dir = dirname(fileURLToPath(import.meta.url));
-  while (true) {
-    const candidate = join(dir, 'package.json');
-    try {
-      return JSON.parse(readFileSync(candidate, 'utf-8')).version;
-    } catch {}
-    const parent = dirname(dir);
-    if (parent === dir) return '0.0.0';
-    dir = parent;
-  }
-}
-
-function handleResult(result: CmdResult): void {
-  if (result.isError) {
-    console.error(result.output);
-    process.exit(1);
-  }
-  if (result.output) console.log(result.output);
-}
-
-const version = findPackageJson();
-
-const program = new Command();
-
-program
-  .name('lat')
-  .description('Anchor source code to high-level concepts defined in markdown')
-  .version(version)
-  .option('--dir <path>', 'project root to look for lat.md in (default: cwd)')
-  .option('--no-color', 'disable color output')
-  .option('--verbose', 'show deprecation warnings and extra diagnostics');
-
-program
-  .command('locate')
-  .description('Find sections by id')
-  .argument('<query>', 'section id to search for')
-  .action(async (query: string) => {
-    const ctx = resolveContext(program.opts());
-    const { locateCommand } = await import('./locate.js');
-    handleResult(await locateCommand(ctx, query));
-  });
-
-program
-  .command('section')
-  .description(
-    'Show a section with its content, outgoing refs, and incoming refs',
-  )
-  .argument('<query>', 'section id to look up')
-  .action(async (query: string) => {
-    const ctx = resolveContext(program.opts());
-    const { sectionCommand } = await import('./section.js');
-    handleResult(await sectionCommand(ctx, query));
-  });
-
+const { program, args } = createCli({
+  name: 'lat',
+  search: true,
+  version: packageVersion(import.meta.url),
+});
 async function runUi(opts: UiRunOptions): Promise<void> {
   const ctx = resolveContext(program.opts());
   const { uiCommand } = await import('./ui.js');

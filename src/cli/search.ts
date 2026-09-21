@@ -4,7 +4,7 @@ import { hasIndex } from '../search/db.js';
 import { embeddingFingerprint } from '../search/chunks.js';
 import { writeIndex } from '../search/cache.js';
 import { dirname, join } from 'node:path';
-import type { CmdContext, CmdResult, Styler } from '../context.js';
+import type { CmdContext, CmdResult, Styler } from '@lat.md/core/context';
 import {
   openDb,
   ensureMeta,
@@ -14,7 +14,7 @@ import {
   dropSections,
   closeDb,
 } from '../search/db.js';
-import { getLlmKey } from '../config.js';
+import { getLlmKey } from '@lat.md/core/config';
 import {
   embedderForIndex,
   modelKey,
@@ -27,10 +27,12 @@ import {
   projectFingerprint,
   type IndexStats,
 } from '../search/index.js';
-import { searchSections } from '../search/search.js';
-import type { SectionMatch } from '../lattice-model.js';
-import type { Section } from '../lattice-model.js';
+import { searchSections, prepareSearchQuery } from '../search/search.js';
+import type { SectionMatch } from '@lat.md/core/lattice-model';
+import type { Section } from '@lat.md/core/lattice-model';
 import {
+  indexMetadata,
+  sameIndexMetadata,
   resolveSearchMatches,
   searchIndexedSections,
 } from '../search/query.js';
@@ -64,38 +66,48 @@ async function withDb<T>(
     embedder: Embedder,
     project: MarkdownProjectAnalysis,
   ) => Promise<T>,
+  prepare?: (embedder: Embedder) => Promise<void>,
 ): Promise<T> {
-  if (hasIndex(cacheDir ?? join(latDir, '.cache'))) {
+  for (
+    let attempt = 0;
+    hasIndex(cacheDir ?? join(latDir, '.cache'));
+    attempt++
+  ) {
+    if (attempt >= 3)
+      throw new Error('Search index keeps changing; retry shortly.');
+    const metadataDb = openDb(latDir, cacheDir, true);
+    let metadata: Map<string, string>;
+    try {
+      metadata = await indexMetadata(metadataDb);
+    } finally {
+      await closeDb(metadataDb);
+    }
+    const stored = metadata.get('embedding_model') ?? null;
+    const embedder = await embedderForIndex(stored, latDir);
+    if (metadata.get('fingerprint') !== embeddingFingerprint(embedder))
+      throw new ReindexRequiredError(
+        'Search chunking or embedding model changed; run lat reindex.',
+      );
+    if (
+      !stored ||
+      metadata.get('lexical_version') !== LEXICAL_VERSION ||
+      metadata.get('project_hash') !== projectFingerprint(project)
+    )
+      break;
+    await prepare?.(embedder);
     const db = openDb(latDir, cacheDir, true);
     try {
-      const stored = await getStoredModel(db);
-      const embedder = await embedderForIndex(stored, latDir);
-      const metadata = new Map(
-        (await db.execute('SELECT key,value FROM meta')).rows.map((row) => [
-          row.key,
-          row.value,
-        ]),
+      if (!sameIndexMetadata(metadata, await indexMetadata(db))) continue;
+      progress?.afterIndex?.(
+        {
+          added: 0,
+          updated: 0,
+          removed: 0,
+          unchanged: project.sections.length,
+        },
+        false,
       );
-      if (metadata.get('fingerprint') !== embeddingFingerprint(embedder))
-        throw new ReindexRequiredError(
-          'Search chunking or embedding model changed; run lat reindex.',
-        );
-      if (
-        stored &&
-        metadata.get('lexical_version') === LEXICAL_VERSION &&
-        metadata.get('project_hash') === projectFingerprint(project)
-      ) {
-        progress?.afterIndex?.(
-          {
-            added: 0,
-            updated: 0,
-            removed: 0,
-            unchanged: project.sections.length,
-          },
-          false,
-        );
-        return await fn(db, embedder, project);
-      }
+      return await fn(db, embedder, project);
     } finally {
       await closeDb(db);
     }
@@ -109,6 +121,7 @@ async function withDb<T>(
     const stats = await indexSections(latDir, db, embedder, undefined, project);
     await setStoredModel(db, modelKey(embedder));
     progress?.afterIndex?.(stats, isEmpty);
+    await prepare?.(embedder);
     return fn(db, embedder, project);
   });
 }
@@ -156,6 +169,7 @@ export async function runSearch(
     (await analyzeMarkdownProject(latDir, dirname(latDir), {
       executor: 'auto',
     }));
+  let vector: number[];
   return withDb(
     latDir,
     progress,
@@ -168,11 +182,20 @@ export async function runSearch(
         embedder,
         limit,
         opts?.minSimilarity,
+        vector,
       );
       return {
         query,
         matches: resolveSearchMatches(results, analyzed.sectionById),
       };
+    },
+    async (embedder) => {
+      vector = await prepareSearchQuery(
+        query,
+        embedder,
+        limit,
+        opts?.minSimilarity,
+      );
     },
   );
 }

@@ -98,15 +98,17 @@ The artifact pins `lat.md`, `@lat.md/server`, and Express. Its entrypoint constr
 
 Framework-aware hosts can serve `public/` from a CDN and route remaining requests to the default Express export without platform-specific output. The entrypoint also injects a search-engine factory built from ordinary `@lat.md/embed` and model imports; those packages own and load their engine, WASM, and model assets.
 
-The build creates the semantic index once and serializes the flat section metadata required to turn index ids into browser results. [[src/view/preindexed-search.ts#createPreindexedViewSearch]] queries that copied index without importing indexing or Markdown parsers, then hydrates its storage-level rows through the same resolver as other search callers.
+The build creates the semantic index once and serializes the flat section metadata required to turn index ids into browser results. [[src/view/preindexed-search.ts#createPreindexedViewSearch]] queries that bundled index without importing indexing or Markdown parsers, then hydrates its storage-level rows through the same resolver as other search callers.
 
 [[src/view/server-build.ts#buildServerSearchIndex]] indexes the analyzed snapshot in a child process and waits for its exit before publishing staging. Process exit releases native database handles that can otherwise prevent directory renames on Windows.
 
-[[src/view/server-deployment.ts#createServerViewApp]] consumes the explicit manifest and index paths, derives static fallback content from the artifact layout, copies the immutable database into a writable runtime cache, and registers only the search API on the supplied Express app. Each server instance opens that copy and resolves its injected local embedder once; hosted keys do not alter the prebuilt index's model. The local model initializes on the first query and remains available for later warm queries. Shutdown closes the database before removing temporary storage. Git, editing, events, and repository reads remain absent.
+[[src/view/server-deployment.ts#createServerViewApp]] consumes the explicit manifest and index paths, derives static fallback content from the artifact layout, and opens the bundled `server-data/search.db` directly. Each query opens and closes the database under the same access lock as CLI search. The instance reuses its injected embedder; hosted keys do not alter the prebuilt index's model. Git, editing, events, and repository reads remain absent.
+
+The database and its directory must be writable for Turso 0.7.2 connections, database sidecars, and access-lock files. The runtime does not copy the database or provide a temporary-storage fallback for read-only deployments.
 
 Static client configuration treats search as an independent capability: pure static builds omit the control and route, while server builds point the same client at their configured search endpoint. Documents, source views, externals, and the graph remain static in both targets.
 
-Shutdown retries deletion of its owned temporary index. Persistent Windows native-file locks may leave that disposable OS-temp copy behind without failing shutdown; caller-provided caches and deployed indexes are never removed.
+Shutdown waits for active queries to close and leaves the bundled database in place.
 
 ### Vercel server export
 
@@ -134,7 +136,7 @@ The server serializes editor writes, verifies the target is a known real Markdow
 
 A server-lifetime [[src/view/store.ts#createViewStore|ViewStore]] keeps document navigation and reverse references current without rescanning the project for every request.
 
-At startup the store reads each Markdown file once through the shared [[architecture-analysis#File analysis|file analyzer]], scans code references once, and obtains the explicit supported-source inventory from [[src/code-refs.ts#createCodeReferenceDiscovery]] for its watch scope. It then resolves the cached AST-free facts into an immutable reverse-reference snapshot.
+At startup the store reads each Markdown file once through the shared [[architecture-analysis#File analysis|file analyzer]], scans code references once, and obtains the explicit supported-source inventory from [[packages/core/src/code-refs.ts#createCodeReferenceDiscovery]] for its watch scope. It then resolves the cached AST-free facts into an immutable reverse-reference snapshot.
 
 The store watches the project with a short debounce and serializes updates. Existing Markdown and code files are reread individually; file additions trigger a lightweight scope refresh, and deletions remove their cached contributions. Disposable `lat.md/.cache` writes are ignored at the watcher boundary.
 
@@ -180,7 +182,7 @@ The current section and its entire subtree stay subtly emphasized while readers 
 
 TOC entries show an orange disc when their section contains a rendered Git change and a red disc when it owns validation errors. Git discs follow the Git visibility toggle; error discs remain visible.
 
-Same-document fragment navigation updates history and scroll position without clearing, refetching, or remounting the rendered Markdown. The H1 TOC fragment positions the viewport at document scroll-top zero; source fragments remain part of route identity because they select code symbols.
+Same-document fragment navigation updates history and scroll position without clearing, refetching, or remounting the rendered Markdown. Explicit same-document section clicks take priority over search-match positioning, including repeat clicks on the current fragment, while retaining highlighted passages. The H1 TOC fragment positions the viewport at document scroll-top zero; source fragments remain part of route identity because they select code symbols.
 
 Wide layouts give the sticky TOC a fixed 286px column and the available viewport height. Its list uses normal block flow, stays content-height when short, and scrolls behind a hidden scrollbar when long. Fixed link metrics never shrink to fit overflow.
 
@@ -198,7 +200,7 @@ The topmost section menu in a local Markdown document links to the raw `.md` rou
 
 Raw-file links preserve the deployment base in live, static, and server builds. A homepage at `/` links to its `/<file>.md` source rather than appending `.md` to the homepage URL.
 
-In live views, the menu can invoke [[src/cli/section.ts#sectionCommand|the shared `lat section` command path]] with plain styling. Its modal defaults to the React projection of the shared document tree and can switch to raw output; static exports omit only this execution action.
+In live views, the menu can invoke [[packages/core/src/cli/section.ts#sectionCommand|the shared `lat section` command path]] with plain styling. Its modal defaults to the React projection of the shared document tree and can switch to raw output; static exports omit only this execution action.
 
 ## Responsive layout
 
@@ -247,3 +249,17 @@ Escape clears a non-empty query, then returns to the page that opened search. Cl
 [[graph#Graph View]] projects cached documents, source targets, and code mentions into a stable directed graph without rescanning at request time. Resolved section relationships roll up to their owning documents.
 
 The graph renderer and projection load on demand; deterministic document/code clusters avoid force simulation. Normal document/source URLs own selection and history; the embedding filter reuses `/api/search` and propagates relative hybrid rank scores into result sizing.
+
+## Live request boundaries
+
+Live UI requests must address the configured listener or a loopback alias on its actual port. Browser Origin headers must match the request authority; forwarding headers cannot bypass this check.
+
+Repository resources use a sandbox CSP without script or same-origin privileges. HTML, XML, and JavaScript resources download as attachments; passive images and SVG remain embeddable. These checks apply to the editable live server, not public exported sites, and are not an authentication system.
+
+## Publication scope
+
+Static and server builds publish linked source and resource files only within an explicit file inventory. Interactive browsing retains its broader project-contained read behavior.
+
+In Git projects, publication requires a tracked regular file that is not ignored. Outside Git, the ordinary walker applies `.gitignore` rules. Dot paths, dependency trees, and `config.local.yaml` are always excluded, including through symlink aliases. Add intended public files to Git and remove ignore rules before building; excluded links fail the build while preserving the previous output.
+
+The same policy filters code-reference files before snippets enter documents or graph data. External documents do not authorize local source collection. Foreign-origin links are not local routes, and decoded paths and route writes remain confined to the export payload.

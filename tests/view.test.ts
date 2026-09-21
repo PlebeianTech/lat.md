@@ -20,12 +20,12 @@ import express from 'express';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { plainStyler, type CmdContext } from '../src/context.js';
-import { setRepoEmbedding } from '../src/config.js';
+import { plainStyler, type CmdContext } from '@lat.md/core/context';
+import { setRepoEmbedding } from '@lat.md/core/config';
 import { uiCommand } from '../src/cli/ui.js';
 import { uiBuildCommand } from '../src/cli/ui-build.js';
 import { uiBuildServerCommand } from '../src/cli/ui-build-server.js';
-import { analyzeMarkdownFile } from '../src/markdown-analysis.js';
+import { analyzeMarkdownFile } from '@lat.md/core/markdown-analysis';
 import {
   DEFAULT_VIEW_PORT,
   startViewServer,
@@ -45,7 +45,7 @@ import {
   createServerViewApp,
   type ServerViewManifest,
 } from '../src/view/server-deployment.js';
-import { analyzeMarkdownProject } from '../src/project-analysis.js';
+import { analyzeMarkdownProject } from '@lat.md/core/project-analysis';
 import type {
   ViewStaticBootstrap,
   ViewStaticManifest,
@@ -966,7 +966,7 @@ describe('lat ui', () => {
       }));
       const search = await createPreindexedViewSearch(
         join(outputDir, 'server-data'),
-        join(outputDir, 'runtime-cache'),
+        join(outputDir, 'server-data'),
         [{ ...section, children: [] }],
         new Map([[builtSection.id.toLowerCase(), documentPath]]),
         { openSearchSession },
@@ -975,7 +975,7 @@ describe('lat ui', () => {
       expect(openSearchSession).toHaveBeenCalledWith(
         join(outputDir, 'server-data'),
         {
-          cacheDir: join(outputDir, 'runtime-cache'),
+          cacheDir: join(outputDir, 'server-data'),
           createSearchEngine,
         },
       );
@@ -1138,6 +1138,11 @@ describe('lat ui', () => {
       linkPackage('express', join(repositoryRoot, 'node_modules', 'express'));
       linkPackage('lat.md', repositoryRoot);
 
+      // Remove the builder's released lock so runtime access must recreate it.
+      rmSync(join(outputDir, 'server-data', 'search-access.lock'), {
+        force: true,
+      });
+
       const generated = (await import(
         pathToFileURL(join(outputDir, 'app.mjs')).href
       )) as {
@@ -1220,6 +1225,15 @@ describe('lat ui', () => {
       expect(payload.results.length).toBeGreaterThan(0);
       expect(payload.results).toContainEqual(
         expect.objectContaining({ path: 'guide.md' }),
+      );
+      // Queries lock the bundled database, not a private runtime copy.
+      expect(
+        existsSync(join(outputDir, 'server-data', 'search-access.lock')),
+      ).toBe(true);
+      await closeGeneratedApp();
+      closeGeneratedApp = undefined;
+      expect(existsSync(join(outputDir, 'server-data', 'search.db'))).toBe(
+        true,
       );
     } finally {
       if (server) {

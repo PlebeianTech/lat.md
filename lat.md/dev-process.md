@@ -32,6 +32,8 @@ TypeScript ESM project with a Rust-to-WASM embedding engine. Local development m
 
 The root workspace contains the TypeScript CLI, the `@lat.md/embed` Rust/WASM engine, the `@lat.md/embed-minilm-fp16` model package, and the `website/` Next.js app.
 
+The CLI, library packages, and Vite UI use the native Go-based TypeScript 7.0.2 compiler, pinned in the root, core, and server development dependencies. It retains the `tsc` command and installs prebuilt platform binaries through pnpm; no Go toolchain is required. Node-targeted TypeScript configurations explicitly include `node` types. The separate Next.js website retains TypeScript 5.9 because Next 15 calls the JavaScript compiler API, which TypeScript 7.0 does not provide.
+
 ## Package Manager
 
 pnpm is the only supported package manager. Never use npm or yarn.
@@ -47,7 +49,7 @@ pnpm exec lat search "topic or behavior"
 pnpm exec lat expand "the task, including any [[refs]]"
 ```
 
-Use `pnpm exec lat locate "Section Name"` for direct lookup. Update `lat.md/` for meaningful functionality, architecture, behavior, tests, or planned work; keep it a current snapshot rather than a changelog. Follow `AGENTS.md` for section and code-reference conventions.
+Use `pnpm exec lat locate "Section Name"` for direct lookup. Update `lat.md/` for meaningful changes to implemented functionality, architecture, behavior, or tests. Plans may be drafted in `lat.md/` alongside implementation, with the intent that by commit time they describe what was implemented. Otherwise, keep proposals, hypothetical designs, and future work outside `lat.md/` unless the user explicitly requests them there. Follow `AGENTS.md` for section and code-reference conventions.
 
 Add or update tests with behavior changes. Important tests have a specification under `lat.md/tests/` and exactly one nearby `@lat:` comment in the corresponding test.
 
@@ -101,7 +103,7 @@ Commands for running the test suite.
 
 ### Typecheck Test
 
-Every test run includes a full `tsc --noEmit` pass over the entire codebase. If it doesn't typecheck, it doesn't pass.
+Every test run includes a full native `tsc --noEmit` pass over the root and UI projects after building core and server declarations. The subprocess has a 90-second limit inside a 120-second test budget for Windows CI.
 
 ### Continuous Integration
 
@@ -109,7 +111,7 @@ CI runs `pnpm buildall`, the `vitest` suite, and `lat check` on `ubuntu-latest`.
 
 The separate graph-validation workflow installs and builds the workspace, then runs `lat check` through the checkout's built CLI. This lets unreleased parser and validation behavior verify the repository without third-party actions or the last npm release.
 
-Cross-platform correctness relies on two conventions: stored paths are always POSIX ([[src/path.ts#toPosix]]), and a repo-root `.gitattributes` (`eol=lf`) keeps Windows checkouts from rewriting line endings and breaking the markdown roundtrip. Functional init tests run the built CLI and database seeding in child processes so native database handles close before temp cleanup. Lower-level tests that retain handles or spawn a fake `git` use [[tests/util.ts#rmDirBestEffort]].
+Cross-platform correctness relies on two conventions: stored paths are always POSIX ([[packages/core/src/path.ts#toPosix]]), and a repo-root `.gitattributes` (`eol=lf`) keeps Windows checkouts from rewriting line endings and breaking the markdown roundtrip. Functional init tests run the built CLI and database seeding in child processes so native database handles close before temp cleanup. Lower-level tests that retain handles or spawn a fake `git` use [[tests/util.ts#rmDirBestEffort]].
 
 ## Site Development
 
@@ -130,25 +132,25 @@ The legacy production project and domain remain outside this deployment path unt
 
 ## File Walking
 
-All directory walking goes through [[src/walk.ts#walkEntries]], the single entry point with nested `.gitignore` support that excludes `.git/`, dotfiles, dot-directories, and symlinks before recursive traversal.
+All directory walking goes through [[packages/core/src/walk.ts#walkEntries]], the single entry point with nested `.gitignore` support that excludes `.git/`, dotfiles, dot-directories, and symlinks before recursive traversal.
 
 `walkEntries()` retains `ignore-walk`'s nested ignore-rule contexts but owns traversal itself. A bounded queue runs one asynchronous directory job per available CPU; each job uses `readdir` directory entries instead of per-entry `lstat` calls, filters files with file semantics only, and submits visible child directories back to the queue. Results are sorted after reduction, not cached, so long-lived processes such as the MCP server always observe the current filesystem.
 
-Nearest-project discovery and Markdown file listing live in parser-free [[src/project-discovery.ts]]. Finding `lat.md/` walks ancestor paths without loading the directory walker; listing Markdown files dynamically loads `walkEntries()` only when enumeration is requested.
+Nearest-project discovery and Markdown file listing live in parser-free [[packages/core/src/project-discovery.ts]]. Finding `lat.md/` walks ancestor paths without loading the directory walker; listing Markdown files dynamically loads `walkEntries()` only when enumeration is requested.
 
 Pre-traversal filtering prevents transient files under dot-directories and dependency trees under `node_modules/` from racing or polluting non-Git project scans.
 
-[[src/code-refs.ts#walkFiles]] calls `walkEntries()` then additionally skips `.md` files, `lat.md/`, `.claude/`, and sub-projects (directories containing their own `lat.md/`).
+[[packages/core/src/code-refs.ts#walkFiles]] calls `walkEntries()` then additionally skips `.md` files, `lat.md/`, `.claude/`, and sub-projects (directories containing their own `lat.md/`).
 
-[[src/code-refs.ts#createCodeReferenceDiscovery]] exposes separate lazy operations for scanning `@lat:` comments and listing the supported source-file scope. The project-scoped object coalesces repeated calls and shares ripgrep exclusion discovery; [[src/code-refs.ts#scanCodeRefs]] and [[src/code-refs.ts#discoverSourceFiles]] are focused one-shot APIs for callers that need only one result.
+[[packages/core/src/code-refs.ts#createCodeReferenceDiscovery]] exposes separate lazy operations for scanning `@lat:` comments and listing the supported source-file scope. The project-scoped object coalesces repeated calls and shares ripgrep exclusion discovery; [[packages/core/src/code-refs.ts#scanCodeRefs]] and [[packages/core/src/code-refs.ts#discoverSourceFiles]] are focused one-shot APIs for callers that need only one result.
 
 Git projects enumerate their tracked regular source files once, excluding symlinks, sources beneath dot-directories, the root vault, and nested Lat projects, then give that identical ordered list to ripgrep or the TypeScript scanner. Untracked build output and ignored files therefore never enter project validation.
 
-Outside Git, both operations first try `rg` (ripgrep), falling back to pure TypeScript discovery and scanning. Ripgrep honors nested `.gitignore` files, uses the fallback's case-insensitive ignore semantics, and excludes dot paths, Markdown, Lat documentation, dependency trees, and nested Lat projects. The [[src/source-formats.ts#SOURCE_FILE_EXTENSIONS|supported-source registry]] becomes a custom rg file type rather than positive globs, because positive globs can re-include ignored files. The UI requests the explicit source inventory for its live-update scope; `lat check` requests only references.
+Outside Git, both operations first try `rg` (ripgrep), falling back to pure TypeScript discovery and scanning. Ripgrep honors nested `.gitignore` files, uses the fallback's case-insensitive ignore semantics, and excludes dot paths, Markdown, Lat documentation, dependency trees, and nested Lat projects. The [[packages/core/src/source-formats.ts#SOURCE_FILE_EXTENSIONS|supported-source registry]] becomes a custom rg file type rather than positive globs, because positive globs can re-include ignored files. Both scanners use the explicit inventory. Ripgrep emits JSON match records and NUL-delimited filenames, so punctuation cannot forge backlink paths. Source snippet reads resolve symlinks and reject paths outside the project.
 
 The TS fallback uses `walkFiles` for discovery and exclusion filtering, then reads and scans supported files through a bounded async pool with one slot per CPU available to the process. Both paths sort file and reference results by source position, so scheduling cannot reorder references or read diagnostics. `CodeRef.file` is always stored as a projectRoot-relative path; consumers convert to cwd-relative only at display time. Setting `_LAT_DISABLE_RG=1` forces the TS fallback; used in tests to cover both paths.
 
-[[src/cli/check.ts#checkIndex]] calls `walkEntries()` on the `lat.md/` directory itself to discover visible entries for index validation.
+[[packages/core/src/cli/check.ts#checkIndex]] calls `walkEntries()` on the `lat.md/` directory itself to discover visible entries for index validation.
 
 ## Formatting
 

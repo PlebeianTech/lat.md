@@ -1,8 +1,9 @@
 import { lstatSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { inspectRepositoryPath } from './repository-path.js';
 import { execFile } from 'node:child_process';
 import { availableParallelism } from 'node:os';
-import { join, posix, relative } from 'node:path';
+import { join, posix, relative, sep } from 'node:path';
 import { isSourceFilePath, SOURCE_FILE_EXTENSIONS } from './source-formats.js';
 import { toPosix } from './path.js';
 import { ALWAYS_IGNORED_DIRECTORIES, walkEntries } from './walk.js';
@@ -18,7 +19,9 @@ const RG_IGNORE_ARGS = ['--no-require-git', '--ignore-file-case-insensitive'];
  *  .gitignore support, then additionally skips lat.md/, .claude/, generated
  *  UI output, and sub-projects. */
 export async function walkFiles(dir: string): Promise<string[]> {
-  const entries = (await walkEntries(dir)).map(toPosix);
+  const entries = (await walkEntries(dir))
+    .filter((path) => sep !== '/' || !path.includes('\\'))
+    .map(toPosix);
 
   // Generated UI output carries a .lat-ui-build marker; the whole directory it
   // marks is build product, not source, so nothing in it is a real code ref.
@@ -190,13 +193,13 @@ async function findSubProjects(projectRoot: string): Promise<string[]> {
   // need to find nested ones here — search for files under */lat.md/.
   const out = await tryExec(
     'rg',
-    ['--files', ...RG_IGNORE_ARGS, '--glob', '**/lat.md/**', '.'],
+    ['--files', '--null', ...RG_IGNORE_ARGS, '--glob', '**/lat.md/**', '.'],
     projectRoot,
   );
   if (!out) return [];
 
   const subProjects = new Set<string>();
-  for (const rawLine of out.split('\n')) {
+  for (const rawLine of out.split('\0')) {
     if (!rawLine) continue;
     // rg emits native separators on Windows; normalize before matching '/lat.md/'.
     const line = toPosix(rawLine);
@@ -242,7 +245,8 @@ async function findGitTrackedSourceFiles(
       if (tab === -1) return [];
       const mode = entry.slice(0, entry.indexOf(' '));
       if (mode !== '100644' && mode !== '100755') return [];
-      return [toPosix(entry.slice(tab + 1))];
+      const path = entry.slice(tab + 1);
+      return path.includes('\\') ? [] : [path];
     });
   const subProjects = nestedLatProjects(entries);
   const candidates = entries.filter(
@@ -395,9 +399,7 @@ async function tryRipgrepCodeRefs(
   files?: string[],
 ): Promise<CodeRef[] | null> {
   const searchArgs = [
-    '--no-heading',
-    '--line-number',
-    '--with-filename',
+    '--json',
     ...RG_IGNORE_ARGS,
     ...rgSourceIncludeArgs(),
     ...excludes,
@@ -440,6 +442,7 @@ async function tryRipgrepSourceFiles(
         'rg',
         [
           '--files',
+          '--null',
           ...RG_IGNORE_ARGS,
           ...rgSourceIncludeArgs(),
           ...excludes,
@@ -451,8 +454,9 @@ async function tryRipgrepSourceFiles(
   if (filesOut === null) return null;
 
   const files = (filesOut || '')
-    .split('\n')
+    .split('\0')
     .filter(Boolean)
+    .filter((path) => sep !== '/' || !path.includes('\\'))
     .map((f) => {
       const clean = toPosix(f).replace(/^\.\//, '');
       return join(projectRoot, clean);
@@ -461,45 +465,30 @@ async function tryRipgrepSourceFiles(
   return files;
 }
 
-/**
- * Parse rg output lines (file:line:content) into CodeRef entries.
- */
+/** Parse unambiguous ripgrep JSON records, including encoded filenames. */
 function parseGrepOutput(
   output: string,
-  projectRoot: string,
+  _projectRoot: string,
 ): { refs: CodeRef[] } {
   const refs: CodeRef[] = [];
-
-  if (!output.trim()) return { refs };
-
+  const decode = (value: { text?: string; bytes?: string }): string =>
+    value.text ?? Buffer.from(value.bytes ?? '', 'base64').toString('utf8');
   for (const line of output.split('\n')) {
     if (!line) continue;
-    // Format: ./path/to/file:linenum:content
-    const firstColon = line.indexOf(':');
-    if (firstColon === -1) continue;
-    const secondColon = line.indexOf(':', firstColon + 1);
-    if (secondColon === -1) continue;
-
-    // rg emits native separators (`\` on Windows); normalize to POSIX so the
-    // stored path matches wiki-link and TS-fallback conventions. This also
-    // turns a Windows `.\` prefix into `./` for the strip below.
-    let filePath = toPosix(line.slice(0, firstColon));
-    const lineNum = parseInt(line.slice(firstColon + 1, secondColon), 10);
-    const content = line.slice(secondColon + 1);
-
-    if (isNaN(lineNum)) continue;
-
-    // Strip leading ./ from path
-    if (filePath.startsWith('./')) filePath = filePath.slice(2);
-
+    const record = JSON.parse(line);
+    if (record.type !== 'match') continue;
+    const file = toPosix(decode(record.data.path)).replace(/^\.\//, '');
+    const lineNumber = record.data.line_number;
+    if (!Number.isSafeInteger(lineNumber) || lineNumber < 1) continue;
+    
     // Extract targets using the same regex and literal-span filtering as the
     // TS fallback, so both scan paths agree regardless of whether ripgrep is
     // installed.
+    const content = decode(record.data.lines);
     for (const target of extractRefsFromLine(content)) {
-      refs.push({ target, file: filePath, line: lineNum });
+      refs.push({ target, file: file, line: lineNumber });
     }
   }
-
   return { refs };
 }
 
@@ -511,7 +500,12 @@ async function scanFileWithTs(
 ): Promise<TsFileScan> {
   let content: string;
   try {
-    content = await readFile(file, 'utf-8');
+    const inspected = await inspectRepositoryPath(
+      projectRoot,
+      relative(projectRoot, file),
+    );
+    if (inspected.kind !== 'file') return { refs: [] };
+    content = await readFile(inspected.realPath, 'utf-8');
   } catch (err) {
     return {
       refs: [],
@@ -615,15 +609,14 @@ export function createCodeReferenceDiscovery(
 
   const scan = () =>
     (scanPromise ??= (async () => {
-      const tracked = await trackedFiles();
+      const files = await listSourceFiles();
+      const inventory = new Set(
+        files.map((file) => toPosix(relative(projectRoot, file))),
+      );
       if (process.env._LAT_DISABLE_RG !== '1') {
-        const refs = await tryRipgrepCodeRefs(
-          projectRoot,
-          tracked === null ? await ripgrepExcludes() : [],
-          profile,
-          tracked ?? undefined,
-        );
-        if (refs !== null) return { refs };
+        const refs = await tryRipgrepCodeRefs(projectRoot, [], profile, files);
+        if (refs !== null)
+          return { refs: refs.filter((ref) => inventory.has(ref.file)) };
       }
 
       const refs = await profileScan(

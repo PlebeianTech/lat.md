@@ -61,7 +61,7 @@ Root and nested builds preserve encoded filenames, relative links, fragments, ra
 
 `lat ui build server [output]` emits immutable public routes plus a portable Express application whose only dynamic feature is semantic search.
 
-The build creates its vector index once and stores flat section metadata beside it. Runtime search copies the database to writable temporary storage, resolves results without Markdown parsing, and never rebuilds the index. A warm server instance reuses one database handle and embedder across queries, then closes the handle before deleting owned temporary storage.
+The build creates its vector index once and stores flat section metadata beside it. Runtime search opens the bundled database directly, resolves results without Markdown parsing, and never rebuilds the index. A warm server reuses its embedder while each query opens and closes the database under the CLI access-lock protocol. The database and its directory must be writable.
 
 The generated package directly imports and constructs its pinned Express version for framework detection, then passes that app to the shared runtime and delegates `npm start`, security headers, static caching, listening, and shutdown to `@lat.md/server`. No generated listener implementation is serialized into the artifact.
 
@@ -77,7 +77,7 @@ The Node-target regression test builds a complete portable artifact, loads its g
 
 Indexing runs in a child process that exits before staging is renamed, releasing native SQLite handles on Windows. The existing analyzed snapshot crosses the process boundary intact, and indexing errors reject the build before publication.
 
-Shutdown closes search and retries removal of its owned runtime cache. Persistent Windows lock errors on that disposable copy do not fail shutdown; other cleanup errors still surface.
+Search creates access locks beside the bundled database, proving it uses the build output directly. Shutdown closes search and preserves that database; no private runtime copy is created.
 
 It verifies the document shell, immutable JavaScript and CSS assets, and semantic results from the real local embedding model and built SQLite index. The test therefore covers the generated application contract rather than substituting a fake search handler.
 
@@ -399,6 +399,12 @@ Selecting the H1 entry in the page TOC keeps its canonical fragment while positi
 
 Fragment-only rerenders preserve the keyed React fence components, while a changed document tree updates or unmounts Mermaid, map, and STL resources through normal component lifecycle.
 
+## TOC navigation from search results
+
+TOC clicks scroll to the selected heading even when the URL contains search highlights, including repeated clicks on the current fragment.
+
+Initial search-result navigation centers its highlighted passage. Subsequent section clicks preserve those highlights and the mounted document without refetching; H1 clicks scroll to the top, and history navigation restores saved positions.
+
 ## Restores history scroll positions
 
 In-app navigation records each viewport and restores it before revealing content reached through Back.
@@ -414,3 +420,15 @@ The document API rejects traversal and non-Markdown targets so browser requests 
 `lat ui` prefers loopback port 4242, advances when an implicit default is occupied, and starts listening before passing the final URL to the platform browser launcher.
 
 An explicit `--port <number>` accepts 1–65535 and fails clearly rather than selecting another port when occupied. Startup reports the URL and points users to both deployment build targets.
+
+## Live request and resource isolation
+
+The live server validates Host and Origin against its listener, rejects cross-origin edits, and isolates raw resources with sandbox CSP and attachment responses for active HTML and script formats.
+
+## Export publication boundaries
+
+Exports reject private, ignored, and untracked source/resource files before reading their content, including backlink snippets and symlink aliases. Foreign origins and encoded path separators cannot trigger local reads or escaping output writes.
+
+## External documents cannot publish local source
+
+External Markdown and AsciiDoc links never authorize local source exports or live local-code navigation. Legitimate configured external links remain available.

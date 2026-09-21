@@ -1,11 +1,7 @@
-import {
-  existsSync,
-  cpSync,
-  mkdirSync,
-  writeFileSync,
-  readFileSync,
-} from 'node:fs';
-import { join, resolve } from 'node:path';
+import { agentInvocation } from './agent-invocation.js';
+import { projectWritePath, writeProjectFile } from '@lat.md/core/project-write';
+import { existsSync, cpSync, mkdirSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { styleText } from 'node:util';
@@ -18,8 +14,12 @@ import {
   readOpenCodePluginTemplate,
   readSkillTemplate,
 } from './gen.js';
-import { getLlmKey, getRepoEmbedding, setRepoEmbedding } from '../config.js';
-import { makeStyler } from './context.js';
+import {
+  getLlmKey,
+  getRepoEmbedding,
+  setRepoEmbedding,
+} from '@lat.md/core/config';
+import { makeStyler } from '@lat.md/core/cli/context';
 import { closeDb, getStoredModel, openDb } from '../search/db.js';
 import { modelKey } from '../search/embedder.js';
 import { reindexCommand } from './reindex.js';
@@ -29,9 +29,9 @@ import {
   readInitVersion,
   readFileHash,
   contentHash,
-} from '../init-version.js';
+} from '@lat.md/core/init-version';
 import { getLocalVersion, fetchLatestVersion } from '../version.js';
-import { selectMenu, type SelectOption } from './select-menu.js';
+import { selectMenu, type SelectOption } from '@lat.md/core/cli/select-menu';
 import { checklistMenu } from './checklist-menu.js';
 import { writeForkInstructions } from './fork-instructions.js';
 import { offerRequireMode, writeForkScaffold } from './fork-scaffold.js';
@@ -174,7 +174,9 @@ export function syncLatHooks(
   settingsPath: string,
   style: LatCommandStyle,
   agent: 'claude' | 'codex' = 'claude',
+  root = dirname(dirname(settingsPath)),
 ): void {
+  projectWritePath(root, settingsPath);
   let settings: Record<string, unknown> = {};
   if (existsSync(settingsPath)) {
     const raw = readFileSync(settingsPath, 'utf-8');
@@ -215,6 +217,7 @@ export function syncLatHooks(
     });
   }
 
+<<<<<<< HEAD
   // PostToolUse fires the `// @lat:` comment reminder — only after Edit/Write,
   // never on every tool call.
   if (!Array.isArray(hooks.PostToolUse)) {
@@ -231,6 +234,13 @@ export function syncLatHooks(
   });
 
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+=======
+  writeProjectFile(
+    root,
+    settingsPath,
+    JSON.stringify(settings, null, 2) + '\n',
+  );
+>>>>>>> 1effc1d014608fe8ba3171b9683c7858821c44c3
 }
 
 function cursorHooksTemplate(style: LatCommandStyle): string {
@@ -260,7 +270,7 @@ function cursorHooksTemplate(style: LatCommandStyle): string {
 // ── Gitignore helper ─────────────────────────────────────────────────
 
 function ensureGitignored(root: string, entry: string): void {
-  const gitignorePath = join(root, '.gitignore');
+  const gitignorePath = projectWritePath(root, join(root, '.gitignore'));
   const gitDir = join(root, '.git');
 
   // Check if already ignored
@@ -301,11 +311,11 @@ function ensureGitignored(root: string, entry: string): void {
     // Append to existing .gitignore
     let content = readFileSync(gitignorePath, 'utf-8');
     if (!content.endsWith('\n')) content += '\n';
-    writeFileSync(gitignorePath, content + entry + '\n');
+    writeProjectFile(root, gitignorePath, content + entry + '\n');
     console.log(styleText('green', `  Added ${entry}`) + ' to .gitignore');
   } else if (existsSync(gitDir)) {
     // Create .gitignore with the entry
-    writeFileSync(gitignorePath, entry + '\n');
+    writeProjectFile(root, gitignorePath, entry + '\n');
     console.log(styleText('green', `  Created .gitignore`) + ` with ${entry}`);
   } else {
     console.log(
@@ -340,7 +350,8 @@ type McpConfig = Record<
   Record<string, { command: string; args: string[] }>
 >;
 
-function hasMcpServer(configPath: string, key: string): boolean {
+function hasMcpServer(root: string, configPath: string, key: string): boolean {
+  projectWritePath(root, configPath);
   if (!existsSync(configPath)) return false;
   try {
     const cfg = JSON.parse(readFileSync(configPath, 'utf-8'));
@@ -354,10 +365,12 @@ function hasMcpServer(configPath: string, key: string): boolean {
 }
 
 function addMcpServer(
+  root: string,
   configPath: string,
   key: string,
   style: LatCommandStyle,
 ): void {
+  projectWritePath(root, configPath);
   let cfg: McpConfig = { [key]: {} };
   if (existsSync(configPath)) {
     const raw = readFileSync(configPath, 'utf-8');
@@ -372,7 +385,7 @@ function addMcpServer(
   cfg[key].lat = styledMcpCommand(style);
 
   mkdirSync(join(configPath, '..'), { recursive: true });
-  writeFileSync(configPath, JSON.stringify(cfg, null, 2) + '\n');
+  writeProjectFile(root, configPath, JSON.stringify(cfg, null, 2) + '\n');
 }
 
 // ── Codex TOML MCP helpers ────────────────────────────────────────────
@@ -381,7 +394,8 @@ function addMcpServer(
  * Check whether `.codex/config.toml` already contains an `[mcp_servers.lat]`
  * table.  We use a simple regex match — no TOML parser needed.
  */
-function hasCodexMcpServer(configPath: string): boolean {
+function hasCodexMcpServer(root: string, configPath: string): boolean {
+  projectWritePath(root, configPath);
   if (!existsSync(configPath)) return false;
   try {
     const content = readFileSync(configPath, 'utf-8');
@@ -405,7 +419,12 @@ function hasCodexMcpServer(configPath: string): boolean {
  * args = ["mcp"]
  * ```
  */
-function addCodexMcpServer(configPath: string, style: LatCommandStyle): void {
+function addCodexMcpServer(
+  root: string,
+  configPath: string,
+  style: LatCommandStyle,
+): void {
+  projectWritePath(root, configPath);
   const cmd = styledMcpCommand(style);
 
   // Format args as a TOML inline array of quoted strings
@@ -418,9 +437,9 @@ function addCodexMcpServer(configPath: string, style: LatCommandStyle): void {
     let content = readFileSync(configPath, 'utf-8');
     if (!content.endsWith('\n')) content += '\n';
     content += '\n' + block;
-    writeFileSync(configPath, content);
+    writeProjectFile(root, configPath, content);
   } else {
-    writeFileSync(configPath, block);
+    writeProjectFile(root, configPath, block);
   }
 }
 
@@ -442,12 +461,12 @@ async function writeTemplateFile(
   indent: string,
   ask: (message: string) => Promise<boolean>,
 ): Promise<string | null> {
-  const absPath = join(root, relPath);
+  const absPath = projectWritePath(root, join(root, relPath));
   const templateHash = contentHash(template);
 
   if (!existsSync(absPath)) {
     mkdirSync(join(absPath, '..'), { recursive: true });
-    writeFileSync(absPath, template);
+    writeProjectFile(root, absPath, template);
     console.log(styleText('green', `${indent}Created ${label}`));
     return templateHash;
   }
@@ -467,7 +486,7 @@ async function writeTemplateFile(
 
   if (storedHash && currentHash === storedHash) {
     // Unmodified by user — safe to overwrite with new template
-    writeFileSync(absPath, template);
+    writeProjectFile(root, absPath, template);
     console.log(styleText('green', `${indent}Updated ${label}`));
     return templateHash;
   }
@@ -478,7 +497,7 @@ async function writeTemplateFile(
       ' exists and may contain your own content.',
   );
   if (await ask(`${indent}Overwrite with latest lat template?`)) {
-    writeFileSync(absPath, template);
+    writeProjectFile(root, absPath, template);
     console.log(styleText('green', `${indent}Updated ${label}`));
     return templateHash;
   }
@@ -535,13 +554,13 @@ async function appendTemplateSection(
   indent: string,
   ask: (message: string) => Promise<boolean>,
 ): Promise<string | null> {
-  const absPath = join(root, relPath);
+  const absPath = projectWritePath(root, join(root, relPath));
   const templateHash = contentHash(template);
   const wrapped = wrapWithMarkers(template);
 
   if (!existsSync(absPath)) {
     mkdirSync(join(absPath, '..'), { recursive: true });
-    writeFileSync(absPath, wrapped);
+    writeProjectFile(root, absPath, wrapped);
     console.log(styleText('green', `${indent}Created ${label}`));
     return templateHash;
   }
@@ -572,7 +591,7 @@ async function appendTemplateSection(
         currentContent.slice(0, beginIdx) +
         wrapped +
         currentContent.slice(endWithNl);
-      writeFileSync(absPath, updated);
+      writeProjectFile(root, absPath, updated);
       console.log(styleText('green', `${indent}Updated ${label}`));
       return templateHash;
     }
@@ -590,7 +609,7 @@ async function appendTemplateSection(
         currentContent.slice(0, beginIdx) +
         wrapped +
         currentContent.slice(endWithNl);
-      writeFileSync(absPath, updated);
+      writeProjectFile(root, absPath, updated);
       console.log(styleText('green', `${indent}Updated ${label}`));
       return templateHash;
     }
@@ -606,7 +625,7 @@ async function appendTemplateSection(
 
   if (storedHash && currentHash === storedHash) {
     // Unmodified old-style file — migrate: wrap existing content with markers
-    writeFileSync(absPath, wrapWithMarkers(currentContent));
+    writeProjectFile(root, absPath, wrapWithMarkers(currentContent));
     console.log(
       styleText('green', `${indent}Migrated ${label}`) + ' to marker format',
     );
@@ -618,7 +637,7 @@ async function appendTemplateSection(
   let content = currentContent;
   if (!content.endsWith('\n')) content += '\n';
   content += '\n' + wrapped;
-  writeFileSync(absPath, content);
+  writeProjectFile(root, absPath, content);
   console.log(styleText('green', `${indent}Appended lat section to ${label}`));
   return templateHash;
 }
@@ -706,11 +725,11 @@ async function setupClaudeCode(
     styleText('dim', '  the agent to update lat.md/ before finishing.'),
   );
 
-  const claudeDir = join(root, '.claude');
+  const claudeDir = projectWritePath(root, join(root, '.claude'));
   const settingsPath = join(claudeDir, 'settings.json');
 
   mkdirSync(claudeDir, { recursive: true });
-  syncLatHooks(settingsPath, style);
+  syncLatHooks(settingsPath, style, 'claude', root);
   console.log(
     styleText('green', '  Hooks') +
       ' synced (UserPromptSubmit + Stop + PostToolUse)',
@@ -757,10 +776,10 @@ async function setupClaudeCode(
   );
 
   const mcpPath = join(root, '.mcp.json');
-  if (hasMcpServer(mcpPath, 'mcpServers')) {
+  if (hasMcpServer(root, mcpPath, 'mcpServers')) {
     console.log(styleText('green', '  MCP server') + ' already configured');
   } else {
-    addMcpServer(mcpPath, 'mcpServers', style);
+    addMcpServer(root, mcpPath, 'mcpServers', style);
     console.log(
       styleText('green', '  MCP server') + ' registered in .mcp.json',
     );
@@ -833,10 +852,10 @@ async function setupCursor(
   );
 
   const mcpPath = join(root, '.cursor', 'mcp.json');
-  if (hasMcpServer(mcpPath, 'mcpServers')) {
+  if (hasMcpServer(root, mcpPath, 'mcpServers')) {
     console.log(styleText('green', '  MCP server') + ' already configured');
   } else {
-    addMcpServer(mcpPath, 'mcpServers', style);
+    addMcpServer(root, mcpPath, 'mcpServers', style);
     console.log(
       styleText('green', '  MCP server') + ' registered in .cursor/mcp.json',
     );
@@ -890,10 +909,10 @@ async function setupCopilot(
   );
 
   const mcpPath = join(root, '.vscode', 'mcp.json');
-  if (hasMcpServer(mcpPath, 'servers')) {
+  if (hasMcpServer(root, mcpPath, 'servers')) {
     console.log(styleText('green', '  MCP server') + ' already configured');
   } else {
-    addMcpServer(mcpPath, 'servers', style);
+    addMcpServer(root, mcpPath, 'servers', style);
     console.log(
       styleText('green', '  MCP server') + ' registered in .vscode/mcp.json',
     );
@@ -928,9 +947,8 @@ async function setupPi(
     ),
   );
 
-  const template = readPiExtensionTemplate().replace(
-    '__LAT_BIN__',
-    latBinString(style),
+  const template = readPiExtensionTemplate().replace('__LAT_INVOCATION__', () =>
+    JSON.stringify(agentInvocation(style, resolveLatInvocation())),
   );
 
   const hash = await writeTemplateFile(
@@ -997,8 +1015,8 @@ async function setupOpenCode(
   );
 
   const template = readOpenCodePluginTemplate().replace(
-    '__LAT_BIN__',
-    latBinString(style),
+    '__LAT_INVOCATION__',
+    () => JSON.stringify(agentInvocation(style, resolveLatInvocation())),
   );
 
   const hash = await writeTemplateFile(
@@ -1042,10 +1060,10 @@ async function setupCodex(
     styleText('dim', '  the agent to update lat.md/ before finishing.'),
   );
 
-  const codexDir = join(root, '.codex');
+  const codexDir = projectWritePath(root, join(root, '.codex'));
   const hooksPath = join(codexDir, 'hooks.json');
   mkdirSync(codexDir, { recursive: true });
-  syncLatHooks(hooksPath, style, 'codex');
+  syncLatHooks(hooksPath, style, 'codex', root);
   console.log(
     styleText('green', '  Hooks') +
       ' synced (UserPromptSubmit + Stop + PostToolUse)',
@@ -1067,10 +1085,10 @@ async function setupCodex(
   );
 
   const mcpPath = join(root, '.codex', 'config.toml');
-  if (hasCodexMcpServer(mcpPath)) {
+  if (hasCodexMcpServer(root, mcpPath)) {
     console.log(styleText('green', '  MCP server') + ' already configured');
   } else {
-    addCodexMcpServer(mcpPath, style);
+    addCodexMcpServer(root, mcpPath, style);
     console.log(
       styleText('green', '  MCP server') + ' registered in .codex/config.toml',
     );
@@ -1360,12 +1378,13 @@ export function readLogo(): string {
 }
 
 export function ensureLatLocalConfigIgnored(latDir: string): void {
-  const path = join(latDir, '.gitignore');
+  const root = dirname(latDir);
+  const path = projectWritePath(root, join(latDir, '.gitignore'));
   const entry = 'config.local.yaml';
   const current = existsSync(path) ? readFileSync(path, 'utf8') : '';
   if (current.split(/\r?\n/).includes(entry)) return;
   const prefix = current && !current.endsWith('\n') ? `${current}\n` : current;
-  writeFileSync(path, `${prefix}${entry}\n`);
+  writeProjectFile(root, path, `${prefix}${entry}\n`);
 }
 
 export async function initCmd(targetDir?: string): Promise<void> {
@@ -1394,6 +1413,7 @@ export async function initCmd(targetDir?: string): Promise<void> {
 
   const root = resolve(targetDir ?? process.cwd());
   const latDir = join(root, 'lat.md');
+  projectWritePath(root, latDir);
   const storedInitVersion = readInitVersion(latDir);
 
   const interactive = process.stdin.isTTY ?? false;
@@ -1628,7 +1648,7 @@ export async function initCmd(targetDir?: string): Promise<void> {
     );
 
     // Suggest ripgrep if not available
-    const { hasRipgrep } = await import('../code-refs.js');
+    const { hasRipgrep } = await import('@lat.md/core/code-refs');
     if (!(await hasRipgrep())) {
       console.log('');
       console.log(

@@ -2,7 +2,9 @@
 
 The `lat` command line tool. Entry point: [[src/cli/index.ts]].
 
-**Design principle: shared core, thin wrappers.** Every CLI command and its corresponding [[cli#mcp]] tool share the same command function (e.g. `locateCommand`, `sectionCommand`, `refsCommand`). Each command function accepts a `CmdContext` (with a `Styler` abstraction for chalk vs plain formatting) and returns a `CmdResult` (`{ output, isError? }`). CLI and MCP are thin wrappers that construct the appropriate context and handle the result — CLI calls `handleResult` (print + exit code), MCP calls `toMcp` (wrap in MCP response). Some commands have a separate business-logic layer (e.g. `getSection`, `findRefs`, `runSearch`) that returns structured data, called by the command function. Shared types live in [[src/context.ts]]. Never duplicate business logic between CLI and MCP.
+Human-readable command output uses Markdown-like text: headings, lists, and inline code for paths and command names.
+
+**Design principle: shared core, thin wrappers.** Every CLI command and its corresponding [[cli#mcp]] tool share the same command function (e.g. `locateCommand`, `sectionCommand`, `refsCommand`). Each command function accepts a `CmdContext` (with a `Styler` abstraction for chalk vs plain formatting) and returns a `CmdResult` (`{ output, isError? }`). CLI and MCP are thin wrappers that construct the appropriate context and handle the result — CLI calls `handleResult` (print + exit code), MCP calls `toMcp` (wrap in MCP response). Some commands have a separate business-logic layer (e.g. `getSection`, `findRefs`, `runSearch`) that returns structured data, called by the command function. Shared types live in [[packages/core/src/context.ts]]. Never duplicate business logic between CLI and MCP.
 
 ## locate
 
@@ -18,7 +20,7 @@ Outputs a [[cli#Section Preview]] for each match.
 
 Usage: `lat locate <query>`
 
-Implementation: [[src/cli/locate.ts]], matching logic in [[src/lattice-model.ts#findSections]]
+Implementation: [[packages/core/src/cli/locate.ts]], matching logic in [[packages/core/src/lattice-model.ts#findSections]]
 
 ## section
 
@@ -41,7 +43,7 @@ Source snippet lines in outgoing-reference and code-backlink blocks use Markdown
 
 Usage: `lat section <query>`
 
-Core logic in [[src/cli/section.ts#getSection]] (returns structured result), used by both the CLI command and [[cli#mcp]] `lat_section` tool.
+Core logic in [[packages/core/src/cli/section.ts#getSection]] (returns structured result), used by both the CLI command and [[cli#mcp]] `lat_section` tool.
 
 ## refs
 
@@ -61,7 +63,7 @@ Usage: `lat refs <query> [--scope=md|code|md+code]`
 - `code` — scan source files for `@lat: [[...]]` comments matching the query
 - `md+code` (default) — both
 
-Core logic in [[src/cli/refs.ts#findRefs]] (returns structured result), used by both the CLI command and [[cli#mcp]] `lat_refs` tool.
+Core logic in [[packages/core/src/cli/refs.ts#findRefs]] (returns structured result), used by both the CLI command and [[cli#mcp]] `lat_refs` tool.
 
 ## check
 
@@ -84,13 +86,13 @@ relative to the containing project root and code references are scanned from
 that root. The full check skips the `lat init` version warning because the
 directory is not required to have lat setup metadata.
 
-Emits a stale-init warning before any errors so the user sees setup issues first. The init version check compares `INIT_VERSION` in [[src/init-version.ts]] against the version in `lat.md/.cache/lat_init.json` written by [[cli#init]]. If the total check took longer than one second and ripgrep is not installed, shows a tip suggesting the user install it for faster scanning. A successful full check ends with its total elapsed time, such as `All checks passed in 250ms`; file-extension counts are omitted because the validators perform different kinds of work.
+Emits a stale-init warning before any errors so the user sees setup issues first. The init version check compares `INIT_VERSION` in [[packages/core/src/init-version.ts]] against the version in `lat.md/.cache/lat_init.json` written by [[cli#init]]. If the total check took longer than one second and ripgrep is not installed, shows a tip suggesting the user install it for faster scanning. A successful full check ends with its total elapsed time, such as `All checks passed in 250ms`; file-extension counts are omitted because the validators perform different kinds of work.
 
 `--profile` adds a nested timing report for every validator and its major operations. Markdown and external-document timing explicitly report parser-module import durations on misses and zero-duration skipped-import events on hits; worker runs report one Markdown analyzer import per worker. Markdown and source timing also distinguish file reads, hashing, persistent parser-cache hits or misses, cache publication, and actual parser work. Repeated work is aggregated with call counts, average and maximum duration, and the slowest file or target so large-repository bottlenecks remain visible without one output line per file. Concurrent timings remain attributed to their initiating validator and may overlap within the total wall time.
 
 The full check runs its validators concurrently through one lazy command-scoped context backed by [[architecture-analysis#Project snapshot]]. Markdown files are read and parsed once; their AST-free facts and indexes are shared while syntax trees are discarded. Promise-backed code scanning, external resolution, and source-symbol checks coalesce in-flight work. Runtime state ends with the atomic command, while versioned AST-free parser entries remain as disposable input-hash caches.
 
-Implementation: [[src/cli/check.ts]], with check-specific inputs in [[src/cli/check-context.ts]] and shared Markdown analysis in [[src/project-analysis.ts]].
+Implementation: [[packages/core/src/cli/check.ts]], with check-specific inputs in [[packages/core/src/cli/check-context.ts]] and shared Markdown analysis in [[packages/core/src/project-analysis.ts]].
 
 ### md
 
@@ -177,7 +179,7 @@ For each `[[ref]]` in the input, uses `findSections()` directly (no `resolveRef`
 
 Output replaces `[[ref]]` with `[[resolved-id]]` inline and appends a `<lat-context>` block as a nested outliner. For exact matches: `is referring to:`. For non-exact: `might be referring to either of the following:` with all candidates, match reasons, locations, and body text.
 
-Implementation: [[src/cli/expand.ts]]
+Implementation: [[packages/core/src/cli/expand.ts]]
 
 ## gen
 
@@ -208,7 +210,7 @@ Steps:
 1. **lat.md/ directory** — if not present, asks whether to create it (via a one-off readline interface that is closed before step 2). Scaffolds from `templates/init/` (`.gitignore` and `README.md`). If it already exists, skips ahead.
 2. **Embedding setup** — fresh and outdated setups default to a per-repository local preference before agent selection, unless the repo already has a _working_ hosted setup (a hosted `meta.embedding_model` plus a resolvable key for the same provider and model). That exception matters because the outdated check re-fires on every `INIT_VERSION` bump, so pinning local unconditionally would keep undoing a deliberate hosted choice; a hosted index with no compatible key is unusable, so it does fall back to local. In a TTY, if a key resolves from `LAT_LLM_KEY`, `LAT_LLM_KEY_FILE`, `LAT_LLM_KEY_HELPER`, or user config, init asks whether to stay local or use hosted embeddings; fresh repos default local, while re-runs default to their existing backend. When that choice differs from `meta.embedding_model`, including a change between hosted providers, interactive init offers to reindex immediately. Non-interactive init never chooses: it applies the local default only where no working hosted setup exists, and prints the required command for any mismatch.
 3. **Agent selection** — interactive checklist menu ([[src/cli/checklist-menu.ts#checklistMenu]]). All agents are shown at once with `[x]`/`[ ]` checkboxes; the cursor row is highlighted with `chalk.bgCyan`. Keys: up/down (j/k) to move, Space to toggle, Enter to confirm, Ctrl+C to abort. Returns an array of selected agent values. Non-TTY fallback returns `[]`. After confirmation, prints a summary line (e.g. "Selected: Claude Code, Cursor" or dim "None"). **Important:** the persistent readline interface is created _after_ this step — `checklistMenu` puts stdin into raw mode with its own `data` listener, which corrupts any co-existing readline interface.
-4. **Command style** — if any agent is selected, a `selectMenu` asks "How should agents run lat?" with three options: `lat` (global install, portable), the resolved local invocation, or `npx lat.md@latest` (slow but zero-install). Local JavaScript builds retain the exact Node executable that launched init, and TypeScript entry points also retain their loader flags; wrapper scripts and standalone binaries remain direct commands. The choice determines what command string is written into hooks, MCP configs, and Pi extensions. Non-interactive mode defaults to `local`. Choosing `global` or `npx` makes generated config files portable and safe to commit.
+4. **Command style** — if any agent is selected, a `selectMenu` asks "How should agents run lat?" with three options: `lat` (global install, portable), the resolved local invocation, or `npx lat.md@latest` (slow but zero-install). Local JavaScript builds retain the exact Node executable that launched init, and TypeScript entry points also retain their loader flags; wrapper scripts and standalone binaries remain direct commands. The choice determines hook commands and structured executable/argument descriptors for MCP and generated tools. Non-interactive mode defaults to `local`. Global and npx commands are portable on Unix; Windows generated tools use explicit Node entry points to avoid shell wrappers.
 5. **AGENTS.md** — created if a non-Claude agent is selected (Cursor, Copilot, Codex). Shared instruction file. Uses marker-based append mode (see below).
 6. **Per-agent setup** — configures each selected agent (see subsections below). Each step prints a brief explanation of _why_ it's needed (e.g. why a hook is used instead of CLAUDE.md, why MCP is registered alongside CLI access).
 7. **Version stamp + file hashes** — writes `INIT_VERSION` and SHA-256 hashes of all template-generated files to `lat.md/.cache/lat_init.json`. The version is also stamped when no agents are selected, because embedding setup has completed and must not be treated as fresh on the next run. On re-run, compares current file content against stored hashes: unmodified files are silently updated to the latest template; user-modified files trigger a Y/n prompt offering to overwrite with the latest template, declining suggests [[cli#gen]].
@@ -236,12 +238,18 @@ Sets up `CLAUDE.md` and two agent hooks for the Claude Code coding agent.
 - `.claude` directory added to `.gitignore` (settings contain local absolute paths in hook commands)
 - [[cli#mcp]] server registered in `.mcp.json` at the project root (added to `.gitignore` since it contains absolute paths)
 
+### Initialization write boundaries
+
+Setup validates project destinations before reading or writing them, rejecting escaping or dangling symlinks in files and ancestor directories.
+
+The shared [[packages/core/src/project-write.ts]] guard covers generated instructions, skills, plugins, hooks, MCP settings, ignore files, local preferences, and init metadata. Writes replace validated files atomically and preserve existing in-project symlinks and user-edit prompts. This protects against repository-planted paths; it does not promise isolation from a same-user process racing filesystem changes.
+
 ### Pi
 
 Sets up a Pi extension that registers lat tools as native Pi tools and hooks into the agent lifecycle.
 
 - `AGENTS.md` — shared instruction file (created in the shared step)
-- `.pi/extensions/lat.ts` — TypeScript extension generated from `templates/pi-extension.ts` with the full invocation command injected. `resolveLatBin()` in `init.ts` runs local `.js` builds through their Node executable, captures `node <execArgv> <script>` for `.ts` source files run via tsx, and invokes executable wrappers or standalone binaries directly. Registers six tools (`lat_search`, `lat_section`, `lat_locate`, `lat_check`, `lat_expand`, `lat_refs`) that shell out to the `lat` CLI. Each tool provides a `renderCall` method so the Pi TUI displays the query/parameters inline in the tool call header (e.g. `lat search "query text"`). The `lat_search` and `lat_section` tools also provide a `renderResult` method that shows a collapsed preview (first 4 lines) by default and renders the full output as styled markdown (via pi's `Markdown` component and `getMarkdownTheme()`) when expanded via Ctrl+O (`expandTools` keybinding). Registers custom message renderers for `lat-reminder` and `lat-check` that show a collapsed one-liner by default and expand to full markdown-rendered content on Ctrl+O. Hooks into `before_agent_start` (injects a visible search reminder via `customType` message with `display: true`) and `agent_end` (runs `lat check` + diff analysis, sends a visible follow-up message if something needs fixing).
+- `.pi/extensions/lat.ts` — TypeScript extension generated from `templates/pi-extension.ts` with an executable and prefix argument array injected. `resolveLatInvocation()` in `init.ts` runs local `.js` builds through their Node executable, captures `node <execArgv> <script>` for `.ts` source files run via tsx, and invokes executable wrappers or standalone binaries directly. Registers six tools (`lat_search`, `lat_section`, `lat_locate`, `lat_check`, `lat_expand`, `lat_refs`) that invoke the CLI without a shell, preserving queries as literal arguments. Each tool provides a `renderCall` method so the Pi TUI displays the query/parameters inline in the tool call header (e.g. `lat search "query text"`). The `lat_search` and `lat_section` tools also provide a `renderResult` method that shows a collapsed preview (first 4 lines) by default and renders the full output as styled markdown (via pi's `Markdown` component and `getMarkdownTheme()`) when expanded via Ctrl+O (`expandTools` keybinding). Registers custom message renderers for `lat-reminder` and `lat-check` that show a collapsed one-liner by default and expand to full markdown-rendered content on Ctrl+O. Hooks into `before_agent_start` (injects a visible search reminder via `customType` message with `display: true`) and `agent_end` (runs `lat check` + diff analysis, sends a visible follow-up message if something needs fixing).
 - `.pi/skills/lat-md/SKILL.md` — skill spec generated from `templates/skill/SKILL.md`. Teaches the agent how to author and maintain `lat.md/` files (section structure, wiki links, code refs, test specs). Pi discovers it automatically from the `.pi/skills/` directory.
 - `.pi` directory added to `.gitignore` (extension and skills contain local paths)
 
@@ -266,10 +274,10 @@ Sets up `copilot-instructions.md` and registers the MCP server for VS Code Copil
 
 ### OpenCode
 
-Sets up an OpenCode plugin that registers lat tools as native OpenCode tools and hooks into the session lifecycle.
+Sets up an OpenCode plugin that registers lat tools as native OpenCode tools and hooks into the session lifecycle. Tool arguments are passed literally through `execFileSync`, without shell evaluation.
 
 - `AGENTS.md` — shared instruction file (created in the shared step)
-- `.opencode/plugins/lat.ts` — TypeScript plugin generated from `templates/opencode-plugin.ts` with the lat invocation command injected. Uses `@opencode-ai/plugin` to register six tools (`lat_search`, `lat_section`, `lat_locate`, `lat_check`, `lat_expand`, `lat_refs`) that shell out to the `lat` CLI. Hooks into `session.idle` (runs `lat check` + diff analysis, logs a warning via `client.app.log` if something needs fixing).
+- `.opencode/plugins/lat.ts` — TypeScript plugin generated from `templates/opencode-plugin.ts` with the lat invocation command injected. Uses `@opencode-ai/plugin` to register six tools (`lat_search`, `lat_section`, `lat_locate`, `lat_check`, `lat_expand`, `lat_refs`) that invoke the CLI without a shell, preserving queries as literal arguments. Hooks into `session.idle` (runs `lat check` + diff analysis, logs a warning via `client.app.log` if something needs fixing).
 - `.agents/skills/lat-md/SKILL.md` — skill spec for authoring `lat.md/` files, placed in the cross-agent standard skills directory
 - `.opencode` directory added to `.gitignore` (plugin contains local absolute paths)
 
@@ -304,11 +312,23 @@ Shared files use `appendTemplateSection` to preserve user content outside lat's 
 
 Template content is wrapped in visible `%% lat:begin %%` / `%% lat:end %%` markers. Applies to CLAUDE.md, AGENTS.md, and `.github/copilot-instructions.md`. On re-run: if markers exist and the section matches, it's skipped ("already up to date"); if the section matches the stored hash (unmodified by user), it's replaced in-place; if the user edited the section, init asks before replacing. If the file exists but has no markers (old full-overwrite init), and the full-file hash matches the stored hash, the existing content is migrated to marker format in-place. If the file has user content and no markers, the section is appended to the end. All other agent files (rules, skills, hooks, extensions, plugins) still use full-file `writeTemplateFile` since lat owns those entirely.
 
-Implementation: [[src/cli/init.ts]], checklist menu in [[src/cli/checklist-menu.ts]], single-select menu in [[src/cli/select-menu.ts]], version tracking in [[src/init-version.ts]]
+Implementation: [[src/cli/init.ts]], checklist menu in [[src/cli/checklist-menu.ts]], single-select menu in [[packages/core/src/cli/select-menu.ts]], version tracking in [[packages/core/src/init-version.ts]]
+
+## paths
+
+Print resolved configuration, cache, and project storage locations as Markdown headings and lists, with inline-code paths and short descriptions. Missing files are labeled without creating them, and the command works outside a project.
+
+`lat paths --config` prints only the user configuration file location and existence status. The previous `lat config` command remains a hidden compatibility alias. Neither command displays secrets or runs credential helpers.
+
+`--dir` selects the project. Project output includes canonical and local configuration, configured local external working trees, the managed Git cache, parsed results, and downloaded external files. The full CLI also lists search databases and locks, initialization state, and default UI build outputs. Transient implementation storage is omitted. `lat-core paths` lists only core storage.
+
+Implementation: [[packages/core/src/cli/paths.ts#pathsCommand]]
 
 ## Configuration File
 
-User-level configuration is stored in `~/.config/lat/config.json` (XDG Base Directory on Linux/macOS, `%APPDATA%\lat\config.json` on Windows). The `XDG_CONFIG_HOME` env var is respected if set.
+User-level configuration stores embedding preferences and optional hosted credentials. `lat paths --config` reports the effective path, honoring `XDG_CONFIG_HOME`.
+
+Defaults are `~/.config/lat/config.json` on Linux, `~/Library/Application Support/lat/config.json` on macOS, and `%APPDATA%\Config\lat\config.json` on Windows. On Windows, a `config` subdirectory is also appended to `XDG_CONFIG_HOME`; the XDG library matches the parent directory’s capitalization.
 
 Currently supports:
 
@@ -317,7 +337,7 @@ Currently supports:
 
 Key resolution order: `LAT_LLM_KEY` > `LAT_LLM_KEY_FILE` > `LAT_LLM_KEY_HELPER` > config file `llm_key`. This applies to `lat search`, `lat reindex`, `lat init`, and the MCP `lat_search` tool.
 
-Implementation: [[src/config.ts]]
+Implementation: [[packages/core/src/config.ts]]
 
 ## hook
 
@@ -336,9 +356,9 @@ Currently supports:
 Reads the hook input from stdin (Claude JSON with `user_prompt` or Codex JSON with `prompt`). Outputs the shared Claude/Codex JSON shape with `additionalContext` containing:
 
 1. A directive to ALWAYS run `lat search` on the user's intent before starting work — even for seemingly straightforward tasks — because search may reveal critical design details, protocols, or constraints. Includes a hard gate: do not read files, write code, or run commands until search is done.
-2. A reminder that `lat.md/` must stay in sync with meaningful codebase state: update relevant current-state sections for behavior, architecture, tests, or planned-work changes, but do not use `lat.md/` as a journal/changelog or grow it for insignificant details.
-3. If the prompt contains `[[refs]]`, resolves them inline using [[src/cli/expand.ts#expandPrompt]]
-4. Runs [[src/cli/search.ts#runSearch]] on the user prompt in **read-only mode** (`buildIndex: false`) — it searches an existing index but never builds or updates one, so a user's first prompt in a fresh repo isn't blocked by a full local embed pass (building the index is `lat search` / [[cli#reindex]], and until then this returns no matches). Then [[src/cli/section.ts#getSection]] + [[src/cli/section.ts#formatSectionOutput]] on each result — the agent gets full section content with outgoing/incoming refs before it starts work. Gracefully degrades when nothing is indexed yet or the backend can't serve the index.
+2. A reminder that `lat.md/` must stay in sync with meaningful codebase state: update relevant current-state sections for implemented behavior, architecture, or test changes. Plans may be drafted in `lat.md/` alongside implementation, with the intent that by commit time they describe what was implemented. Otherwise, keep proposals, hypothetical designs, and future work outside `lat.md/` unless the user explicitly requests them there. Do not use `lat.md/` as a journal/changelog or grow it for insignificant details.
+3. If the prompt contains `[[refs]]`, resolves them inline using [[packages/core/src/cli/expand.ts#expandPrompt]]
+4. Runs [[src/cli/search.ts#runSearch]] on the user prompt in **read-only mode** (`buildIndex: false`) — it searches an existing index but never builds or updates one, so a user's first prompt in a fresh repo isn't blocked by a full local embed pass (building the index is `lat search` / [[cli#reindex]], and until then this returns no matches). Then [[packages/core/src/cli/section.ts#getSection]] + [[packages/core/src/cli/section.ts#formatSectionOutput]] on each result — the agent gets full section content with outgoing/incoming refs before it starts work. Gracefully degrades when nothing is indexed yet or the backend can't serve the index.
 
 ### Stop
 
@@ -347,7 +367,7 @@ Conditionally continues Claude or Codex — only when something is actually wron
 1. **No `lat.md/` dir** — exit silently.
 2. **Run `lat check`** — always, on both first and second pass.
 3. **Second pass** (`stop_hook_active` true) — if check still fails, print warning to stderr (no block, loop stops). If check passes, exit silently.
-4. **First pass** — measure churn via [[src/cli/hook.ts#analyzeDiff]]: project-relative `git diff HEAD --numstat --relative -- .` covers tracked changes, while NUL-delimited `git ls-files --others --exclude-standard -z -- .` discovers untracked files and respects Git ignore rules. Both scans stay within the discovered Lat project when it is nested in a larger Git worktree. The hook counts regular files under `lat.md/` plus code files matching [[src/source-formats.ts#SOURCE_FILE_EXTENSIONS]]; it classifies untracked paths before reading them, so unrelated files are skipped. This makes a freshly scaffolded, never-committed `lat.md/` visible. Outside a Git worktree, diff analysis contributes zero churn by design: Git is optional, so validation still runs but the sync reminder is disabled. Skip the ratio check if `codeLines < 5` or `latMdLines >= 50`; otherwise flag `needsSync` when `latMdLines < codeLines * 5%`.
+4. **First pass** — measure churn via [[src/cli/hook.ts#analyzeDiff]]: project-relative `git diff HEAD --numstat --relative -- .` covers tracked changes, while NUL-delimited `git ls-files --others --exclude-standard -z -- .` discovers untracked files and respects Git ignore rules. Both scans stay within the discovered Lat project when it is nested in a larger Git worktree. The hook counts regular files under `lat.md/` plus code files matching [[packages/core/src/source-formats.ts#SOURCE_FILE_EXTENSIONS]]; it classifies untracked paths before reading them, so unrelated files are skipped. This makes a freshly scaffolded, never-committed `lat.md/` visible. Outside a Git worktree, diff analysis contributes zero churn by design: Git is optional, so validation still runs but the sync reminder is disabled. Skip the ratio check if `codeLines < 5` or `latMdLines >= 50`; otherwise flag `needsSync` when `latMdLines < codeLines * 5%`.
 5. **Decision** — both pass: exit silently, clean output. Check failed + needs sync: block ("update relevant current-state `lat.md/` sections if needed, then run `lat check` until it passes"). Check failed only: block ("run `lat check` until it passes"). Needs sync only: block with explicit context ("not updated" when 0 lat.md lines, "may not be fully in sync (N lines)" when some changes exist but below ratio) and a reminder not to add journal/changelog noise.
 
 ### PreToolUse
@@ -433,7 +453,7 @@ authoritative.
   throws [[src/search/embedder.ts#ReindexRequiredError]] and stops — it never silently switches or
   rebuilds. The user runs [[cli#reindex]] to re-decide the backend.
 
-Key resolution is unchanged ([[src/config.ts#getLlmKey]], priority: `LAT_LLM_KEY` →
+Key resolution is unchanged ([[packages/core/src/config.ts#getLlmKey]], priority: `LAT_LLM_KEY` →
 `LAT_LLM_KEY_FILE` → `LAT_LLM_KEY_HELPER` → `llm_key` config). The key prefix picks the hosted
 provider (detected in `@lat.md/embed`):
 
@@ -443,7 +463,7 @@ provider (detected in `@lat.md/embed`):
 - `sk-ant-...` — Anthropic (not supported, errors with guidance)
 - `REPLAY_LAT_LLM_KEY::<url>` — test-only replay server for the hosted path
 
-Implementation: [[src/search/embedder.ts]], [[src/config.ts]]
+Implementation: [[src/search/embedder.ts]], [[packages/core/src/config.ts]]
 
 ### Embeddings
 
@@ -508,4 +528,4 @@ Shared output format used by [[cli#locate]], [[cli#refs]], and [[cli#search]]. E
 
 Commands that return multiple results use `formatResultList()` which adds a markdown `##` heading and consistent spacing.
 
-Implementation: [[src/format.ts]] — exports [[src/format.ts#formatSectionId]], [[src/format.ts#formatSectionPreview]], [[src/format.ts#formatResultList]], and [[src/format.ts#formatNavHints]]
+Implementation: [[packages/core/src/format.ts]] — exports [[packages/core/src/format.ts#formatSectionId]], [[packages/core/src/format.ts#formatSectionPreview]], [[packages/core/src/format.ts#formatResultList]], and [[packages/core/src/format.ts#formatNavHints]]

@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "types": ["node"],
     "target": "ES2022",
     "module": "ES2022",
     "moduleResolution": "bundler",
@@ -10,5 +11,9 @@
     "declaration": true,
     "skipLibCheck": true
   },
-  "include": ["src", "tests"]
+  "include": [
+    "src",
+    "tests",
+    "packages/core/src/types"
+  ]
 }
