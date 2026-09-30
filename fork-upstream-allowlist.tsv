@@ -26,6 +26,7 @@ lat.md/tests/check-index.md	Test spec for upstream's index check, extended where
 lat.md/tests/check-md.md	Test spec for Ruby and Rake source symbol resolution; require-code-mention fails unless the spec section sits beside its test.
 lat.md/tests/hook.md	Test spec for the hook suite the fork extended, for the same require-code-mention reason.
 lat.md/tests/init.md	Test spec for `lat init`, extended where the fork extended the command.
+lat.md/tests/swift-source-parser.md	Declares the Swift test specifications as Diataxis reference documentation.
 lat.md/tests/tests.md	The tests index. Every fork-owned test spec file must be listed here or `lat check` fails.
 lat.md/view/specs.md	Test spec for safe source syntax highlighting including Ruby and Rake.
 package.json	The only place `name`, `version`, `repository.url`, and `homepage` live, and all four must differ for the fork to publish at all. Also carries the vendoring of `@lat.md/server`, which upstream depends on but has not published: it moves to devDependencies, `express` moves up, and `build` gains the vendor step.
@@ -107,6 +108,7 @@ tests/reference-security.test.ts	Imports @plebeiantech/lat.md-core package inste
 tests/search-query.test.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 tests/search.test.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 tests/source-parser-cache.test.ts	Adds Ruby and Rake test fixture for persistent source analysis cache.
+tests/swift-source-parser.test.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 tests/vercel-build.test.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 tests/view-navigation.test.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 tests/view.test.ts	Asserts markdown code badge rendering for Ruby and Rake source links.

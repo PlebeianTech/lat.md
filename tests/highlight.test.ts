@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import hljs from 'highlight.js';
 import { toViewDocumentTree } from '../src/view/document-tree.js';
 import { highlightCode, highlightSource } from '../src/view/highlight.js';
 import type {
@@ -94,6 +95,37 @@ describe('source highlighting', () => {
     );
   });
 
+  // @lat: [[lat.md/view/specs#View Tests#Supports the full Highlight.js language registry]]
+  it('accepts every bundled language and alias and preserves literal source', () => {
+    const source = '<script>alert(1)</script>\n& literal';
+    for (const language of hljs.listLanguages()) {
+      for (const label of [
+        language,
+        ...(hljs.getLanguage(language)?.aliases ?? []),
+      ]) {
+        const highlighted = highlightCode(label.toUpperCase(), source);
+        expect(highlighted, label).not.toBeNull();
+        const tree = toViewDocumentTree(highlighted!);
+        expect(treeText(tree), label).toBe(source);
+        expect(treeTags(tree), label).not.toContain('script');
+      }
+    }
+    for (const [path, source] of [
+      ['query.sql', 'SELECT name FROM users WHERE id = 1;'],
+      ['main.cpp', 'int main() { return 0; }'],
+      ['main.kt', 'fun main() { println("hello") }'],
+      ['main.SWIFT', 'let greeting = "hello"'],
+      ['script.lua', 'local greeting = "hello"'],
+    ]) {
+      const [tree] = highlightSource(path, source);
+      expect(treeText(tree), path).toBe(source);
+      expect(treeClasses(tree), path).toContain('hljs-keyword');
+    }
+    expect(highlightCode('shell', 'echo "$HOME"')).toEqual(
+      highlightCode('bash', 'echo "$HOME"'),
+    );
+  });
+
   // @lat: [[lat.md/view/specs#View Tests#Highlights source syntax safely]]
   it('emits safe structured lines and preserves multiline tokens', () => {
     const lines = highlightSource(
@@ -114,6 +146,13 @@ describe('source highlighting', () => {
     );
     expect(treeClasses(dart[0])).toContain('hljs-class');
     expect(treeText(dart[0])).toContain('Greeter');
+
+    const swift = highlightSource(
+      'src/Greeter.swift',
+      'struct Greeter { func greet() {} }',
+    );
+    expect(treeClasses(swift[0])).toContain('hljs-keyword');
+    expect(treeText(swift[0])).toBe('struct Greeter { func greet() {} }');
 
     const java = highlightSource(
       'src/Greeter.java',

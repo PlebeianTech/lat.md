@@ -40,7 +40,9 @@ GitHub-style `:name:` emoji shortcodes render as accessible Unicode emoji or Git
 
 ## Fenced Code Highlighting
 
-Fenced code blocks use their language label for safe server-side Lowlight trees, with common source, shell, web, data, diff, and Markdown grammars supported and unknown labels retained as plain code.
+Fenced code blocks support the full bundled Highlight.js language set and aliases through safe server-side Lowlight trees. Unknown labels remain plain code.
+
+[[src/view/highlight.ts#highlightCode]] matches labels case-insensitively and preserves Lat's `shell` alias for Bash scripts. [[src/view/highlight.ts#highlightSource]] uses file extensions as language labels, with unrecognized extensions rendered as plain text.
 
 ## Math
 
@@ -119,7 +121,7 @@ Existence does not imply navigation support: unsupported files and directories v
 
 ### Source Code Links
 
-Wiki links can reference symbols in TypeScript, JavaScript, Python, Ruby, Dart, Java, Rust, Go, C, and PHP source files:
+Wiki links can reference symbols in TypeScript, JavaScript, Python, Ruby, Dart, Java, Rust, Go, C, PHP, and Swift source files:
 
 - **`[[packages/core/src/config.ts#getConfigDir]]`** — the `getConfigDir` function in `src/config.ts`
 - **`[[src/server.ts#App#listen]]`** — the `listen` method on class `App` in `src/server.ts`
@@ -134,7 +136,9 @@ Wiki links can reference symbols in TypeScript, JavaScript, Python, Ruby, Dart, 
 - **`[[src/app.h#Greeter#prefix]]`** — the `prefix` field of struct `Greeter` in C
 - **`[[packages/core/src/config.ts]]`** — link to the file itself (no symbol)
 
-Supported extensions: `.c`, `.dart`, `.erb`, `.go`, `.h`, `.java`, `.js`, `.jsx`, `.php`, `.py`, `.rake`, `.rb`, `.rs`, `.ts`, `.tsx`. The typed [[packages/core/src/source-formats.ts#SOURCE_FILE_EXTENSIONS]] registry governs source-link parsing, external source validation, and `@lat:` code-mention scanning.
+Supported extensions: `.c`, `.dart`, `.erb`, `.go`, `.h`, `.java`, `.js`, `.jsx`, `.php`, `.py`, `.rake`, `.rb`, `.rs`, `.swift`, `.ts`, `.tsx`. The typed [[packages/core/src/source-formats.ts#SOURCE_FILE_EXTENSIONS]] registry governs source-link parsing, external source validation, and `@lat:` code-mention scanning.
+
+Swift symbols: functions, classes, structs, actors, protocols, enums and cases, properties, type aliases, associated types, initializers, deinitializers, and subscripts. Members use `[[src/App.swift#Greeter#greet]]`; special members use `#Greeter#init`, `#Greeter#deinit`, and `#Greeter#subscript`. Extensions contribute members under the extended type name. Nested types resolve standalone and under their enclosing type; their members use the standalone type name. Overloads resolve by base name, escaped identifiers omit backticks, and definition ranges include attributes. Function-local declarations are excluded. Swift `// @lat:` comments are scanned. Tests: [[tests/swift-source-parser]].
 
 Python symbols: functions, classes, methods, module-level variables. Decorated definitions (`@decorator`) are unwrapped transparently — `[[file.py#my_func]]` resolves whether or not `my_func` has decorators, and `# @lat:` comments placed between decorators and the `def`/`class` line are scanned normally.
 

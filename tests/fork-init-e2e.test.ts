@@ -15,12 +15,12 @@ const { checklistMenu, selectMenu } = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/cli/checklist-menu.js', () => ({ checklistMenu }));
-vi.mock('../src/cli/select-menu.js', () => ({ selectMenu }));
+vi.mock('@plebeiantech/lat.md-core/cli/select-menu', () => ({ selectMenu }));
 vi.mock('../src/version.js', () => ({
   fetchLatestVersion: vi.fn(async () => null),
   getLocalVersion: vi.fn(() => 'test'),
 }));
-vi.mock('../src/config.js', () => ({
+vi.mock('@plebeiantech/lat.md-core/config', () => ({
   getLlmKey: vi.fn(() => null),
   getRepoEmbedding: vi.fn(() => undefined),
   setRepoEmbedding: vi.fn(),

@@ -31,7 +31,7 @@ const {
   setRepoEmbedding: vi.fn(),
 }));
 
-vi.mock('../src/config.js', () => ({
+vi.mock('@plebeiantech/lat.md-core/config', () => ({
   getLlmKey,
   getRepoEmbedding,
   setRepoEmbedding,
@@ -43,7 +43,7 @@ vi.mock('../src/version.js', () => ({
 vi.mock('../src/cli/checklist-menu.js', () => ({
   checklistMenu: vi.fn(async () => []),
 }));
-vi.mock('../src/cli/select-menu.js', () => ({ selectMenu }));
+vi.mock('@plebeiantech/lat.md-core/cli/select-menu', () => ({ selectMenu }));
 vi.mock('../src/cli/reindex.js', () => ({ reindexCommand }));
 vi.mock('../src/search/db.js', () => ({
   closeDb,

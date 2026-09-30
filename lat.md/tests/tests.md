@@ -50,4 +50,5 @@ Shared patterns for writing and organizing tests in this project.
 - [Status](status.md) — Functional and unit tests for the \`status\`/\`reviewed-hash\` provenance fields, \`lat check status\`, and the provenance note surfaced above a quoted section.
 - [TS Fallback](ts-fallback.md) — Tests that verify the pure-TypeScript code-ref scanner produces identical results to the ripgrep path.
 - [Untrusted Text Additional Coverage](untrusted.md) — Additional coverage for \[\[src/untrusted.ts\]\] beyond its original core tests: wider invisible-Unicode stripping and the \`cleanUntrustedId\` helper for values embedded into ids and headings rather than quoted prose.
+- [Swift Source Links](swift-source-parser.md) — Swift declarations, type members, source ranges, and code-reference scanning.
 <!-- lat:index:end -->

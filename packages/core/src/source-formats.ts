@@ -15,6 +15,7 @@ export const SOURCE_FILE_EXTENSIONS = [
   '.rake',
   '.rb',
   '.rs',
+  '.swift',
   '.ts',
   '.tsx',
 ] as const;

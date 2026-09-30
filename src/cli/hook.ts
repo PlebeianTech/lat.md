@@ -7,7 +7,6 @@ import {
   plainStyler,
   type CmdContext,
 } from '@plebeiantech/lat.md-core/context';
-import { expandPrompt } from '@plebeiantech/lat.md-core/cli/expand';
 import { runSearch } from './search.js';
 import { DEFAULT_SEARCH_LIMIT } from '../search/search.js';
 import {
@@ -91,10 +90,6 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString('utf-8');
 }
 
-function hasWikiLinks(text: string): boolean {
-  return /\[\[[^\]]+\]\]/.test(text);
-}
-
 function makeHookCtx(latDir: string): CmdContext {
   return {
     latDir,
@@ -113,7 +108,7 @@ function makeHookCtx(latDir: string): CmdContext {
  */
 type SearchEnrichment = { text: string | null; filePaths: string[] };
 
-async function searchAndExpand(
+async function searchContextForPrompt(
   ctx: CmdContext,
   userPrompt: string,
 ): Promise<SearchEnrichment> {
@@ -182,39 +177,13 @@ async function handleUserPromptSubmit(): Promise<void> {
   const latDir = findLatticeDir();
   if (latDir && userPrompt) {
     const ctx = makeHookCtx(latDir);
-    // Parsed once for expansion, search, and federation below. The analysis is
-    // memoised on `ctx`, so passing that one object everywhere is what keeps
-    // the three of them from walking and parsing the tree three times.
+    // Search and federation share the analysis memoised on `ctx`.
     const { allSections } = await commandProjectAnalysis(ctx);
-
-    // If the user prompt contains [[refs]], resolve them inline
-    if (hasWikiLinks(userPrompt)) {
-      try {
-        const expanded = await expandPrompt(ctx, userPrompt);
-        if (expanded) {
-          parts.push(
-            '',
-            'Expanded user prompt with resolved [[refs]]:',
-            expanded,
-          );
-        } else {
-          parts.push(
-            '',
-            'NOTE: The user prompt contains [[refs]] but they could not be resolved. Ask the user to correct them.',
-          );
-        }
-      } catch {
-        parts.push(
-          '',
-          'NOTE: The user prompt contains [[refs]] but resolution failed. Run `lat expand` on the prompt text manually.',
-        );
-      }
-    }
 
     // Search for relevant sections and include their full content
     let searchFilePaths: string[] = [];
     try {
-      const searchContext = await searchAndExpand(ctx, userPrompt);
+      const searchContext = await searchContextForPrompt(ctx, userPrompt);
       searchFilePaths = searchContext.filePaths;
       if (searchContext.text) {
         parts.push('', searchContext.text);
@@ -245,7 +214,7 @@ async function handleUserPromptSubmit(): Promise<void> {
         }
       }
 
-      // Reuses what searchAndExpand already matched. Searching again here
+      // Reuses what searchContextForPrompt already matched. Searching again here
       // would double the cost of every prompt, and an unusable index makes
       // runSearch throw — which abandoned the [[ref]] paths collected above,
       // even though resolving those never touches the index at all.
