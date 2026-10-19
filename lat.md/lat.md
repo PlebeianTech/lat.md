@@ -1,19 +1,40 @@
-This directory defines the high-level concepts, business logic, and architecture of this project using markdown. It is managed by [lat.md](https://www.npmjs.com/package/lat.md) — a tool that anchors source code to these definitions. Install the `lat` command with `npm i -g lat.md` and run `lat --help`.
+![lat.md](logo.svg)
 
-**Markdown-first.** This project is built around markdown and its output should reflect that. CLI error messages, diagnostics, and reports use structured, readable formatting — bullet-point lists, indented context, and clear spacing between items — so output is scannable both by humans and by LLM-based agents consuming it.
+[![CI](https://img.shields.io/github/actions/workflow/status/vercel-labs/lat.md/ci.yml?branch=main&style=flat&label=CI&logo=github&logoColor=white&labelColor=111&color=555)](https://github.com/vercel-labs/lat.md/actions/workflows/ci.yml) [![GitHub stars](https://img.shields.io/github/stars/vercel-labs/lat.md?style=flat&logo=github&logoColor=white&labelColor=111&color=555)](https://github.com/vercel-labs/lat.md)
 
-<!-- lat:index:begin -->
-- [CLI](cli.md) — The \`lat\` command line tool. Entry point: \[\[src/cli/index.ts\]\].
-- [Dev Process](dev-process.md) — Development workflow, tooling, and conventions for the lat.md project.
-- [Explanation](explanation/explanation.md) — Why this system is shaped the way it is, and what the alternatives cost.
-- [External Sources](external-sources.md) — External sources let Lat resolve pinned files and fragments from other Git repositories without making those repositories part of the local project.
-- [How-to](how-to/how-to.md) — Recipes for tasks that recur, written for someone who already knows what they want.
-- [Markdown](markdown.md) — Extensions to standard markdown used in \`lat.md\` files.
-- [Package Distribution](package-distribution.md) — Lat separates core validation and navigation from the full CLI. The same core checker also powers a portable GitHub Action artifact, built and released from this repository.
-- [Parsed Analysis](architecture-analysis.md) — Lat turns local Markdown, external documents, and referenced source files into serializable semantic facts so commands can share parser results without retaining syntax trees.
-- [Parser](parser.md) — Markdown parsing uses unified/remark v11. Parser-native trees stay inside parsing, \[\[architecture-analysis|analysis\]\], and presentation; browsers receive the stable view tree, while commands use the AST-free analysis model. Fidelity is verified by \[\[tests/roundtrip\]\].
-- [RAG Architecture](rag-architecture.md) — Lat retrieves sections through owned passages, English-stemmed full-text search, and embedding similarity. This page is the implementation reference; \[\[cli#search\]\] documents command usage and \[\[tests/search\]\] defines the test contracts.
-- [Tests](tests/tests.md) — High-level test descriptions. Actual test code lives in \`tests/\`.
-- [View](view/view.md) — The local browser turns a \`lat.md\` vault into navigable rendered documentation while keeping the installed runtime small.
-- [Website](website.md) — Standalone Next.js app in \`website/\`. Deployed to Vercel at \`lat.md\`.
-<!-- lat:index:end -->
+Lat is a knowledge graph for your codebase, written in Markdown for humans and coding agents.
+
+Lat turns architecture, product rules, test intent, and source-code relationships into a graph that lives beside the code. Agents retrieve the right context instead of rediscovering it, and `lat check` keeps the graph honest as the project changes.
+
+## Start here
+
+Install Lat, initialize a project, and let the setup wizard connect your coding agents.
+
+```bash
+npm install -g lat.md
+cd your-project
+lat init
+```
+
+Write ordinary Markdown in `lat.md/`, connect sections with `[[wiki links]]`, and tie implementation back to the graph with `// @lat: [[section-id]]` comments. See [[quick-start]] for the complete first loop.
+
+## Why Lat
+
+Lat gives people and agents one reviewable source of truth for what a system does and why.
+
+- **Give agents durable context.** Capture decisions and constraints once instead of recovering them from code and old conversations.
+- **Review meaning before mechanics.** Read the knowledge diff to understand a change, then inspect its implementation.
+- **Connect knowledge to code.** Link documents to source symbols and require important test specifications to have code backlinks.
+- **Detect drift.** Validate wiki links, source symbols, Markdown links, section structure, and test-spec coverage in one command.
+- **Explore, do not grep.** Search semantically, follow references, or browse the same graph in [[ui|Lat UI]].
+
+## Explore
+
+The public guide, release history, and Lat's own engineering knowledge share this graph and link to one another.
+
+- [[quick-start]] — Set up Lat and let your agent maintain the graph
+- [[changelog]] — User-visible changes by release
+- [[docs]] — Concise documentation for installing, using, and integrating Lat
+- [[knowledge]] — The internal knowledge graph that documents and drives Lat itself
+- [[explanation]] — Why this fork is shaped the way it is, and what the alternatives cost
+- [[how-to]] — Recipes for recurring tasks in this fork

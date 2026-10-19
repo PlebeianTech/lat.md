@@ -276,7 +276,10 @@ export function renderSyncPoint(previous: string, rev: string): string {
 }
 
 export function isAncestorOfHead(repo: string, rev: string): boolean {
-  return git(repo, ['merge-base', '--is-ancestor', rev, 'HEAD']).status === 0;
+  return (
+    git(repo, ['merge-base', '--is-ancestor', rev, 'HEAD']).status === 0 ||
+    git(repo, ['merge-base', '--is-ancestor', rev, 'MERGE_HEAD']).status === 0
+  );
 }
 
 export function isShallow(repo: string): boolean {

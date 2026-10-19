@@ -25,7 +25,7 @@ The same baseline decides ownership. A file upstream added after the fork point 
 node dist/src/fork/upstream-guard-cli.js --set-sync-point <rev>
 ```
 
-The revision has to be an ancestor of `HEAD` already: a sync point off the current history makes the diff meaningless, so recording one before its merge lands is refused. A shallow clone cannot answer the ancestry question at all, and skips the check rather than failing on truncated history.
+The revision has to be an ancestor of `HEAD` (or `MERGE_HEAD` while a merge is staged): a sync point off the current history makes the diff meaningless, so recording one before its merge is started is refused. A shallow clone cannot answer the ancestry question at all, and skips the check rather than failing on truncated history.
 
 ## The allowlist
 

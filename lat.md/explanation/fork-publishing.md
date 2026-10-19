@@ -4,7 +4,7 @@ The fork publishes **`@plebeiantech/lat.md`** to public npm and attaches the sam
 
 Upstream's `publish.yml` was replaced wholesale rather than adapted. That file ran on every push to `main` and ended in `publish_if_new .`, targeting `lat.md` on npm — a package this fork does not own, so a fork version bump would have attempted a publish to someone else's package. The replacement refuses to run at all unless the package name is exactly `@plebeiantech/lat.md`.
 
-The two `@lat.md/*` workspace packages are unchanged from upstream and are already on public npm at the versions this fork pins. `pnpm pack` rewrites their `workspace:*` ranges to those real versions.
+The three `@lat.md/*` workspace packages are unchanged from upstream and are already on public npm at the versions this fork pins. `pnpm pack` rewrites their `workspace:*` ranges to those real versions.
 
 ## Why the package name is scoped
 

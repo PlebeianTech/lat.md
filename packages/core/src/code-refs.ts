@@ -8,6 +8,7 @@ import { isSourceFilePath, SOURCE_FILE_EXTENSIONS } from './source-formats.js';
 import { toPosix } from './path.js';
 import { ALWAYS_IGNORED_DIRECTORIES, walkEntries } from './walk.js';
 import type { Profiler } from './profiler.js';
+import { WikiLinkBodyParser } from './extensions/wiki-link/body-parser.js';
 
 /** Glob patterns used to exclude directories/files from code-ref scanning.
  *  Shared between rg args and the TS fallback's walkFiles filter. */
@@ -50,20 +51,40 @@ export async function walkFiles(dir: string): Promise<string[]> {
     .map((e) => join(dir, e));
 }
 
-/** Build a RegExp from a verbose template — whitespace is insignificant. */
-function re(flags: string) {
-  return (strings: TemplateStringsArray) =>
-    new RegExp(strings.raw[0].replace(/\s+/g, ''), flags);
+/** Extract complete code-reference targets from a source line, retaining aliases. */
+export function extractCodeRefTargets(line: string): string[] {
+  if (LAT_IGNORE_RE.test(line)) return [];
+  const markers = [
+    ...line.matchAll(/(?:\/\/|#)[^\S\r\n]*@lat:[^\S\r\n]*\[\[/g),
+  ];
+  const targets: string[] = [];
+  for (const [position, marker] of markers.entries()) {
+    if (isInsideQuotedSpan(line, marker.index)) continue;
+    const start = marker.index + marker[0].length;
+    // Neither balanced parsing nor legacy recovery may consume another marker.
+    const limit = markers[position + 1]?.index ?? line.length;
+    let close = -1;
+    const body = new WikiLinkBodyParser();
+    for (let index = start; index < limit; index++) {
+      const result = body.consume(line.charCodeAt(index));
+      if (result === 'invalid') break;
+      if (result === 'end') {
+        close = index - 1;
+        break;
+      }
+    }
+    if (close !== -1) {
+      targets.push(line.slice(start, close));
+    } else {
+      // Preserve the old code-comment grammar when balanced parsing fails:
+      // unmatched opening brackets and empty aliases were accepted literally.
+      // This fallback is intentionally not part of Markdown wiki-link parsing.
+      const legacy = /^([^\]\r\n]+)\]\]/.exec(line.slice(start, limit));
+      if (legacy) targets.push(legacy[1]);
+    }
+  }
+  return targets;
 }
-
-// Line comment (// or #), then @lat: marker, then [[target]]
-export const LAT_REF_RE = re('gv')`
-  (?: // | # )
-  \s* @lat: \s*
-  \[\[
-    ( [^\]]+ )
-  \]\]
-`;
 
 /** Explicit opt-out: a standalone `lat:ignore` token anywhere on the line
  *  suppresses any @lat: match on that line. This gives an author documenting
@@ -104,22 +125,6 @@ function isInsideQuotedSpan(line: string, index: number): boolean {
     }
   }
   return false;
-}
-
-/** Filter regex matches on a single line, dropping ones that are inside a
- *  quoted/backticked literal or on a line carrying an explicit `lat:ignore`
- *  opt-out — these document the @lat: syntax rather than using it. */
-function extractRefsFromLine(line: string): string[] {
-  if (LAT_IGNORE_RE.test(line)) return [];
-  const targets: string[] = [];
-  LAT_REF_RE.lastIndex = 0;
-  let match;
-  while ((match = LAT_REF_RE.exec(line)) !== null) {
-    if (!isInsideQuotedSpan(line, match.index)) {
-      targets.push(match[1]);
-    }
-  }
-  return targets;
 }
 
 export type CodeRef = {
@@ -480,14 +485,8 @@ function parseGrepOutput(
     const file = toPosix(decode(record.data.path)).replace(/^\.\//, '');
     const lineNumber = record.data.line_number;
     if (!Number.isSafeInteger(lineNumber) || lineNumber < 1) continue;
-
-    // Extract targets using the same regex and literal-span filtering as the
-    // TS fallback, so both scan paths agree regardless of whether ripgrep is
-    // installed.
-    const content = decode(record.data.lines);
-    for (const target of extractRefsFromLine(content)) {
-      refs.push({ target, file: file, line: lineNumber });
-    }
+    for (const target of extractCodeRefTargets(decode(record.data.lines)))
+      refs.push({ target, file, line: lineNumber });
   }
   return { refs };
 }
@@ -517,9 +516,7 @@ async function scanFileWithTs(
   const relativePath = toPosix(relative(projectRoot, file));
   const lines = content.split('\n');
   for (let i = 0; i < lines.length; i++) {
-    // Same literal-span and `lat:ignore` filtering the ripgrep path applies in
-    // parseGrepOutput, so both paths agree on what counts as a reference.
-    for (const target of extractRefsFromLine(lines[i])) {
+    for (const target of extractCodeRefTargets(lines[i])) {
       refs.push({
         target,
         file: relativePath,

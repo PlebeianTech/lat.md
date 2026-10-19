@@ -49,14 +49,15 @@ describe('lat init installs the fork conventions', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  // @lat: [[tests/fork-instructions#Fork Instructions#A real init lands the block and the scaffold together]]
+  // @lat: [[fork-instructions#Fork Instructions#A real init lands the block and the scaffold together]]
   it('writes the block, the skill and the mode directories in one run', async () => {
     await initCmd(root);
 
-    const claudeMd = readFileSync(join(root, 'CLAUDE.md'), 'utf-8');
-    expect(claudeMd).toContain('%% lat:begin %%');
-    expect(claudeMd).toContain('%% lat-fork:begin %%');
-    expect(claudeMd).toContain('not a language allowlist');
+    const agentsMd = readFileSync(join(root, 'AGENTS.md'), 'utf-8');
+    expect(agentsMd).toContain('%% lat:begin %%');
+    expect(agentsMd).toContain('%% lat-fork:begin %%');
+    expect(agentsMd).toContain('not a language allowlist');
+    expect(agentsMd).toContain('Write in a tight Strunk & White voice');
 
     expect(
       existsSync(

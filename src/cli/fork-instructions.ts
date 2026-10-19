@@ -7,32 +7,7 @@ import {
 } from '@plebeiantech/lat.md-core/init-version';
 import { findTemplatesDir } from './templates.js';
 
-/**
- * The fork's own instruction channel into a consumer project.
- *
- * Upstream teaches a consumer's agent through `templates/AGENTS.md` and
- * `templates/skill/SKILL.md`. Both are upstream files, and both are the ones
- * upstream is most likely to rewrite, so every sentence this fork adds to them
- * is a merge conflict bought on credit. The fork's Diátaxis block cost 13
- * lines in one and 14 in the other before this module existed.
- *
- * Everything here writes into fork-owned paths instead. The entire upstream
- * footprint is one import and one call in `initCmd`.
- *
- * Two shapes, because the destinations behave differently:
- *
- * - Always-loaded instruction files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`,
- *   `.github/copilot-instructions.md`) already carry upstream's
- *   `%% lat:begin %%` block, so this appends a *second* block under its own
- *   `%% lat-fork:begin %%` markers. Upstream's `appendTemplateSection` slices
- *   between its own markers and leaves anything after them intact, so the two
- *   blocks do not fight on re-run.
- * - Skill directories get a separate `lat-md-conventions/SKILL.md`. Upstream
- *   writes its `lat-md` skill with a whole-file hash comparison, so appending
- *   to that file would make every later `lat init` report it as
- *   user-modified and prompt.
- */
-
+// @lat: [[fork#Fork#The instruction channel]]
 const FORK_BEGIN = '%% lat-fork:begin %%';
 const FORK_END = '%% lat-fork:end %%';
 
@@ -47,7 +22,6 @@ function forkHashKey(relPath: string): string {
 
 /** Instruction files that use upstream's marker-append shape. */
 const BLOCK_TARGETS = [
-  'CLAUDE.md',
   'AGENTS.md',
   'GEMINI.md',
   '.github/copilot-instructions.md',
@@ -70,10 +44,10 @@ const SKILL_NAME = 'lat-md-conventions';
 export const SKILL_FRONTMATTER = `---
 name: ${SKILL_NAME}
 description: >-
-  Rules lat check enforces in this project: Diátaxis mode placement for every
-  lat.md/ document, mandatory @lat: code refs starting at the application
-  entrypoint, and test specs wired to their tests. Load alongside lat-md
-  whenever creating or editing files under lat.md/.
+  Rules and writing conventions for this project: Diátaxis mode placement for
+  every lat.md/ document, Strunk & White prose style, mandatory @lat: code refs
+  starting at the application entrypoint, and test specs wired to their tests.
+  Load alongside lat-md whenever creating or editing files under lat.md/.
 ---
 
 `;

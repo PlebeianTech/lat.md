@@ -18,10 +18,14 @@ import type {
   TokenizeContext,
 } from 'micromark-util-types';
 import './types.js';
+import { WikiLinkBodyParser } from './body-parser.js';
 
-const ALIAS_DIVIDER = '|';
 const OPEN = '[[';
-const CLOSE = ']]';
+const OPEN_BRACKET_CODE = 91;
+const TAB_CODE = 9;
+const LINE_FEED_CODE = 10;
+const MICROMARK_HORIZONTAL_TAB = -2;
+const MICROMARK_VIRTUAL_SPACE = -1;
 
 function tokenize(
   this: TokenizeContext,
@@ -30,10 +34,8 @@ function tokenize(
   nok: State,
 ): State {
   let openCursor = 0;
-  let closeCursor = 0;
-  let aliasCursor = 0;
-  let hasData = false;
-  let hasAlias = false;
+  const body = new WikiLinkBodyParser();
+  let contentToken: 'wikiLinkTarget' | 'wikiLinkAlias' = 'wikiLinkTarget';
 
   return start;
 
@@ -47,7 +49,9 @@ function tokenize(
   function consumeOpen(code: Code): State | undefined {
     if (openCursor === OPEN.length) {
       effects.exit('wikiLinkMarker');
-      return consumeDataStart(code);
+      effects.enter('wikiLinkData');
+      effects.enter(contentToken);
+      return consumeBody(code);
     }
     if (code !== OPEN.charCodeAt(openCursor)) return nok(code);
     effects.consume(code);
@@ -55,88 +59,47 @@ function tokenize(
     return consumeOpen;
   }
 
-  function consumeDataStart(code: Code): State | undefined {
-    if (code === null || code < -2) return nok(code);
-    effects.enter('wikiLinkData');
-    effects.enter('wikiLinkTarget');
-    return consumeTarget(code);
-  }
-
-  function consumeTarget(code: Code): State | undefined {
-    if (code === ALIAS_DIVIDER.charCodeAt(aliasCursor)) {
-      if (!hasData) return nok(code);
-      effects.exit('wikiLinkTarget');
-      effects.enter('wikiLinkAliasMarker');
-      return consumeAliasMarker(code);
+  function consumeBody(code: Code): State | undefined {
+    // Micromark represents tabs and line endings with virtual character codes.
+    const character =
+      code === MICROMARK_HORIZONTAL_TAB || code === MICROMARK_VIRTUAL_SPACE
+        ? TAB_CODE
+        : code !== null && code < MICROMARK_HORIZONTAL_TAB
+          ? LINE_FEED_CODE
+          : code;
+    switch (body.consume(character)) {
+      case 'invalid':
+        return nok(code);
+      case 'alias-marker':
+        effects.exit(contentToken);
+        effects.enter('wikiLinkAliasMarker');
+        effects.consume(code);
+        effects.exit('wikiLinkAliasMarker');
+        contentToken = 'wikiLinkAlias';
+        effects.enter(contentToken);
+        return consumeBody;
+      case 'close':
+        effects.exit(contentToken);
+        effects.exit('wikiLinkData');
+        effects.enter('wikiLinkMarker');
+        effects.consume(code);
+        return consumeBody;
+      case 'end':
+        effects.consume(code);
+        effects.exit('wikiLinkMarker');
+        effects.exit('wikiLink');
+        return ok;
+      case 'data':
+        effects.consume(code);
+        return consumeBody;
     }
-
-    if (code === CLOSE.charCodeAt(closeCursor)) {
-      if (!hasData) return nok(code);
-      effects.exit('wikiLinkTarget');
-      effects.exit('wikiLinkData');
-      effects.enter('wikiLinkMarker');
-      return consumeClose(code);
-    }
-
-    // No line endings or EOF inside wiki links
-    if (code === null || code < -2) return nok(code);
-
-    if (code !== -2 && code !== -1 && code !== 32) {
-      hasData = true;
-    }
-
-    effects.consume(code);
-    return consumeTarget;
-  }
-
-  function consumeAliasMarker(code: Code): State | undefined {
-    if (aliasCursor === ALIAS_DIVIDER.length) {
-      effects.exit('wikiLinkAliasMarker');
-      effects.enter('wikiLinkAlias');
-      return consumeAlias(code);
-    }
-    if (code !== ALIAS_DIVIDER.charCodeAt(aliasCursor)) return nok(code);
-    effects.consume(code);
-    aliasCursor++;
-    return consumeAliasMarker;
-  }
-
-  function consumeAlias(code: Code): State | undefined {
-    if (code === CLOSE.charCodeAt(closeCursor)) {
-      if (!hasAlias) return nok(code);
-      effects.exit('wikiLinkAlias');
-      effects.exit('wikiLinkData');
-      effects.enter('wikiLinkMarker');
-      return consumeClose(code);
-    }
-
-    if (code === null || code < -2) return nok(code);
-
-    if (code !== -2 && code !== -1 && code !== 32) {
-      hasAlias = true;
-    }
-
-    effects.consume(code);
-    return consumeAlias;
-  }
-
-  function consumeClose(code: Code): State | undefined {
-    if (closeCursor === CLOSE.length) {
-      effects.exit('wikiLinkMarker');
-      effects.exit('wikiLink');
-      return ok(code);
-    }
-    if (code !== CLOSE.charCodeAt(closeCursor)) return nok(code);
-    effects.consume(code);
-    closeCursor++;
-    return consumeClose;
   }
 }
 
 export function wikiLinkSyntax(): Extension {
   return {
     text: {
-      91: { tokenize }, // '[' character code
+      [OPEN_BRACKET_CODE]: { tokenize },
     },
   };
 }

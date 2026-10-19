@@ -8,7 +8,8 @@ import type { WikiLink } from '@plebeiantech/lat.md-core/extensions/wiki-link/in
 
 describe('typecheck', () => {
   it('passes tsc --noEmit on the entire codebase', () => {
-    execSync('pnpm typecheck', {
+    // Runtime bundles are shared with parallel tests; never rebuild them here.
+    execSync('pnpm typecheck:no-build', {
       cwd: import.meta.dirname + '/..',
       timeout: 90_000,
     });
@@ -91,8 +92,43 @@ describe('parse', () => {
     expect(wikiLinks[1].value).toBe('Page B');
   });
 
-  it('does not parse incomplete wiki links', () => {
-    const tree = parse('See [not a link] and [[also not');
+  // @lat: [[ref-resolution#Parses bracketed wiki targets]]
+  it.each([
+    'src/pages/[region]/reset-password.astro',
+    'src/pages/[region]/data.ts#load',
+    'app/[id]/page.tsx|page',
+    'src/routes/[slug]/+page.svelte',
+    'app/[[...slug]]/page.tsx',
+    'src/[region]/[id]',
+  ])('parses and round-trips bracketed target %s', (target) => {
+    const input = `See [[${target}]] and [[Other]]\n`;
+    const tree = parse(input);
+    const links: WikiLink[] = [];
+    visit(tree, 'wikiLink', (node) => {
+      links.push(node as WikiLink);
+    });
+    const [value, alias = null] = target.split('|');
+    expect(links.map((node) => [node.value, node.data.alias])).toEqual([
+      [value, alias],
+      ['Other', null],
+    ]);
+    expect(toMarkdown(tree)).toBe(input);
+  });
+
+  // @lat: [[ref-resolution#Rejects incomplete wiki links]]
+  it.each([
+    'See [not a link] and [[also not',
+    '[[]]',
+    '[[ \t ]]',
+    '[[target|]]',
+    '[[target|\t ]]',
+    '[[target]x]]',
+    '[[target\nnext]]',
+    '[[target\r\nnext]]',
+    '[[target]',
+    '[[target|alias',
+  ])('does not parse incomplete wiki link %j', (input) => {
+    const tree = parse(input);
     const wikiLinks: WikiLink[] = [];
     visit(tree, 'wikiLink', (node) => {
       wikiLinks.push(node as WikiLink);

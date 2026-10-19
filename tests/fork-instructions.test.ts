@@ -39,13 +39,13 @@ describe('fork instruction block', () => {
     try {
       const upstream =
         '# My App\n\nUser prose.\n\n%% lat:begin %%\nupstream template\n%% lat:end %%\n';
-      writeFileSync(join(root, 'CLAUDE.md'), upstream);
+      writeFileSync(join(root, 'AGENTS.md'), upstream);
 
       await quiet(() =>
         writeForkInstructions(root, join(root, 'lat.md'), {}, alwaysYes),
       );
 
-      const after = readFileSync(join(root, 'CLAUDE.md'), 'utf-8');
+      const after = readFileSync(join(root, 'AGENTS.md'), 'utf-8');
       expect(after.startsWith(upstream)).toBe(true);
       expect(after).toContain('%% lat-fork:begin %%');
       expect(extractForkBlock(after)).toBe(readForkConventions());
@@ -77,19 +77,19 @@ describe('fork instruction block', () => {
   it('is idempotent across runs', async () => {
     const root = makeRoot();
     try {
-      writeFileSync(join(root, 'CLAUDE.md'), '# My App\n');
+      writeFileSync(join(root, 'AGENTS.md'), '# My App\n');
       const hashes: Record<string, string> = {};
 
       await quiet(() =>
         writeForkInstructions(root, join(root, 'lat.md'), hashes, alwaysYes),
       );
-      const first = readFileSync(join(root, 'CLAUDE.md'), 'utf-8');
+      const first = readFileSync(join(root, 'AGENTS.md'), 'utf-8');
       writeInitMeta(join(root, 'lat.md'), hashes);
 
       await quiet(() =>
         writeForkInstructions(root, join(root, 'lat.md'), hashes, alwaysNo),
       );
-      expect(readFileSync(join(root, 'CLAUDE.md'), 'utf-8')).toBe(first);
+      expect(readFileSync(join(root, 'AGENTS.md'), 'utf-8')).toBe(first);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -100,7 +100,7 @@ describe('fork instruction block', () => {
     const root = makeRoot();
     try {
       writeFileSync(
-        join(root, 'CLAUDE.md'),
+        join(root, 'AGENTS.md'),
         '%% lat:begin %%\nold upstream\n%% lat:end %%\n',
       );
       await quiet(() =>
@@ -108,16 +108,16 @@ describe('fork instruction block', () => {
       );
 
       // Simulate upstream's appendTemplateSection replacing only its own span.
-      const content = readFileSync(join(root, 'CLAUDE.md'), 'utf-8');
+      const content = readFileSync(join(root, 'AGENTS.md'), 'utf-8');
       const begin = content.indexOf('%% lat:begin %%');
       const end = content.indexOf('%% lat:end %%') + '%% lat:end %%'.length + 1;
       const rewritten =
         content.slice(0, begin) +
         '%% lat:begin %%\nnew upstream\n%% lat:end %%\n' +
         content.slice(end);
-      writeFileSync(join(root, 'CLAUDE.md'), rewritten);
+      writeFileSync(join(root, 'AGENTS.md'), rewritten);
 
-      const after = readFileSync(join(root, 'CLAUDE.md'), 'utf-8');
+      const after = readFileSync(join(root, 'AGENTS.md'), 'utf-8');
       expect(after).toContain('new upstream');
       expect(extractForkBlock(after)).toBe(readForkConventions());
     } finally {
@@ -156,28 +156,28 @@ describe('fork instruction block', () => {
   it('asks before replacing a block the user edited, and honours a refusal', async () => {
     const root = makeRoot();
     try {
-      writeFileSync(join(root, 'CLAUDE.md'), '# My App\n');
+      writeFileSync(join(root, 'AGENTS.md'), '# My App\n');
       const hashes: Record<string, string> = {};
       await quiet(() =>
         writeForkInstructions(root, join(root, 'lat.md'), hashes, alwaysYes),
       );
       writeInitMeta(join(root, 'lat.md'), hashes);
 
-      const edited = readFileSync(join(root, 'CLAUDE.md'), 'utf-8').replace(
+      const edited = readFileSync(join(root, 'AGENTS.md'), 'utf-8').replace(
         'Every project has at least one',
-        'MY EDIT — Every project has at least one',
+        'MY EDIT: Every project has at least one',
       );
-      writeFileSync(join(root, 'CLAUDE.md'), edited);
+      writeFileSync(join(root, 'AGENTS.md'), edited);
 
       await quiet(() =>
         writeForkInstructions(root, join(root, 'lat.md'), hashes, alwaysNo),
       );
-      expect(readFileSync(join(root, 'CLAUDE.md'), 'utf-8')).toBe(edited);
+      expect(readFileSync(join(root, 'AGENTS.md'), 'utf-8')).toBe(edited);
 
       await quiet(() =>
         writeForkInstructions(root, join(root, 'lat.md'), hashes, alwaysYes),
       );
-      expect(extractForkBlock(readFileSync(join(root, 'CLAUDE.md'), 'utf-8'))).toBe(
+      expect(extractForkBlock(readFileSync(join(root, 'AGENTS.md'), 'utf-8'))).toBe(
         readForkConventions(),
       );
     } finally {
@@ -228,6 +228,24 @@ describe('fork instruction block', () => {
     expect(body).toContain('Discrete');
     expect(body).toContain('Does not conflict');
     expect(body).toContain('Link to it');
+  });
+
+  // @lat: [[fork-instructions#Fork Instructions#The block teaches a Strunk & White prose voice]]
+  it('teaches the Strunk & White voice principles and avoids em dashes itself', () => {
+    const body = readForkConventions();
+    expect(body).toContain('Write in a tight Strunk & White voice');
+    expect(body).toContain('Omit needless words.');
+    expect(body).toContain('Prefer the active voice.');
+    expect(body).toContain('Put statements in positive form.');
+    expect(body).toContain('Be concrete, not corporate.');
+    expect(body).toContain('Brevity is courtesy.');
+    expect(body).toContain('Let confidence speak quietly.');
+    expect(body).toContain('One thought per sentence.');
+    expect(body).toContain('Reason first, conclusion second.');
+    expect(body).toContain('Jargon is fine; obscurity is not.');
+    expect(body).toContain('Vary sentence rhythm.');
+    expect(body).toContain('No em dashes and no horizontal rules.');
+    expect(body).not.toContain('\u2014');
   });
 
   // @lat: [[fork-instructions#Fork Instructions#The block tells the agent to read sections rather than files]]

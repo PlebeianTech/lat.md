@@ -20,7 +20,7 @@ npm i -g https://github.com/PlebeianTech/lat.md/releases/latest/download/lat.md-
 
 The versioned URL stays available for pinning. `latest` follows whichever release GitHub considers current, which excludes any release marked as a prerelease — the `-fork.N` suffix in the version does not itself mark one.
 
-The two `@lat.md/*` packages are never bumped or published here. They are upstream's, unmodified, and already released.
+The three `@lat.md/*` packages are never bumped or published here. They are upstream's, unmodified, and already released.
 
 ## Two install routes
 

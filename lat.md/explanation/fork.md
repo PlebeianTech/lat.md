@@ -8,7 +8,7 @@ The fork publishes as `@plebeiantech/lat.md` and never under upstream's `lat.md`
 
 Every upstream file this fork edits is a merge conflict waiting to happen. A file we only add is not, so new behaviour belongs in new fork-owned files.
 
-The target shape for anything that must reach upstream code: a new module holding the logic, plus an import and one call line in the upstream file. `src/cli/check-status.ts` and `src/cli/check-frontmatter.ts` are the reference implementations — each is a new file whose entire upstream footprint is an import and one appended line in `checkAllCommand`.
+The target shape for anything that must reach upstream code: a new module holding the logic, plus an import and one call line in the upstream file. [[packages/core/src/cli/check-status.ts]] and [[packages/core/src/cli/check-frontmatter.ts]] are the reference implementations — each is a new file whose entire upstream footprint is an import and one appended line in `checkAllCommand`.
 
 Five rules follow from that, in the order they are worth applying.
 
@@ -40,7 +40,7 @@ Two files added independently never conflict in git and can still collide in the
 
 What `lat init` teaches a consumer project's agent reaches it through a fork-owned template and a fork-owned marker block, so the fork can say more without editing upstream's onboarding text.
 
-Upstream's channel is two files: `templates/AGENTS.md`, written into `CLAUDE.md` / `AGENTS.md` / `.github/copilot-instructions.md` inside `%% lat:begin %%` markers, and `templates/skill/SKILL.md`, written whole into each agent's skills directory. Both are upstream's own agent-facing prose and among the files upstream most often revises, so every sentence the fork adds is a conflict bought on credit.
+Upstream's channel is two files: `templates/AGENTS.md`, written into `AGENTS.md` / `GEMINI.md` / `.github/copilot-instructions.md` inside `%% lat:begin %%` markers, and `templates/skill/SKILL.md`, written whole into each agent's skills directory. Both are upstream's own agent-facing prose and among the files upstream most often revises, so every sentence the fork adds is a conflict bought on credit.
 
 `templates/fork/conventions.md` replaces that. [[src/cli/fork-instructions.ts#writeForkInstructions]] appends it under its own `%% lat-fork:begin %%` / `%% lat-fork:end %%` markers and writes it again, with frontmatter, as a separate `lat-md-conventions` skill. The whole upstream footprint is one import and one call in `initCmd`.
 
@@ -60,11 +60,11 @@ Appending to that file changes the whole-file hash, so every later `lat init` wo
 
 ### What the template demands
 
-Five rules, each written because an agent was observed to miss it.
+Six rules, each written because an agent was observed to miss it.
 
-Every document goes in a Diátaxis mode directory, and a document that would fail its mode is two documents rather than one softened one. Every project carries at least one `@lat:` ref, starting at the application entrypoint and pointing at the root index. An `@lat:` pointer is a machine directive and is exempt from any project convention that minimises comments — and the marker is a comment syntax, not a language allowlist, so no example list should be read as an exclusion.
+Every document goes in a Diátaxis mode directory, and a document that would fail its mode is two documents rather than one softened one. Every project carries at least one `@lat:` ref, starting at the application entrypoint and pointing at the root index. An `@lat:` pointer is a machine directive and is exempt from any project convention that minimises comments, and the marker is a comment syntax, not a language allowlist, so no example list should be read as an exclusion.
 
-The last two no check can enforce, which is why the template argues them rather than asserting them. One is about writing: a document covers one specialty, overlapping documents are merged or have their shared part lifted into a third, and a fact another document owns is linked rather than restated — a second copy drifts, and drift is how two documents end up contradicting each other while both look maintained. The other is about reading: reach a section with `lat section` or `lat expand`, never by opening the file it lives in. A `lat.md/` file holds tens of unrelated sections, so the file costs roughly an order of magnitude more context than the section that answers the question. The template carries the measurement rather than the assertion, because an agent that has seen 4 KB against 44 KB stops reflexively opening files.
+The last three no check can enforce, which is why the template argues them rather than asserting them. Two are about writing. First, a document covers one specialty, overlapping documents are merged or have their shared part lifted into a third, and a fact another document owns is linked rather than restated: a second copy drifts, and drift is how two documents end up contradicting each other while both look maintained. Second, prose follows a tight Strunk & White voice: omit needless words, prefer active voice and positive form, use concrete specifics instead of abstractions, lead with the reason before the conclusion, keep one thought per sentence with varied rhythm, and never use em dashes or horizontal rules in prose. The final rule is about reading: reach a section with `lat section` or `lat expand`, never by opening the file it lives in. A `lat.md/` file holds tens of unrelated sections, so the file costs roughly an order of magnitude more context than the section that answers the question. The template carries the measurement rather than the assertion, because an agent that has seen 4 KB against 44 KB stops reflexively opening files.
 
 ## The Diátaxis gate
 
@@ -90,7 +90,7 @@ That second half is what this tree cannot afford. It is tree-wide by design, and
 
 So the fork classifies what it owns and claims nothing about what it does not. Every fork-owned document that can move sits in a mode directory; the upstream documents are left where they are, unclassified. Where a document cannot move, declaring the mode in its frontmatter is equivalent and costs nothing at read time — frontmatter sits above the first heading, outside every section range, so it never reaches `lat search`, `lat section`, `lat expand` or the hook.
 
-The `lat.md/tests/` specs are deliberately left undeclared. Their genre is closest to `reference`, and most are one or two paragraphs away from passing it, but the paragraph that would have to go is the one saying *why* a test exists — which [[cli#check#code-refs]] coverage rules ask for. Picking `explanation` instead because it passes would be choosing a label over a description, which is the repair this project tells everyone else not to make.
+The `lat.md/knowledge/tests/` specs are deliberately left undeclared. Their genre is closest to `reference`, and most are one or two paragraphs away from passing it, but the paragraph that would have to go is the one saying *why* a test exists — which [[cli#check#code-refs]] coverage rules ask for. Picking `explanation` instead because it passes would be choosing a label over a description, which is the repair this project tells everyone else not to make.
 
 ### Adopting it in a tree that already exists
 

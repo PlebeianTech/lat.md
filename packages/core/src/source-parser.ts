@@ -356,53 +356,35 @@ function collectRubyScope(
     const endLine = node.endPosition.row + 1;
     const signature = firstLine(node.text);
 
+    const emitScoped = (
+      name: string,
+      kind: SourceSymbol['kind'],
+      scopeParent: string | undefined,
+    ) => {
+      symbols.push({ name, kind, startLine, endLine, signature });
+      if (scopeParent) {
+        symbols.push({
+          name,
+          kind,
+          parent: scopeParent,
+          startLine,
+          endLine,
+          signature,
+        });
+      }
+    };
+
     if (node.type === 'class' || node.type === 'module') {
       const nameNode = node.childForFieldName('name');
       if (nameNode) {
-        let childPart: string;
-        let parentPart: string | undefined;
-
-        if (
+        const isScoped =
           nameNode.type === 'scope_resolution' &&
-          nameNode.namedChildren.length === 2
-        ) {
-          parentPart = nameNode.namedChildren[0].text;
-          childPart = nameNode.namedChildren[1].text;
-          symbols.push({
-            name: childPart,
-            kind: 'class',
-            startLine,
-            endLine,
-            signature,
-          });
-          symbols.push({
-            name: childPart,
-            kind: 'class',
-            parent: parentPart,
-            startLine,
-            endLine,
-            signature,
-          });
-        } else {
-          childPart = nameNode.text;
-          symbols.push({
-            name: childPart,
-            kind: 'class',
-            startLine,
-            endLine,
-            signature,
-          });
-          if (parent) {
-            symbols.push({
-              name: childPart,
-              kind: 'class',
-              parent,
-              startLine,
-              endLine,
-              signature,
-            });
-          }
-        }
+          nameNode.namedChildren.length === 2;
+        const childPart = isScoped
+          ? nameNode.namedChildren[1].text
+          : nameNode.text;
+        const scopeParent = isScoped ? nameNode.namedChildren[0].text : parent;
+        emitScoped(childPart, 'class', scopeParent);
 
         const body = node.childForFieldName('body');
         if (body) {
@@ -428,50 +410,20 @@ function collectRubyScope(
           left.type === 'scope_resolution' &&
           left.namedChildren.length === 2
         ) {
-          const parentPart = left.namedChildren[0].text;
-          const childPart = left.namedChildren[1].text;
-          symbols.push({
-            name: childPart,
-            kind: 'const',
-            startLine,
-            endLine,
-            signature,
-          });
-          symbols.push({
-            name: childPart,
-            kind: 'const',
-            parent: parentPart,
-            startLine,
-            endLine,
-            signature,
-          });
+          emitScoped(
+            left.namedChildren[1].text,
+            'const',
+            left.namedChildren[0].text,
+          );
         } else if (
           left.type === 'constant' ||
           (left.type === 'identifier' && /^[A-Z]/.test(left.text))
         ) {
-          const name = left.text;
-          symbols.push({
-            name,
-            kind: 'const',
-            startLine,
-            endLine,
-            signature,
-          });
-          if (parent) {
-            symbols.push({
-              name,
-              kind: 'const',
-              parent,
-              startLine,
-              endLine,
-              signature,
-            });
-          }
+          emitScoped(left.text, 'const', parent);
         }
       }
     } else if (node.type === 'call') {
-      const methodNode = node.childForFieldName('method');
-      const methodName = methodNode?.text;
+      const methodName = node.childForFieldName('method')?.text;
       if (
         methodName === 'task' ||
         methodName === 'multitask' ||
@@ -491,23 +443,7 @@ function collectRubyScope(
       } else if (methodName === 'namespace') {
         const name = extractRubyRakeName(node);
         if (name) {
-          symbols.push({
-            name,
-            kind: 'class',
-            startLine,
-            endLine,
-            signature,
-          });
-          if (parent) {
-            symbols.push({
-              name,
-              kind: 'class',
-              parent,
-              startLine,
-              endLine,
-              signature,
-            });
-          }
+          emitScoped(name, 'class', parent);
           const block =
             node.childForFieldName('block') ??
             node.namedChildren.find(

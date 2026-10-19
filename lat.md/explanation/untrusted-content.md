@@ -4,7 +4,7 @@ Framing and sanitization for repository text placed in front of a model. Impleme
 
 A document under `lat.md/`, or anything resolved from it, is attacker-controlled the moment an agent runs `lat` in a repository nobody here owns. Text pulled from such a document must reach the model marked as **data, never as instruction**.
 
-Every command that quotes repository prose into agent-facing output goes through this module: [[cli#expand]], [[cli#check#status]], [[cli#graph]], the generated index files, and [[knowledge#Output Format]].
+Every command that quotes repository prose into agent-facing output goes through this module: [[cli#expand]], [[cli#check#status]], [[cli#graph]], the generated index files, and [[knowledge-federation#Output Format]].
 
 ## Notice
 

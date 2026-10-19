@@ -1,0 +1,55 @@
+# Tests
+
+High-level test descriptions. Actual test code lives in `tests/`.
+
+## Conventions
+
+Shared patterns for writing and organizing tests in this project.
+
+**Functional over unit.** Prefer functional tests that exercise real `lat` commands against fixture directories over isolated unit tests. Unit tests are only for low-level edge cases that are hard to cover through fixtures (e.g. inline `parseSections` edge cases in `tests/lattice.test.ts`).
+
+**Fixture-based.** Validation scenarios are static directories under `tests/cases/`, each a self-contained mini-project. Mutating commands such as `lat init` use isolated temp directories and invoke the built CLI in child processes.
+
+**Error cases use `error-` prefix.** Test fixture directories that assert error behavior are named with an `error-` prefix (e.g. `error-broken-links`, `error-stale-index`). Success/happy-path fixtures use plain descriptive names (e.g. `valid-links`, `short-ref`).
+
+<!-- lat:index:begin -->
+- [Check Code Refs](check-code-refs.md) — Tests for validating \`@lat:\` code references and required code mention coverage.
+- [Check Coverage](check-coverage.md) — Tests for \[\[src/cli/check-coverage.ts#checkCoverage\]\], the floor that fails a \`lat.md/\` tree holding documents that no \`@lat:\` ref anywhere in the codebase reaches.
+- [Check Diagrams](check-diagrams.md) — Enforcing Mermaid box limits and estimated horizontal readability.
+- [Check Explicit Directories](check-headless.md) — Functional tests cover validation of Markdown directories outside \`lat.md/\`.
+- [Check Index](check-index.md) — Tests for validating \`lat.md/\` directory index files and subdirectory index files.
+- [Check Links](check-links.md) — Tests for full CLI validation of ordinary markdown links to local files in \`lat.md/\` files.
+- [Check MD](check-md.md) — Tests for validating wiki links in \`lat.md/\` markdown files.
+- [Check Sections](check-sections.md) — Validates that every section in \`lat.md/\` has a well-formed leading paragraph.
+- [Comment Guard](comment-guard.md) — Functional tests for the blocking half of the comment convention: the \`PreToolUse\` gate that refuses an \`Edit\`/\`Write\`/\`MultiEdit\` writing a multi-line rationale comment, and tells the agent to move the prose into \`lat.md/\` behind a \`@lat:\` pointer.
+- [Comment Reminder](comment-reminder.md) — Functional tests for the write-side \`@lat:\` comment reminder: the \`PostToolUse\` hook heuristic that nudges an agent to add a code ref when it writes a rationale-bearing comment, and the per-agent dispatch that reaches it.
+- [Configuration](config.md) — Tests verify durable user configuration and read-only storage diagnostics in isolated XDG directories.
+- [Diátaxis Mode Check](mode.md) — Tests for \`checkMode\`'s exemption of imperative sentences that appear inside code samples rather than ordinary prose, for \`lat check mode\` \(see \[\[cli#check\]\]\).
+- [Expand](expand.md) — Tests for the \`lat expand\` command that resolves \`\[\[refs\]\]\` and appends context blocks.
+- [External Sources](external-tests.md) — External-source tests verify pinned remote content is resolved reproducibly and safely across every Lat interface.
+- [Fork Instructions](fork-instructions.md) — Tests for \[\[src/cli/fork-instructions.ts\]\], the fork's own instruction channel into a consumer project — the marker block it appends to generated agent files and the conventions skill it writes beside upstream's.
+- [Fork Scaffold](fork-scaffold.md) — Tests for \[\[src/cli/fork-scaffold.ts\]\], which gives a freshly created \`lat.md/\` the four Diátaxis directories, and for the \`require-mode\` gate in \[\[src/cli/check-mode.ts#checkMode\]\] that the scaffold turns on.
+- [Frontmatter Field Placement](frontmatter-placement.md) — Tests for \`parseFrontmatter\`'s validation of known \`lat\` fields written at the document root instead of nested under \`lat:\`, and the \`checkFrontmatter\` check that surfaces it via \`lat check\`.
+- [Graph Export](graph-export.md) — Functional and unit tests for \[\[cli#graph\]\] — exporting the knowledge graph and diffing it against git history.
+- [Hook](hook.md) — Functional tests for Claude, Codex, and Cursor lifecycle hooks. Hook subprocesses use fake Git output; \[\[src/cli/hook.ts#analyzeDiff\]\] also runs against temporary real repositories.
+- [Init](init.md) — Tests run non-interactive database flows through the built CLI in child processes; TTY-only menu branches use isolated mocks.
+- [Knowledge Session Markers](knowledge-session.md) — Tests for the per-session marker store \(\[\[src/knowledge/session.ts\]\]\) that backs federation dedupe across separate hook processes in the same agent session, and the end-to-end federation flow that depends on it.
+- [Knowledge Store Additional Coverage](knowledge-store.md) — Additional coverage for the \`Store\` implementations under \[\[src/knowledge/index.ts\]\] added after their original tests were written: per-store concurrency \(lat-t1y.22\), locale/encoding edge cases, and federation hardening against hostile tag/id content.
+- [Locate](locate.md) — Tests for \`findSections\` covering exact, subsection, and fuzzy matching strategies.
+- [MCP](mcp.md) — Functional tests for the MCP server. Spawns \`lat mcp\` against the \`basic-project\` fixture via the MCP client SDK and verifies each tool responds correctly.
+- [Package Distribution](distribution-tests.md) — Distribution tests exercise packed installations and the relocated check action outside the development workspace, ensuring dependencies and assets are sufficient without workspace fallbacks.
+- [Parser Analysis Tests](analysis-tests.md) — These tests keep Markdown and source analysis deterministic, AST-free, serializable, and safely reusable across parser executions.
+- [PHP Source Parser](php-source-parser.md) — PHP source analysis and code-reference scanning cover Laravel application and test files without treating Blade attributes as code references.
+- [Ref Extraction](ref-extraction.md) — Tests for extracting wiki link references from parsed markdown files.
+- [Ref Resolution](ref-resolution.md) — Tests for wiki link and code ref resolution across vault subdirectories — ambiguous short refs, unique short refs, and fully qualified refs.
+- [Refs End-to-End](refs-e2e.md) — End-to-end tests for the \`lat refs\` command across multiple files.
+- [Roundtrip](roundtrip.md) — Parse → render fidelity test for the \[\[parser\]\]. The fixture \`tests/roundtrip.md\` exercises every supported markdown and wiki link feature. The test reads it, runs \`parse\(\)\` → \`toMarkdown\(\)\`, and asserts the output is identical to the input.
+- [Search](search.md) — Tests in \`tests/search.test.ts\`.
+- [Section](section.md) — Tests for the \`getSection\` core function and \`formatSectionOutput\` formatter.
+- [Section Parsing](section-parsing.md) — Tests for parsing markdown into hierarchical section trees with correct metadata.
+- [Section Preview Formatting](section-preview.md) — Tests for formatting section previews for terminal output via \[\[cli#Section Preview\]\].
+- [Status](status.md) — Functional and unit tests for the \`status\`/\`reviewed-hash\` provenance fields, \`lat check status\`, and the provenance note surfaced above a quoted section.
+- [TS Fallback](ts-fallback.md) — Tests that verify the pure-TypeScript code-ref scanner produces identical results to the ripgrep path.
+- [Untrusted Text Additional Coverage](untrusted.md) — Additional coverage for \[\[src/untrusted.ts\]\] beyond its original core tests: wider invisible-Unicode stripping and the \`cleanUntrustedId\` helper for values embedded into ids and headings rather than quoted prose.
+- [Swift Source Links](swift-source-parser.md) — Swift declarations, type members, source ranges, and code-reference scanning.
+<!-- lat:index:end -->
