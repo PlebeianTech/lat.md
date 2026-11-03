@@ -9,5 +9,6 @@ Recipes for tasks that recur, written for someone who already knows what they wa
 <!-- lat:index:begin -->
 - [Installing the Antigravity Plugin](install-antigravity-plugin.md) — Procedures for installing and activating the lat.md plugin in Google Antigravity and Gemini CLI environments.
 - [Merging upstream](merge-upstream.md) — Merging is cheap when the fork's own rules have been kept. Most of the procedure is moving the sync point and re-deriving the allowlist from it.
+- [Publishing documentation to GitHub Wiki](publish-github-wiki.md) — Export Diátaxis documentation from \`lat.md/\` and publish it to the repository's GitHub Wiki tab using \[\[cli#CLI#wiki\]\].
 - [Releasing the fork](release-the-fork.md) — Cutting a release and installing the result. The reasoning behind each rule is in \[\[fork-publishing#Publishing\]\].
 <!-- lat:index:end -->

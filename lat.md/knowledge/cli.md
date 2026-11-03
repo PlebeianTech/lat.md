@@ -539,3 +539,11 @@ Shared output format used by [[cli#locate]], [[cli#refs]], and [[cli#search]]. E
 Commands that return multiple results use `formatResultList()` which adds a markdown `##` heading and consistent spacing.
 
 Implementation: [[packages/core/src/format.ts]] — exports [[packages/core/src/format.ts#formatSectionId]], [[packages/core/src/format.ts#formatSectionPreview]], [[packages/core/src/format.ts#formatResultList]], and [[packages/core/src/format.ts#formatNavHints]]
+
+## wiki
+
+Build and publish Diátaxis documentation to GitHub Wiki repositories.
+
+Usage: `lat wiki build [output] [--repo <owner/repo-or-url>] [--ref <ref>]` and `lat wiki publish [--remote <remote-or-url>] [--repo <owner/repo-or-url>] [--ref <ref>] [--message <text>] [--dry-run]`.
+
+The build subcommand invokes [[src/cli/wiki.ts#wikiBuildCommand]], which catalogs Diátaxis documents using [[src/wiki/catalog.ts#buildWikiCatalog]], rewrites references via [[src/wiki/transform.ts#transformWikiCatalog]], and renders wiki pages to disk with [[src/wiki/render.ts#writeWikiBundle]]. The publish subcommand invokes [[src/cli/wiki.ts#wikiPublishCommand]] and commits and pushes the rendered bundle to the companion `.wiki.git` repository using [[src/wiki/publish.ts#publishWiki]].

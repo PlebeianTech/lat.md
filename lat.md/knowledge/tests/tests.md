@@ -14,8 +14,7 @@ Shared patterns for writing and organizing tests in this project.
 
 <!-- lat:index:begin -->
 - [Check Code Refs](check-code-refs.md) — Tests for validating \`@lat:\` code references and required code mention coverage.
-- [Check Coverage](check-coverage.md) — Tests for \[\[src/cli/check-coverage.ts#checkCoverage\]\], the floor that fails a \`lat.md/\` tree holding documents that no \`@lat:\` ref anywhere in the codebase reaches.
-- [Check Diagrams](check-diagrams.md) — Enforcing Mermaid box limits and estimated horizontal readability.
+- [Check Coverage](check-coverage.md) — Tests for \[\[packages/core/src/cli/check-coverage.ts#checkCoverage\]\], the floor that fails a \`lat.md/\` tree holding documents that no \`@lat:\` ref anywhere in the codebase reaches.
 - [Check Explicit Directories](check-headless.md) — Functional tests cover validation of Markdown directories outside \`lat.md/\`.
 - [Check Index](check-index.md) — Tests for validating \`lat.md/\` directory index files and subdirectory index files.
 - [Check Links](check-links.md) — Tests for full CLI validation of ordinary markdown links to local files in \`lat.md/\` files.
@@ -28,7 +27,7 @@ Shared patterns for writing and organizing tests in this project.
 - [Expand](expand.md) — Tests for the \`lat expand\` command that resolves \`\[\[refs\]\]\` and appends context blocks.
 - [External Sources](external-tests.md) — External-source tests verify pinned remote content is resolved reproducibly and safely across every Lat interface.
 - [Fork Instructions](fork-instructions.md) — Tests for \[\[src/cli/fork-instructions.ts\]\], the fork's own instruction channel into a consumer project — the marker block it appends to generated agent files and the conventions skill it writes beside upstream's.
-- [Fork Scaffold](fork-scaffold.md) — Tests for \[\[src/cli/fork-scaffold.ts\]\], which gives a freshly created \`lat.md/\` the four Diátaxis directories, and for the \`require-mode\` gate in \[\[src/cli/check-mode.ts#checkMode\]\] that the scaffold turns on.
+- [Fork Scaffold](fork-scaffold.md) — Tests for \[\[src/cli/fork-scaffold.ts\]\], which gives a freshly created \`lat.md/\` the four Diátaxis directories, and for the \`require-mode\` gate in \[\[packages/core/src/cli/check-mode.ts#checkMode\]\] that the scaffold turns on.
 - [Frontmatter Field Placement](frontmatter-placement.md) — Tests for \`parseFrontmatter\`'s validation of known \`lat\` fields written at the document root instead of nested under \`lat:\`, and the \`checkFrontmatter\` check that surfaces it via \`lat check\`.
 - [Graph Export](graph-export.md) — Functional and unit tests for \[\[cli#graph\]\] — exporting the knowledge graph and diffing it against git history.
 - [Hook](hook.md) — Functional tests for Claude, Codex, and Cursor lifecycle hooks. Hook subprocesses use fake Git output; \[\[src/cli/hook.ts#analyzeDiff\]\] also runs against temporary real repositories.
@@ -37,7 +36,8 @@ Shared patterns for writing and organizing tests in this project.
 - [Knowledge Store Additional Coverage](knowledge-store.md) — Additional coverage for the \`Store\` implementations under \[\[src/knowledge/index.ts\]\] added after their original tests were written: per-store concurrency \(lat-t1y.22\), locale/encoding edge cases, and federation hardening against hostile tag/id content.
 - [Locate](locate.md) — Tests for \`findSections\` covering exact, subsection, and fuzzy matching strategies.
 - [MCP](mcp.md) — Functional tests for the MCP server. Spawns \`lat mcp\` against the \`basic-project\` fixture via the MCP client SDK and verifies each tool responds correctly.
-- [Package Distribution](distribution-tests.md) — Distribution tests exercise packed installations and the relocated check action outside the development workspace, ensuring dependencies and assets are sufficient without workspace fallbacks.
+- [Mermaid Readability Tests](check-diagrams.md) — These tests verify deterministic flowchart complexity limits and horizontal readability estimates using Mermaid's parser and imported Dagre layout without a browser.
+- [Package Distribution](distribution-tests.md) — Distribution tests exercise packed installations and the npm-installing check action outside the development workspace, ensuring dependencies and assets are sufficient without workspace fallbacks.
 - [Parser Analysis Tests](analysis-tests.md) — These tests keep Markdown and source analysis deterministic, AST-free, serializable, and safely reusable across parser executions.
 - [PHP Source Parser](php-source-parser.md) — PHP source analysis and code-reference scanning cover Laravel application and test files without treating Blade attributes as code references.
 - [Ref Extraction](ref-extraction.md) — Tests for extracting wiki link references from parsed markdown files.
@@ -49,7 +49,8 @@ Shared patterns for writing and organizing tests in this project.
 - [Section Parsing](section-parsing.md) — Tests for parsing markdown into hierarchical section trees with correct metadata.
 - [Section Preview Formatting](section-preview.md) — Tests for formatting section previews for terminal output via \[\[cli#Section Preview\]\].
 - [Status](status.md) — Functional and unit tests for the \`status\`/\`reviewed-hash\` provenance fields, \`lat check status\`, and the provenance note surfaced above a quoted section.
+- [Swift Source Links](swift-source-parser.md) — Swift source links resolve declarations and type members through the shared source parser, validation, and code-reference scanner.
 - [TS Fallback](ts-fallback.md) — Tests that verify the pure-TypeScript code-ref scanner produces identical results to the ripgrep path.
-- [Untrusted Text Additional Coverage](untrusted.md) — Additional coverage for \[\[src/untrusted.ts\]\] beyond its original core tests: wider invisible-Unicode stripping and the \`cleanUntrustedId\` helper for values embedded into ids and headings rather than quoted prose.
-- [Swift Source Links](swift-source-parser.md) — Swift declarations, type members, source ranges, and code-reference scanning.
+- [Untrusted Text Additional Coverage](untrusted.md) — Additional coverage for \[\[packages/core/src/untrusted.ts\]\] beyond its original core tests: wider invisible-Unicode stripping and the \`cleanUntrustedId\` helper for values embedded into ids and headings rather than quoted prose.
+- [Wiki Tests](wiki.md) — Functional and unit specifications for GitHub Wiki export and publication.
 <!-- lat:index:end -->

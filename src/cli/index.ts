@@ -596,4 +596,48 @@ program
     handleResult(await graphCommand(ctx, opts));
   });
 
+const wikiCmd = program
+  .command('wiki')
+  .description('Publish Diátaxis documentation to GitHub Wiki');
+
+wikiCmd
+  .command('build [output]')
+  .description('Build GitHub Wiki pages into a directory')
+  .option(
+    '--repo <owner/repo-or-url>',
+    'GitHub repository to resolve blob links against',
+  )
+  .option('--ref <ref>', 'Git revision for source links')
+  .action(async (output?: string, opts?: { repo?: string; ref?: string }) => {
+    const ctx = resolveContext(program.opts());
+    const { wikiBuildCommand } = await import('./wiki.js');
+    try {
+      handleResult(await wikiBuildCommand(ctx, output, opts));
+    } catch (err: unknown) {
+      handleResult({ output: (err as Error).message, isError: true });
+    }
+  });
+
+wikiCmd
+  .command('publish')
+  .description('Publish GitHub Wiki pages to companion .wiki.git repository')
+  .option('--remote <remote-or-url>', 'Git remote or URL (default: origin)')
+  .option('--repo <owner/repo-or-url>', 'GitHub repository for blob links')
+  .option('--ref <ref>', 'Git revision for source links')
+  .option('--message <message>', 'Commit message for the wiki push')
+  .option('--dry-run', 'Commit locally in the clone without pushing')
+  .action(
+    async (opts?: {
+      remote?: string;
+      repo?: string;
+      ref?: string;
+      message?: string;
+      dryRun?: boolean;
+    }) => {
+      const ctx = resolveContext(program.opts());
+      const { wikiPublishCommand } = await import('./wiki.js');
+      handleResult(await wikiPublishCommand(ctx, opts));
+    },
+  );
+
 await program.parseAsync(checkTargetArgs.args, { from: 'user' });
