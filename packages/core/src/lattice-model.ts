@@ -303,6 +303,8 @@ export type SectionMatch = {
   lexicalRank?: number;
   evidence?: SearchEvidence[];
   diagnostics?: SearchDiagnostics;
+  citeFile?: string;
+  citeLine?: number;
 };
 
 export function findSections(

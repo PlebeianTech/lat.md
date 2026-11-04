@@ -243,6 +243,10 @@
     "./fork/frontmatter-fields": {
       "types": "./dist/fork/frontmatter-fields.d.ts",
       "import": "./dist/fork/frontmatter-fields.js"
+    },
+    "./fork/section-edges": {
+      "types": "./dist/fork/section-edges.d.ts",
+      "import": "./dist/fork/section-edges.js"
     }
   },
   "files": [

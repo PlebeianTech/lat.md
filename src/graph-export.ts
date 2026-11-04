@@ -21,6 +21,7 @@ import {
   type Section,
 } from '@plebeiantech/lat.md-core/lattice';
 import { scanCodeRefs } from '@plebeiantech/lat.md-core/code-refs';
+import { classifyCodeRefRole } from '@plebeiantech/lat.md-core/fork/section-edges';
 import {
   DIATAXIS_MODES,
   MODE_DIRS,
@@ -36,6 +37,12 @@ const GIT_MAX_BUFFER = 256 * 1024 * 1024;
 
 export type GraphNodeType = 'document' | 'section' | 'code' | 'tag';
 export type GraphEdgeType = 'contains' | 'wikilink' | 'code-ref' | 'tag';
+export type GraphEdgeRole =
+  | 'section-ref'
+  | 'symbol-ref'
+  | 'test-spec-ref'
+  | 'implements'
+  | 'verifies';
 
 export type GraphNode = {
   id: string;
@@ -53,6 +60,7 @@ export type GraphEdge = {
   from: string;
   to: string;
   type: GraphEdgeType;
+  role?: GraphEdgeRole;
 };
 
 export type Graph = {
@@ -132,6 +140,7 @@ export async function buildGraph(
 ): Promise<Graph> {
   const nodes = new Map<string, GraphNode>();
   const edges: GraphEdge[] = [];
+  const testSpecDocs = new Set<string>();
 
   const addNode = (node: GraphNode) => {
     if (!nodes.has(node.id)) nodes.set(node.id, node);
@@ -161,7 +170,18 @@ export async function buildGraph(
     const sections = parseSections(absPath, f.content, projectRoot);
     allSections.push(...sections);
 
-    const fm = parseFrontmatter(f.content).raw;
+    const parsedFm = parseFrontmatter(f.content);
+    const fm = parsedFm.raw;
+    const posixRel = toPosix(f.relPath);
+    if (
+      parsedFm.requireCodeMention === true ||
+      fm['require-code-mention'] === true ||
+      posixRel.startsWith('lat.md/tests/') ||
+      posixRel.startsWith('lat.md/knowledge/tests/')
+    ) {
+      testSpecDocs.add(f.relPath);
+    }
+
     const provenance = readProvenance(f.content);
     const mode = modeForFile(toPosix(f.relPath), fm);
     const tags = tagsForFile(fm);
@@ -235,7 +255,12 @@ export async function buildGraph(
       const canonicalTarget = ambiguous ? undefined : canonicalize(resolved);
       if (canonicalTarget !== undefined) {
         const toId = ensureSectionNode(canonicalTarget);
-        addEdge({ from: fromId, to: toId, type: 'wikilink' });
+        const targetFile = nodes.get(toId)?.file;
+        const role: GraphEdgeRole =
+          targetFile !== undefined && testSpecDocs.has(targetFile)
+            ? 'test-spec-ref'
+            : 'section-ref';
+        addEdge({ from: fromId, to: toId, type: 'wikilink', role });
       } else {
         const cId = codeId(ref.target);
         addNode({
@@ -243,7 +268,12 @@ export async function buildGraph(
           type: 'code',
           label: cleanUntrustedId(ref.target),
         });
-        addEdge({ from: fromId, to: cId, type: 'wikilink' });
+        addEdge({
+          from: fromId,
+          to: cId,
+          type: 'wikilink',
+          role: 'symbol-ref',
+        });
       }
     }
   }
@@ -263,7 +293,13 @@ export async function buildGraph(
       addNode({ id: cId, type: 'code', label: cleanUntrustedId(label) });
       const canonicalTarget = ambiguous ? undefined : canonicalize(resolved);
       const toId = ensureSectionNode(canonicalTarget ?? ref.target);
-      addEdge({ from: cId, to: toId, type: 'code-ref' });
+      const targetFile = nodes.get(toId)?.file;
+      const isTargetTestSpec =
+        targetFile !== undefined && testSpecDocs.has(targetFile);
+      const isCallerTest = classifyCodeRefRole(ref.file) === 'test';
+      const role: GraphEdgeRole =
+        isCallerTest || isTargetTestSpec ? 'verifies' : 'implements';
+      addEdge({ from: cId, to: toId, type: 'code-ref', role });
     }
   }
 

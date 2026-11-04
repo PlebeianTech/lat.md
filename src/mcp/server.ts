@@ -22,6 +22,7 @@ import {
   externalListCommand,
   externalShowCommand,
 } from '@plebeiantech/lat.md-core/cli/external';
+import { FORK_MCP_TOOL_DESCRIPTIONS } from './fork-tool-descriptions.js';
 
 function toMcp(result: CmdResult) {
   const content = [{ type: 'text' as const, text: result.output }];
@@ -50,14 +51,14 @@ export async function startMcpServer(): Promise<void> {
 
   server.tool(
     'lat_locate',
-    'Find sections by name (exact, fuzzy, subsequence matching)',
+    FORK_MCP_TOOL_DESCRIPTIONS.lat_locate,
     { query: z.string().describe('Section name or id to search for') },
     async ({ query }) => toMcp(await locateCommand(requestContext(), query)),
   );
 
   server.tool(
     'lat_section',
-    'Show a local section or exact external target with content and references',
+    FORK_MCP_TOOL_DESCRIPTIONS.lat_section,
     {
       query: z
         .string()
@@ -68,7 +69,7 @@ export async function startMcpServer(): Promise<void> {
 
   server.tool(
     'lat_search',
-    'Hybrid lexical and semantic search across lat.md sections',
+    FORK_MCP_TOOL_DESCRIPTIONS.lat_search,
     {
       query: z.string().describe('Search query in natural language'),
       limit: z
@@ -92,22 +93,19 @@ export async function startMcpServer(): Promise<void> {
 
   server.tool(
     'lat_expand',
-    'Expand [[refs]] in text to resolved lat.md section paths with context',
+    FORK_MCP_TOOL_DESCRIPTIONS.lat_expand,
     { text: z.string().describe('Text containing [[refs]] to expand') },
     async ({ text: input }) =>
       toMcp(await expandCommand(requestContext(), input)),
   );
 
-  server.tool(
-    'lat_check',
-    'Run full lat.md validation: links, code references, indexes, and section structure',
-    {},
-    async () => toMcp(await checkAllCommand(requestContext())),
+  server.tool('lat_check', FORK_MCP_TOOL_DESCRIPTIONS.lat_check, {}, async () =>
+    toMcp(await checkAllCommand(requestContext())),
   );
 
   server.tool(
     'lat_refs',
-    'Find sections that reference a given section via wiki links or @lat code comments',
+    FORK_MCP_TOOL_DESCRIPTIONS.lat_refs,
     {
       query: z.string().describe('Section id to find references for'),
       scope: z
@@ -122,14 +120,14 @@ export async function startMcpServer(): Promise<void> {
 
   server.tool(
     'lat_external_list',
-    'List configured external sources without fetching or changing caches',
+    FORK_MCP_TOOL_DESCRIPTIONS.lat_external_list,
     {},
     async () => toMcp(await externalListCommand(ctx, true)),
   );
 
   server.tool(
     'lat_external_show',
-    'Show one configured external source or exact external target without fetching it',
+    FORK_MCP_TOOL_DESCRIPTIONS.lat_external_show,
     {
       source: z.string().describe('External source handle or exact target'),
     },

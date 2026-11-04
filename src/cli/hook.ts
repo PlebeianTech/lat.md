@@ -9,10 +9,12 @@ import {
 } from '@plebeiantech/lat.md-core/context';
 import { runSearch } from './search.js';
 import { DEFAULT_SEARCH_LIMIT } from '../search/search.js';
+import { formatPromptSearchMatches } from './fork-prompt-search.js';
 import {
-  getSection,
-  formatSectionOutput,
-} from '@plebeiantech/lat.md-core/cli/section';
+  findUngroundedPromptFiles,
+  formatCoverageGapNotice,
+} from './fork-coverage-preflight.js';
+import { findImpactedSectionsForDiff } from './fork-stop-impact.js';
 import {
   checkMd,
   checkCodeRefs,
@@ -133,22 +135,8 @@ async function searchContextForPrompt(
     return { text: null, filePaths: [] };
   }
   const filePaths = result.matches.map((m) => m.section.filePath);
-  if (result.matches.length === 0) return { text: null, filePaths };
-
-  const parts: string[] = [
-    `Search results for the user prompt (${result.matches.length} matches):`,
-    '',
-  ];
-
-  for (const match of result.matches) {
-    const sectionResult = await getSection(ctx, match.section.id);
-    if (sectionResult.kind === 'found') {
-      parts.push(formatSectionOutput(ctx, sectionResult));
-      parts.push('');
-    }
-  }
-
-  return { text: parts.join('\n'), filePaths };
+  const text = await formatPromptSearchMatches(ctx, result.matches);
+  return { text, filePaths };
 }
 
 async function handleUserPromptSubmit(): Promise<void> {
@@ -177,8 +165,19 @@ async function handleUserPromptSubmit(): Promise<void> {
   const latDir = findLatticeDir();
   if (latDir && userPrompt) {
     const ctx = makeHookCtx(latDir);
-    // Search and federation share the analysis memoised on `ctx`.
-    const { allSections } = await commandProjectAnalysis(ctx);
+    const project = await commandProjectAnalysis(ctx);
+    const { allSections } = project;
+
+    try {
+      const ungroundedFiles = await findUngroundedPromptFiles(
+        project,
+        userPrompt,
+      );
+      const gapNotice = formatCoverageGapNotice(ungroundedFiles);
+      if (gapNotice) {
+        parts.push('', gapNotice);
+      }
+    } catch {}
 
     // Search for relevant sections and include their full content
     let searchFilePaths: string[] = [];
@@ -417,6 +416,7 @@ export type StopStatus = {
   needsSync: boolean;
   codeLines: number;
   latMdLines: number;
+  impactedSections?: string[];
 };
 
 export async function getStopStatus(latDir: string): Promise<StopStatus> {
@@ -447,12 +447,22 @@ export async function getStopStatus(latDir: string): Promise<StopStatus> {
     needsSync = effectiveLatMd < codeLines * LATMD_RATIO;
   }
 
+  let impactedSections: string[] | undefined;
+  if (needsSync) {
+    try {
+      impactedSections = await findImpactedSectionsForDiff(projectRoot, run);
+    } catch {
+      impactedSections = [];
+    }
+  }
+
   return {
     checkFailed,
     totalErrors,
     needsSync,
     codeLines,
     latMdLines,
+    impactedSections,
   };
 }
 
@@ -462,6 +472,7 @@ export function formatStopReason({
   needsSync,
   codeLines,
   latMdLines,
+  impactedSections,
 }: StopStatus): string | null {
   if (!checkFailed && !needsSync) return null;
 
@@ -496,6 +507,13 @@ export function formatStopReason({
       syncMsg +
         ' Review whether `lat.md/` needs a current-state update; do not add journal/changelog notes just to satisfy this reminder. Run `lat search` to find relevant sections and `lat check` at the end.',
     );
+  }
+
+  if (needsSync && impactedSections && impactedSections.length > 0) {
+    const formattedSections = impactedSections
+      .map((id) => `[[${id}]]`)
+      .join(', ');
+    parts.push('', `Sections linked to modified code: ${formattedSections}`);
   }
 
   return parts.join('\n');

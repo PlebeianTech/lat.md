@@ -2,6 +2,10 @@ import { repositoryFilePath } from '../repository-path.js';
 import { readFile } from 'node:fs/promises';
 import { extname, join, relative } from 'node:path';
 import {
+  classifyCodeRefRole,
+  formatIncomingRefLocation,
+} from '../fork/section-edges.js';
+import {
   findSections,
   flattenSections,
   resolveRef,
@@ -209,7 +213,12 @@ export async function getSection(
         ref.fromSection.toLowerCase(),
       );
       if (fromSection) {
-        incomingRefs.push({ section: fromSection, reason: 'wiki link' });
+        incomingRefs.push({
+          section: fromSection,
+          reason: 'wiki link',
+          citeFile: fromSection.filePath,
+          citeLine: ref.line,
+        });
       }
     }
   }
@@ -361,11 +370,18 @@ export function formatSectionOutput(
   if (incomingRefs.length > 0) {
     parts.push('', '## Referenced by:', '');
     for (const ref of incomingRefs) {
+      const locStr = formatIncomingRefLocation(
+        ctx.projectRoot,
+        process.cwd(),
+        ref.citeFile,
+        ref.citeLine,
+      );
+      const loc = locStr ? s.dim(locStr) : '';
       const body = ref.section.firstParagraph
         ? ` ${s.dim('—')} ${sectionSummary(ref.section)}`
         : '';
       parts.push(
-        `${s.dim('*')} [[${formatSectionId(ref.section.id, s)}]]${body}`,
+        `${s.dim('*')} [[${formatSectionId(ref.section.id, s)}]]${loc}${body}`,
       );
     }
   }
@@ -377,8 +393,9 @@ export function formatSectionOutput(
         process.cwd(),
         join(ctx.projectRoot, ref.file),
       );
+      const role = classifyCodeRefRole(ref.file);
       parts.push(
-        `${s.dim('*')} ${s.cyan(codeRelPath)}${s.dim(`:${ref.line}`)}`,
+        `${s.dim('*')} ${s.cyan(codeRelPath)}${s.dim(`:${ref.line}`)} ${s.dim(`[${role}]`)}`,
       );
       if (ref.snippet) {
         const snippetLines = ref.snippet.split('\n');

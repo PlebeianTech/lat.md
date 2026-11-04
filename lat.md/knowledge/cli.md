@@ -33,8 +33,8 @@ Output:
 1. Section header with id and file location
 2. Section content blockquoted (`>`) from `startLine` through the end of the last descendant subsection
 3. **This section references** — all wiki link targets found within the section or its descendants, including lat.md section refs with complete leading paragraphs, source code refs with line ranges and snippets, and external refs
-4. **Referenced by** — other sections in `lat.md/` that contain wiki links pointing to this section, shown with their complete leading paragraphs
-5. **Referenced by code** — source files containing `@lat:` comments that reference this section or any descendant, each shown with file path, line number, and a 5-line snippet centered on the reference
+4. **Referenced by**: other sections in `lat.md/` that contain wiki links pointing to this section, shown with `(file:line)` citation coordinates from [[packages/core/src/fork/section-edges.ts#formatIncomingRefLocation]] and their complete leading paragraphs
+5. **Referenced by code**: source files containing `@lat:` comments that reference this section or any descendant, each shown with file path, line number, a `[test]` or `[code]` role badge from [[packages/core/src/fork/section-edges.ts#classifyCodeRefRole]], and a 5-line snippet centered on the reference
 6. **Navigation hints** — same footer as [[cli#search]], suggesting `lat section` and `lat search` as next steps
 
 Reference paragraphs rely on the 250-character section-summary invariant. As a fallback for documents that currently fail validation, output truncates them after 300 characters.
@@ -43,7 +43,7 @@ Source snippet lines in outgoing-reference and code-backlink blocks use Markdown
 
 Usage: `lat section <query>`
 
-Core logic in [[packages/core/src/cli/section.ts#getSection]] (returns structured result), used by both the CLI command and [[cli#mcp]] `lat_section` tool.
+Core logic in [[packages/core/src/cli/section.ts#getSection]] and [[packages/core/src/cli/section.ts#formatSectionOutput]], with backlink helpers in [[packages/core/src/fork/section-edges.ts]], used by both the CLI command and [[cli#mcp]] `lat_section` tool.
 
 ## refs
 
@@ -367,8 +367,9 @@ Reads the hook input from stdin (Claude JSON with `user_prompt` or Codex JSON wi
 
 1. A directive to ALWAYS run `lat search` on the user's intent before starting work — even for seemingly straightforward tasks — because search may reveal critical design details, protocols, or constraints. Includes a hard gate: do not read files, write code, or run commands until search is done.
 2. A reminder that `lat.md/` must stay in sync with meaningful codebase state: update relevant current-state sections for implemented behavior, architecture, or test changes. Plans may be drafted in `lat.md/` alongside implementation, with the intent that by commit time they describe what was implemented. Otherwise, keep proposals, hypothetical designs, and future work outside `lat.md/` unless the user explicitly requests them there. Do not use `lat.md/` as a journal/changelog or grow it for insignificant details.
-3. Runs [[src/cli/search.ts#runSearch]] on the user prompt in **read-only mode** (`buildIndex: false`) — it searches an existing index but never builds or updates one, so a user's first prompt in a fresh repo isn't blocked by a full local embed pass (building the index is `lat search` / [[cli#reindex]], and until then this returns no matches). Then [[packages/core/src/cli/section.ts#getSection]] + [[packages/core/src/cli/section.ts#formatSectionOutput]] on each result — the agent gets full section content with outgoing/incoming refs before it starts work. Gracefully degrades when nothing is indexed yet or the backend can't serve the index.
+3. Runs [[src/cli/search.ts#runSearch]] on the user prompt in **read-only mode** (`buildIndex: false`): it searches an existing index but never builds or updates one, so a user's first prompt in a fresh repo isn't blocked by a full local embed pass (building the index is `lat search` / [[cli#reindex]], and until then this returns no matches). [[src/cli/fork-prompt-search.ts#formatPromptSearchMatches]] formats matches under [[src/cli/fork-prompt-search.ts#PROMPT_SEARCH_MAX_BYTES]]: a single match that fits renders full section content via [[packages/core/src/cli/section.ts#getSection]] and [[packages/core/src/cli/section.ts#formatSectionOutput]], while multi-match sets and oversized single matches render compact previews via [[src/cli/fork-prompt-search.ts#formatCompactSearchMatch]]. Gracefully degrades when nothing is indexed yet or the backend can't serve the index.
 4. [[knowledge-federation#Knowledge Federation]] enriches tagged documents selected by prompt wiki references or search matches. Reference-based federation works without a search index; prompt references are not automatically expanded.
+5. [[src/cli/fork-coverage-preflight.ts#findUngroundedPromptFiles]] inspects source file paths mentioned in the prompt against `lat.md/` wiki links and in-file `@lat:` comments, and [[src/cli/fork-coverage-preflight.ts#formatCoverageGapNotice]] appends a coverage notice when ungrounded files are found.
 
 ### Stop
 
@@ -379,6 +380,8 @@ Conditionally continues Claude or Codex — only when something is actually wron
 3. **Second pass** (`stop_hook_active` true) — if check still fails, print warning to stderr (no block, loop stops). If check passes, exit silently.
 4. **First pass** — measure churn via [[src/cli/hook.ts#analyzeDiff]]: project-relative `git diff HEAD --numstat --relative -- .` covers tracked changes, while NUL-delimited `git ls-files --others --exclude-standard -z -- .` discovers untracked files and respects Git ignore rules. Both scans stay within the discovered Lat project when it is nested in a larger Git worktree. The hook counts regular files under `lat.md/` plus code files matching [[packages/core/src/source-formats.ts#SOURCE_FILE_EXTENSIONS]]; it classifies untracked paths before reading them, so unrelated files are skipped. This makes a freshly scaffolded, never-committed `lat.md/` visible. Outside a Git worktree, diff analysis contributes zero churn by design: Git is optional, so validation still runs but the sync reminder is disabled. Skip the ratio check if `codeLines < 5` or `latMdLines >= 50`; otherwise flag `needsSync` when `latMdLines < codeLines * 5%`.
 5. **Decision** — both pass: exit silently, clean output. Check failed + needs sync: block ("update relevant current-state `lat.md/` sections if needed, then run `lat check` until it passes"). Check failed only: block ("run `lat check` until it passes"). Needs sync only: block with explicit context ("not updated" when 0 lat.md lines, "may not be fully in sync (N lines)" when some changes exist but below ratio) and a reminder not to add journal/changelog noise.
+
+When `needsSync` is true, [[src/cli/hook.ts#getStopStatus]] resolves candidate `[[section]]` targets via [[src/cli/fork-stop-impact.ts#findImpactedSectionsForDiff]], which parses `git diff HEAD --unified=0` line ranges with [[src/cli/fork-stop-impact.ts#parseUnifiedZeroDiff]] and intersects modified lines against `@lat:` comments and `lat.md/` source wiki links, and [[src/cli/hook.ts#formatStopReason]] appends the impacted sections to the block message.
 
 ### PreToolUse
 
@@ -423,9 +426,9 @@ Clients invoke this as `lat mcp`. The `lat init` wizard registers the MCP server
 - **lat_check** — validate links and code refs (wraps [[cli#check]])
 - **lat_refs** — find references to a section (wraps [[cli#refs]])
 
-Each MCP tool calls the same command function as the CLI (e.g. `locateCommand`, `refsCommand`, `searchCommand`), passing a `CmdContext` with `plainStyler` and `mode: 'mcp'`. The `toMcp()` helper converts `CmdResult` to MCP response format. Uses `@modelcontextprotocol/sdk` with stdio transport. Resolves `lat.md/` from cwd.
+Each MCP tool calls the same command function as the CLI (e.g. `locateCommand`, `refsCommand`, `searchCommand`), passing a `CmdContext` with `plainStyler` and `mode: 'mcp'`. The `toMcp()` helper converts `CmdResult` to MCP response format. Uses `@modelcontextprotocol/sdk` with stdio transport. Resolves `lat.md/` from cwd. Tool registration pulls workflow-ordered descriptions from [[src/mcp/fork-tool-descriptions.ts#FORK_MCP_TOOL_DESCRIPTIONS]].
 
-Implementation: [[src/mcp/server.ts]]
+Implementation: [[src/mcp/server.ts]], tool descriptions in [[src/mcp/fork-tool-descriptions.ts]]
 
 ## search
 
@@ -498,6 +501,8 @@ Export the knowledge graph as JSON, Mermaid, or Graphviz `dot`, or diff it again
 Without `--at`/`--since`, exports the working tree. Nodes cover documents, sections, and tags; edges cover `contains` (document/section nesting), `wikilink`, and `code-ref`. `--format json` emits the raw node/edge graph; `mermaid` emits a `flowchart TD` diagram with edge labels; `dot` emits a Graphviz `digraph lat { ... }`. Untrusted content (a heading with quotes or control characters) is escaped in every format rather than being allowed to break the output's syntax.
 
 `--at <rev>` reconstructs the graph as it existed at a git revision instead of the working tree, by reading each source file's blob at that revision. `--since <rev>` diffs the graph between that revision and the working tree and prints which sections were added, removed, or changed, rather than the graph itself. `--at` and `--since` are mutually exclusive.
+
+Each `wikilink` and `code-ref` edge on [[src/graph-export.ts#GraphEdge]] carries an optional `role` field ([[src/graph-export.ts#GraphEdgeRole]]): `wikilink` edges classify as `test-spec-ref` (targeting a test-spec document), `section-ref` (targeting another section), or `symbol-ref` (targeting a source symbol or file), while `code-ref` edges classify via [[packages/core/src/fork/section-edges.ts#classifyCodeRefRole]] as `verifies` (from a test file or targeting a test-spec section) or `implements` (from production code targeting a non-test section).
 
 Implementation: [[src/graph-export.ts]], CLI wrapper [[src/cli/graph.ts]].
 
