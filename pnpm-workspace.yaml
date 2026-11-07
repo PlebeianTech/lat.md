@@ -1,4 +1,7 @@
 packages:
-  - '.'
-  - 'packages/*'
-  - 'website'
+  - .
+  - packages/*
+  - website
+
+onlyBuiltDependencies:
+  - esbuild
