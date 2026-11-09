@@ -1,4 +1,4 @@
-import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   Captured,
@@ -8,7 +8,11 @@ import type {
   UnknownReason,
   UsageEvent,
 } from './schema.js';
-import { existingUsageDirectory } from './enabled.js';
+import {
+  existingUsageDirectory,
+  readRegularFile,
+  realUsageDirectory,
+} from './enabled.js';
 import type { Checkpoint } from './sources/types.js';
 
 export const USAGE_STATE_VERSION = 2;
@@ -88,13 +92,31 @@ export function statePath(root: string): string {
   return join(root, '.lat', 'usage', 'state.json');
 }
 
-/** A missing, unreadable or foreign state file starts from nothing. */
+/**
+ * A missing, unreadable or foreign state file starts from nothing, and so does
+ * one that is not a regular file inside a real `.lat/usage` directory.
+ */
+// @lat: [[usage-analytics#Usage Analytics#Opt-in and the usage directory]]
 export function loadState(root: string): UsageState {
   try {
-    const state = JSON.parse(readFileSync(statePath(root), 'utf-8'));
+    const dir = realUsageDirectory(root);
+    if (dir === null) return emptyState();
+    const state = JSON.parse(readRegularFile(join(dir, 'state.json')));
     return state?.version === USAGE_STATE_VERSION ? state : emptyState();
   } catch {
     return emptyState();
+  }
+}
+
+/**
+ * A crash can leave this process id's temporary file behind, and 'wx' would
+ * then refuse every later save. Unlink removes a symlink, not its target.
+ */
+function removeStale(path: string): void {
+  try {
+    unlinkSync(path);
+  } catch {
+    return;
   }
 }
 
@@ -104,7 +126,8 @@ export function saveState(root: string, state: UsageState): void {
   try {
     if (existingUsageDirectory(root) === null) return;
     const temporary = `${statePath(root)}.${process.pid}.tmp`;
-    writeFileSync(temporary, JSON.stringify(state));
+    removeStale(temporary);
+    writeFileSync(temporary, JSON.stringify(state), { flag: 'wx' });
     renameSync(temporary, statePath(root));
   } catch {
     return;

@@ -379,6 +379,25 @@ describe('usage dashboard explore page', () => {
     expect(text()).not.toContain('SECRET-COMMAND');
   });
 
+  // @lat: [[usage-dashboard-explore#Usage Dashboard Explore#A bypass read shows its path]]
+  it('shows the path of a bypass read', async () => {
+    const b1 = {
+      ...k1,
+      id: 'b1',
+      event: {
+        ...k1.event,
+        event_id: 'b1',
+        kind: 'bypass_read',
+        path: 'lat.md/cli.md',
+        bytes: 120,
+      },
+    } as unknown as RawRecord;
+    events = [...all, b1];
+    await show();
+    const cells = container.querySelectorAll('[data-event-id="b1"] td');
+    expect(cells[5].textContent).toBe('lat.md/cli.md');
+  });
+
   // @lat: [[usage-dashboard-explore#Usage Dashboard Explore#Links keep the filter query string]]
   it('keeps the filters in session and section links', async () => {
     await show('?agent=claude&event=u2');

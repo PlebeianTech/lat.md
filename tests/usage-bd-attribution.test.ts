@@ -525,7 +525,12 @@ describe('usage bd attribution', () => {
     // The reopen's reason journals a comment row and then an update row: one
     // reopen is reported, at the first row that is no longer closed.
     expect(findReopens(records, new Map())).toEqual([
-      { issueId: 'tmp-dmw', ts: '2026-11-08T23:17:01Z', seq: 4 },
+      {
+        issueId: 'tmp-dmw',
+        ts: '2026-11-08T23:17:01Z',
+        seq: 4,
+        closedTs: '2026-11-08T23:16:59Z',
+      },
     ]);
   });
 
@@ -533,9 +538,40 @@ describe('usage bd attribution', () => {
     const records = CAPTURED_REOPEN_JOURNAL.trim()
       .split('\n')
       .map((line) => JSON.parse(line) as JournalRecord);
-    const statuses = new Map<string, string>();
-    expect(findReopens(records.slice(0, 3), statuses)).toEqual([]);
-    expect(findReopens(records.slice(3), statuses)).toHaveLength(1);
+    const closedSince = new Map<string, string>();
+    expect(findReopens(records.slice(0, 3), closedSince)).toEqual([]);
+    expect(findReopens(records.slice(3), closedSince)).toEqual([
+      expect.objectContaining({ seq: 4, closedTs: '2026-11-08T23:16:59Z' }),
+    ]);
+  });
+
+  it('reports the first close time when a closed issue is edited', () => {
+    const records: JournalRecord[] = [
+      {
+        seq: 1,
+        ts: at(1),
+        op: 'close',
+        issue_id: 'x',
+        issue: { status: 'closed' },
+      },
+      {
+        seq: 2,
+        ts: at(2),
+        op: 'update',
+        issue_id: 'x',
+        issue: { status: 'closed' },
+      },
+      {
+        seq: 3,
+        ts: at(3),
+        op: 'update',
+        issue_id: 'x',
+        issue: { status: 'open' },
+      },
+    ];
+    expect(findReopens(records, new Map())).toEqual([
+      { issueId: 'x', ts: at(3), seq: 3, closedTs: at(1) },
+    ]);
   });
 
   it('misses a reopen whose close was pruned', () => {
@@ -593,7 +629,9 @@ describe('usage bd attribution', () => {
     });
     fingerprint = 'b';
     const afterReopen = await watcher.refresh();
-    expect(afterReopen?.reopens).toEqual([{ issueId: 'x', ts: at(2), seq: 2 }]);
+    expect(afterReopen?.reopens).toEqual([
+      { issueId: 'x', ts: at(2), seq: 2, closedTs: at(1) },
+    ]);
     expect(calls).toEqual(['events tail', 'list --all']);
 
     // A sync changes the database without journal rows: re-baseline.
@@ -601,6 +639,8 @@ describe('usage bd attribution', () => {
     fingerprint = 'c';
     const afterSync = await watcher.refresh();
     expect(calls).toEqual(['events tail', 'events export', 'list --all']);
-    expect(afterSync?.reopens).toEqual([{ issueId: 'x', ts: at(2), seq: 2 }]);
+    expect(afterSync?.reopens).toEqual([
+      { issueId: 'x', ts: at(2), seq: 2, closedTs: at(1) },
+    ]);
   });
 });

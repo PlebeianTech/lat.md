@@ -68,3 +68,9 @@ A missing rollout file returns no events and the reason `transcript_expired`, an
 ## Worktree helpers find roots
 
 `worktreeRoots` lists a repo root and its linked worktrees, or the root alone outside a repository. `findWorktreeRoot` returns the nearest ancestor holding `.git`, or the path itself.
+
+## Nested repositories are not the project
+
+`belongsToProject` accepts a session cwd under a project worktree root, including a subdirectory with no repository of its own, but rejects a cwd inside a separate git repository nested below the root.
+
+The Codex, Pi, OpenCode, and Antigravity readers all discover sessions through it.

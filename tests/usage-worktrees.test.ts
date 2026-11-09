@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  belongsToProject,
   findWorktreeRoot,
   worktreeRoots,
 } from '../src/fork/usage/sources/worktrees.js';
@@ -48,5 +49,28 @@ describe('worktree helpers', () => {
     const outside = join(scratch, 'outside');
     mkdirSync(outside);
     expect(findWorktreeRoot(outside, cache)).toBe(outside);
+  });
+
+  // @lat: [[usage-source-codex#Usage Source Codex#Nested repositories are not the project]]
+  it('rejects a cwd inside a separate repository nested under the root', () => {
+    const root = join(scratch, 'parent');
+    const nested = join(root, 'nested');
+    mkdirSync(join(root, '.git'), { recursive: true });
+    mkdirSync(join(nested, '.git'), { recursive: true });
+    mkdirSync(join(nested, 'src'));
+    mkdirSync(join(root, 'docs'));
+    const cache = new Map<string, string>();
+
+    expect(belongsToProject([root], root, cache)).toBe(true);
+    expect(belongsToProject([root], join(root, 'docs'), cache)).toBe(true);
+    expect(belongsToProject([root], nested, cache)).toBe(false);
+    expect(belongsToProject([root], join(nested, 'src'), cache)).toBe(false);
+    expect(belongsToProject([root], join(scratch, 'elsewhere'), cache)).toBe(
+      false,
+    );
+
+    const plain = join(scratch, 'plain');
+    mkdirSync(join(plain, 'sub'), { recursive: true });
+    expect(belongsToProject([plain], join(plain, 'sub'), cache)).toBe(true);
   });
 });

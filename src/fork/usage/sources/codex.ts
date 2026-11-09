@@ -17,7 +17,11 @@ import {
   parseShell,
   shellWritePaths,
 } from './shell-parse.js';
-import { findWorktreeRoot, worktreeRoots } from './worktrees.js';
+import {
+  belongsToProject,
+  findWorktreeRoot,
+  worktreeRoots,
+} from './worktrees.js';
 import type { Checkpoint, ReadResult, SessionSource } from './types.js';
 import { reported, tokenCounters } from './token-counters.js';
 
@@ -111,11 +115,12 @@ async function rolloutsIn(dir: string, depth: number): Promise<string[]> {
 async function discover(repoRoot: string): Promise<string[]> {
   try {
     const roots = await worktreeRoots(repoRoot);
+    const gitRoots = new Map<string, string>();
     const found: string[] = [];
     for (const path of await rolloutsIn(join(codexHome(), 'sessions'), 0)) {
       try {
         const cwd = (await readHead(path))?.meta.cwd;
-        if (typeof cwd === 'string' && roots.some((r) => isInside(r, cwd)))
+        if (typeof cwd === 'string' && belongsToProject(roots, cwd, gitRoots))
           found.push(path);
       } catch {
         continue;

@@ -106,7 +106,7 @@ describe('lat impact --specs in a temporary repository', () => {
     await mkdir(join(root, 'src'), { recursive: true });
     await writeFile(
       join(root, 'lat.md/tests/cases.md'),
-      '# Cases\n\n## Inside case\n\nCovers the first function.\n\n## Above case\n\nCovers the first function from above.\n\n## Separated case\n\nCovers nothing in the first function.\n',
+      '# Cases\n\n## Inside case\n\nCovers the first function.\n\n## Above case\n\nCovers the first function from above.\n\n## Separated case\n\nCovers nothing in the first function.\n\n## Field case\n\nCovers a private field, not the method below it.\n\n## Attribute case\n\nCovers a Rust struct through its derive attribute.\n\n## Python case\n\nCovers a Python function through a comment block of mixed `#` styles.\n\n## Include case\n\nCovers a C include, not the function below it.\n',
     );
     await writeFile(
       join(root, 'src/a.ts'),
@@ -121,6 +121,52 @@ describe('lat impact --specs in a temporary repository', () => {
         '',
         'export function second(): number {',
         '  return 2;',
+        '}',
+        '',
+      ].join('\n'),
+    );
+    await writeFile(
+      join(root, 'src/b.ts'),
+      [
+        'export class Store {',
+        '  // @lat: [[tests/cases#Cases#Field case]]',
+        '  #cache = new Map<string, number>();',
+        '  size(): number {',
+        '    return this.#cache.size;',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+    );
+    await writeFile(
+      join(root, 'src/c.rs'),
+      [
+        '// @lat: [[tests/cases#Cases#Attribute case]]',
+        '#[derive(Debug)]',
+        'pub struct Foo {',
+        '    pub n: u32,',
+        '}',
+        '',
+      ].join('\n'),
+    );
+    await writeFile(
+      join(root, 'src/d.py'),
+      [
+        '# @lat: [[tests/cases#Cases#Python case]]',
+        '#: a Sphinx doc comment',
+        '#comment without a space',
+        'def third():',
+        '    return 3',
+        '',
+      ].join('\n'),
+    );
+    await writeFile(
+      join(root, 'src/e.c'),
+      [
+        '// @lat: [[tests/cases#Cases#Include case]]',
+        '#include <stdio.h>',
+        'int main(void) {',
+        '    return 0;',
         '}',
         '',
       ].join('\n'),
@@ -158,5 +204,49 @@ describe('lat impact --specs in a temporary repository', () => {
       },
     );
     expect(output).toBe('No test spec covers src/a.ts#second.');
+  });
+
+  // @lat: [[impact#Impact#Counts an @lat comment in or directly above the symbol]]
+  it('does not read a private field line as a comment', async () => {
+    const { output } = await reportSpecCoverage(
+      tmpIndex,
+      root,
+      'src/b.ts#Store#size',
+      { depth: DEFAULT_DEPTH },
+    );
+    expect(output).not.toContain('Field case');
+  });
+
+  // @lat: [[impact#Impact#Counts an @lat comment in or directly above the symbol]]
+  it('reads a Rust attribute line as part of the comment block', async () => {
+    const { output } = await reportSpecCoverage(
+      tmpIndex,
+      root,
+      'src/c.rs#Foo',
+      { depth: DEFAULT_DEPTH },
+    );
+    expect(output).toContain('Attribute case');
+  });
+
+  // @lat: [[impact#Impact#Counts an @lat comment in or directly above the symbol]]
+  it('reads every Python # line as part of the comment block', async () => {
+    const { output } = await reportSpecCoverage(
+      tmpIndex,
+      root,
+      'src/d.py#third',
+      { depth: DEFAULT_DEPTH },
+    );
+    expect(output).toContain('Python case');
+  });
+
+  // @lat: [[impact#Impact#Counts an @lat comment in or directly above the symbol]]
+  it('does not read a C preprocessor line as a comment', async () => {
+    const { output } = await reportSpecCoverage(
+      tmpIndex,
+      root,
+      'src/e.c#main',
+      { depth: DEFAULT_DEPTH },
+    );
+    expect(output).toBe('No test spec covers src/e.c#main.');
   });
 });

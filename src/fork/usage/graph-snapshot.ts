@@ -12,7 +12,7 @@ import { execFile } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
-  readFileSync,
+  realpathSync,
   renameSync,
   unlinkSync,
   writeFileSync,
@@ -22,7 +22,12 @@ import { promisify } from 'node:util';
 import { parseSections, type Section } from '@plebeiantech/lat.md-core/lattice';
 import { buildGraph, type GraphSourceFile } from '../../graph-export.js';
 import { isSectionRead, type Contribution } from './aggregate-types.js';
-import { existingUsageDirectory } from './enabled.js';
+import {
+  existingUsageDirectory,
+  readRegularFile,
+  realUsageDirectory,
+} from './enabled.js';
+import { worktreeRoots } from './sources/worktrees.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -122,7 +127,16 @@ async function revisionFiles(
     listed = (
       await execFileAsync(
         'git',
-        ['ls-tree', '-r', '-z', '--name-only', head, '--', 'lat.md'],
+        [
+          'ls-tree',
+          '-r',
+          '-z',
+          '--name-only',
+          '--end-of-options',
+          head,
+          '--',
+          'lat.md',
+        ],
         { cwd: root, maxBuffer: GIT_MAX_BUFFER },
       )
     ).stdout;
@@ -245,15 +259,48 @@ async function findWorktreeAtHead(
   return { clean: null, dirty };
 }
 
+/**
+ * The candidates that are worktrees of the project's repository. Candidates
+ * come from event lines, and running git in a directory with a hostile
+ * `.git/config` (core.fsmonitor) runs its code, so any other is dropped.
+ */
+// @lat: [[usage-graph-snapshot#Usage Graph Snapshot#A worktree outside the repository is never run]]
+async function trustedWorktrees(
+  root: string,
+  candidates: string[],
+): Promise<string[]> {
+  if (candidates.length === 0) return [];
+  const real = (path: string) => {
+    try {
+      return realpathSync(path);
+    } catch {
+      return null;
+    }
+  };
+  const roots = new Set((await worktreeRoots(root)).map(real));
+  return candidates.filter((candidate) => roots.has(real(candidate)));
+}
+
 const snapshotDir = (root: string) =>
   join(root, '.lat', 'usage', 'graph-snapshots');
 
+/** Silent, like every cache step: the snapshot can always be rebuilt. */
+function removeFile(path: string): void {
+  try {
+    unlinkSync(path);
+  } catch {
+    return;
+  }
+}
+
+/** A planted symlink, FIFO or device at the cache file is never read. */
+// @lat: [[usage-analytics#Usage Analytics#Opt-in and the usage directory]]
 function readCachedSnapshot(path: string): GraphSnapshot | null {
   if (!existsSync(path)) return null;
   try {
-    return JSON.parse(readFileSync(path, 'utf-8')) as GraphSnapshot;
+    return JSON.parse(readRegularFile(path)) as GraphSnapshot;
   } catch {
-    unlinkSync(path);
+    removeFile(path);
     return null;
   }
 }
@@ -267,8 +314,10 @@ function writeCachedSnapshot(
   try {
     if (existingUsageDirectory(root) === null) return;
     mkdirSync(snapshotDir(root), { recursive: true });
+    if (realUsageDirectory(root, 'graph-snapshots') === null) return;
     const temp = `${snapshotFile(root, head)}.${process.pid}.tmp`;
-    writeFileSync(temp, JSON.stringify(snapshot));
+    removeFile(temp);
+    writeFileSync(temp, JSON.stringify(snapshot), { flag: 'wx' });
     renameSync(temp, snapshotFile(root, head));
   } catch {
     return;
@@ -287,23 +336,35 @@ export function forgetSnapshots(): void {
   remembered.clear();
 }
 
+/** A full SHA-1 or SHA-256 object id. */
+const COMMIT_ID = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+
 /**
  * The snapshot of one head: from memory, else the disk cache, else built and
- * cached. A head that cannot be built is remembered with its reason.
+ * cached. A head that cannot be built is remembered with its reason. The head
+ * comes from event lines, so anything but a full commit id is refused before
+ * it reaches a file path or a git argument.
  */
 export async function snapshotAt(
   root: string,
   head: string,
   worktrees: string[] = [],
 ): Promise<SnapshotResult> {
+  if (!COMMIT_ID.test(head))
+    return { snapshot: null, reason: 'git head is not a full commit id' };
   const key = `${root}\0${head}`;
   const known = remembered.get(key);
   if (known) return known;
   let result: SnapshotResult;
   try {
-    let snapshot = readCachedSnapshot(snapshotFile(root, head));
+    // A symlinked cache directory points outside the project: skip it.
+    const cached = realUsageDirectory(root, 'graph-snapshots') !== null;
+    let snapshot = cached ? readCachedSnapshot(snapshotFile(root, head)) : null;
     if (!snapshot) {
-      const found = await findWorktreeAtHead(head, worktrees);
+      const found = await findWorktreeAtHead(
+        head,
+        await trustedWorktrees(root, worktrees),
+      );
       snapshot = await snapshotGraphAtHead(
         root,
         head,

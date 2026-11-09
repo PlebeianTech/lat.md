@@ -5,6 +5,8 @@ import {
   readFileSync,
   rmSync,
   chmodSync,
+  readdirSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -247,6 +249,45 @@ describe('lat usage disable keeps history', () => {
     expect(text).toContain('off for this project, but LAT_USAGE=1 still');
     vi.unstubAllEnvs();
   });
+});
+
+// @lat: [[usage-cli#Usage CLI#Enable refuses a symlinked usage directory]]
+describe('lat usage enable with a planted symlink', () => {
+  for (const name of ['.lat', '.lat/usage', '.lat/usage.disabled']) {
+    it(`refuses when ${name} is a symlink and changes nothing`, async () => {
+      const outside = join(root, 'outside');
+      mkdirSync(outside);
+      if (name !== '.lat') mkdirSync(join(root, '.lat'));
+      symlinkSync(outside, join(root, name));
+      const text = await run('enable');
+      expect(text).toBe(
+        `Not enabled: ${join(root, name)} is a symlink. Remove it, then run again.\n`,
+      );
+      expect(process.exitCode).toBe(1);
+      process.exitCode = undefined;
+      expect(readdirSync(outside)).toEqual([]);
+    });
+  }
+});
+
+// @lat: [[usage-cli#Usage CLI#Disable refuses a symlinked usage directory]]
+describe('lat usage disable with a planted symlink', () => {
+  for (const name of ['.lat', '.lat/usage', '.lat/usage.disabled']) {
+    it(`refuses when ${name} is a symlink and moves nothing`, async () => {
+      const outside = join(root, 'outside');
+      mkdirSync(join(outside, 'usage'), { recursive: true });
+      if (name !== '.lat') mkdirSync(join(root, '.lat'));
+      if (name === '.lat/usage.disabled') mkdirSync(join(root, '.lat/usage'));
+      symlinkSync(outside, join(root, name));
+      const text = await run('disable');
+      expect(text).toBe(
+        `Not disabled: ${join(root, name)} is a symlink. Remove it, then run again.\n`,
+      );
+      expect(process.exitCode).toBe(1);
+      process.exitCode = undefined;
+      expect(readdirSync(outside)).toEqual(['usage']);
+    });
+  }
 });
 
 // @lat: [[usage-cli#Usage CLI#Each filter narrows the output]]

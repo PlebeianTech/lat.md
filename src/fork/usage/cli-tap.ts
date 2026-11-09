@@ -20,6 +20,10 @@ const QUERY_COMMANDS = new Set([
 /** Commands that run until killed; wrapping their stdout would never end. */
 const UNCAPTURED_COMMANDS = new Set(['ui', 'ui run']);
 
+/** Commands never tapped. MCP taps itself; `usage enable` and `usage disable`
+ * move .lat/usage/ themselves, so an exit write would undo a disable. */
+const UNTAPPED_COMMANDS = new Set(['mcp', 'usage enable', 'usage disable']);
+
 /** Commands whose output a parser reads; others only get a byte count. */
 const PARSED_COMMANDS = new Set(['search', 'section', 'expand', 'hook']);
 
@@ -231,13 +235,9 @@ export function installCliTap(
     try {
       const start = Date.now();
       const root = findProjectRoot(program.opts().dir);
-      if (
-        root === null ||
-        commandName(actionCommand) === 'mcp' ||
-        !usageEnabled(root)
-      )
-        return;
       const name = commandName(actionCommand);
+      if (root === null || UNTAPPED_COMMANDS.has(name) || !usageEnabled(root))
+        return;
       const capture = UNCAPTURED_COMMANDS.has(name)
         ? null
         : captureStdout(

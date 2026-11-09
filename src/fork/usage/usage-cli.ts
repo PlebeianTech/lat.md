@@ -12,6 +12,7 @@ import {
 import { parseUsageFilters } from './filters.js';
 import {
   ensureUsageDirectory,
+  isSymlink,
   usageDirectory,
   usageEnabled,
 } from './enabled.js';
@@ -57,15 +58,33 @@ function moveDirectory(from: string, to: string): boolean {
   }
 }
 
+/** Writers write nothing through a symlinked `.lat` or `.lat/usage`. */
 function trackingState(root: string): string {
   return usageEnabled(root)
     ? 'Usage tracking is on.'
     : 'Usage tracking is off.';
 }
 
+/** A cloned repository can plant these as symlinks pointing outside it. */
+function plantedSymlink(root: string): string | undefined {
+  return [
+    join(root, '.lat'),
+    usageDirectory(root),
+    disabledDirectory(root),
+  ].find(isSymlink);
+}
+
 function enableUsage(root: string): void {
   const active = usageDirectory(root);
   const kept = disabledDirectory(root);
+  const link = plantedSymlink(root);
+  if (link !== undefined) {
+    console.log(
+      `Not enabled: ${link} is a symlink. Remove it, then run again.`,
+    );
+    process.exitCode = 1;
+    return;
+  }
   if (existsSync(active)) {
     ensureUsageDirectory(root);
     console.log(`Already enabled. ${trackingState(root)}`);
@@ -89,6 +108,14 @@ function enableUsage(root: string): void {
 function disableUsage(root: string): void {
   const active = usageDirectory(root);
   const kept = disabledDirectory(root);
+  const link = plantedSymlink(root);
+  if (link !== undefined) {
+    console.log(
+      `Not disabled: ${link} is a symlink. Remove it, then run again.`,
+    );
+    process.exitCode = 1;
+    return;
+  }
   if (existsSync(active)) {
     if (existsSync(kept)) {
       console.log(

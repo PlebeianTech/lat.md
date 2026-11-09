@@ -117,9 +117,9 @@ A reader sets a counter only when the transcript reports it. A counter the trans
 
 ## Opt-in and the usage directory
 
-Usage is opt-in per project. It is on when `.lat/usage/` exists or when `LAT_USAGE=1` is set. The code is [[src/fork/usage/enabled.ts]].
+Usage is opt-in per project. It is on when `.lat/usage/` exists as a real directory, not through a symlink, or when `LAT_USAGE=1` is set. The code is [[src/fork/usage/enabled.ts]].
 
-Only two things create `.lat/usage/`: `lat usage enable`, and the logger of a project that is already on. Each one also writes `.lat/usage/.gitignore` holding `*`, so nothing in the directory can be committed. A process that writes into an existing `.lat/usage/` without that file adds it first.
+Only two things create `.lat/usage/`: `lat usage enable`, and the logger of a project that is already on. Each one also writes `.lat/usage/.gitignore` holding `*`, so nothing in the directory can be committed. A process that writes into an existing `.lat/usage/` without that file adds it first. A `.gitignore` with any other content, such as an empty one a repository committed, is replaced the same way.
 
 Reading never opts a project in. The aggregator, the raw event index, graph snapshots, `lat usage`, `lat usage gaps`, the `lat_usage` MCP tool and the live endpoints never create the directory:
 
@@ -128,6 +128,10 @@ Reading never opts a project in. The aggregator, the raw event index, graph snap
 - A failed snapshot cache write never turns a built snapshot into a failure.
 
 So `lat usage disable` stays effective: after it renames the directory, no read path brings it back.
+
+A cloned repository can ship `.lat/usage/` with symlinks in it. Writers write only when `.lat`, `.lat/usage` and `graph-snapshots` are real directories, not symlinks. If one is a symlink, they write nothing. The events file is opened with `O_NOFOLLOW`. Temporary files are created exclusively after any stale one is unlinked, so a planted symlink is removed, not followed. The graph snapshot cache is not read through a symlinked `graph-snapshots`. `lat usage enable` and `lat usage disable` refuse with exit code 1 when `.lat`, `.lat/usage` or `.lat/usage.disabled` is a symlink.
+
+Readers are guarded the same way. They read `state.json`, the events files and the snapshot cache only inside a real `.lat/usage`, and open each one with `O_NOFOLLOW` and `O_NONBLOCK`, then refuse anything that is not a regular file. A planted link to `/dev/zero` is never read.
 
 ## Stored session events
 

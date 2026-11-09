@@ -1,5 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  symlinkSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -166,6 +172,19 @@ describe('registration', () => {
   it('omits lat_usage when the directory is missing, even with LAT_USAGE=1', async () => {
     process.env.LAT_USAGE = '1';
     const client = await connect(makeRoot(false), (server) =>
+      server.tool('lat_check', 'check', async () => ({ content: [] })),
+    );
+    const { tools } = await client.listTools();
+    expect(tools.map((tool) => tool.name)).not.toContain('lat_usage');
+  });
+
+  it('omits lat_usage when .lat/usage is a symlink', async () => {
+    const root = makeRoot(false);
+    const target = mkdtempSync(join(tmpdir(), 'lat-usage-tool-target-'));
+    roots.push(target);
+    mkdirSync(join(root, '.lat'));
+    symlinkSync(target, join(root, '.lat', 'usage'));
+    const client = await connect(root, (server) =>
       server.tool('lat_check', 'check', async () => ({ content: [] })),
     );
     const { tools } = await client.listTools();

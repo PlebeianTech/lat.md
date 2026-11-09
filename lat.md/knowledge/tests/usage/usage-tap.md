@@ -27,6 +27,12 @@ A read-only `.lat/usage/` makes the writer return without throwing and without a
 
 Twenty processes appending large events at once leave only whole, parseable lines, one per event.
 
+## Symlinks in the usage directory are never followed
+
+A cloned repository can ship `.lat/usage/` with symlinks. A symlinked events file, `.lat/usage` or `.lat` makes the writer return silently, and the file outside is not changed.
+
+The events file is opened with `O_NOFOLLOW`. Without it, a symlink to `~/.zshrc` would get a line holding repository-controlled text, and the shell would run it.
+
 ## Tracking off writes nothing
 
 When neither `.lat/usage/` exists nor `LAT_USAGE=1` is set, a command makes no file system write: no directory, no `.gitignore`, no event file.
@@ -54,6 +60,12 @@ Claude Code (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`), Codex (`CODEX_THREAD_ID`),
 ## A read-only usage directory changes nothing
 
 With a read-only `.lat/usage/`, a command prints the same output and exits with the same code as with tracking off.
+
+## Usage enable and disable are not tapped
+
+`lat usage enable` and `lat usage disable` are never tapped, because they move `.lat/usage/` themselves.
+
+Run through the real CLI registration, `usage disable` leaves no `.lat/usage/` behind, and a later command records nothing. A tapped disable would recreate the directory at exit and turn tracking back on.
 
 ## Registration
 

@@ -27,6 +27,10 @@ Lat commands, bypass reads, bd claims and closes, and injected hook context each
 
 Choosing an event in the list under the timeline shows the stored fields of that event: its id, type, time and the fields of its kind. It never shows a command line or any transcript text.
 
+## Another session never shows the previous session's events
+
+Moving from one session's detail page to another clears the timeline and the selected event, and shows "Loading events…" until the new session's events arrive.
+
 ## Links keep the filter query string
 
 Every link to another page or detail view carries the current filters as a query string: the session rows, the parent and subagent links, the issue links and the way back to the list.

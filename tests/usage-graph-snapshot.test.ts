@@ -5,7 +5,9 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -222,6 +224,38 @@ describe('usage graph snapshot', () => {
     );
   });
 
+  // @lat: [[usage-graph-snapshot#Usage Graph Snapshot#A symlinked cache file is not read]]
+  it('does not read a cache file that is a symlink', async () => {
+    const events = [
+      usage({
+        git_head: head2,
+        worktree: root,
+        command: 'section',
+        section_id: 'lat.md/notes#Notes#Alpha',
+      }),
+    ];
+    await knowledgeFor(events);
+    const path = snapshotPath(head2);
+    const cached = JSON.parse(readFileSync(path, 'utf-8')) as GraphSnapshot;
+    cached.sections.push({
+      id: 'ghost#Ghost',
+      document: 'lat.md/ghost.md',
+      bytes: 1,
+      hash: 'x',
+    });
+    const outside = join(root, 'outside.json');
+    writeFileSync(outside, JSON.stringify(cached));
+    rmSync(path);
+    symlinkSync(outside, path);
+
+    forgetSnapshots();
+    const second = await knowledgeFor([]);
+    expect(second.never_read_sections.map((s) => s.id)).not.toContain(
+      'ghost#Ghost',
+    );
+    expect(readFileSync(outside, 'utf-8')).toBe(JSON.stringify(cached));
+  });
+
   // @lat: [[usage-graph-snapshot#Usage Graph Snapshot#Never-read sections exclude sections read in range]]
   it('excludes sections read in range from the never-read list', async () => {
     const knowledge = await knowledgeFor([
@@ -377,6 +411,21 @@ describe('usage graph snapshot', () => {
     expect(rewritten.git_head).toBe(head2);
   });
 
+  // @lat: [[usage-graph-snapshot#Usage Graph Snapshot#A symlinked cache directory is never used]]
+  it('neither reads, writes nor deletes in a symlinked graph-snapshots directory', async () => {
+    const outside = join(root, 'outside');
+    mkdirSync(outside);
+    writeFileSync(join(outside, `${head2}.json`), '{not json');
+    mkdirSync(join(root, '.lat', 'usage'), { recursive: true });
+    symlinkSync(outside, join(root, '.lat', 'usage', 'graph-snapshots'));
+    const result = await snapshotAt(root, head2, [root]);
+    expect(result.snapshot!.git_head).toBe(head2);
+    expect(readdirSync(outside)).toEqual([`${head2}.json`]);
+    expect(readFileSync(join(outside, `${head2}.json`), 'utf-8')).toBe(
+      '{not json',
+    );
+  });
+
   // @lat: [[usage-graph-snapshot#Usage Graph Snapshot#A head git cannot show has no snapshot and a reason]]
   it('reports a null snapshot with a reason for an unshowable head', async () => {
     const missing = 'a'.repeat(40);
@@ -389,12 +438,55 @@ describe('usage graph snapshot', () => {
     expect(existsSync(snapshotPath(missing))).toBe(false);
   });
 
+  // @lat: [[usage-graph-snapshot#Usage Graph Snapshot#A head that is not a commit id touches no file]]
+  it('refuses a head that is not a full commit id without touching a file', async () => {
+    const outside = join(root, 'outside.json');
+    writeFileSync(outside, '{not json');
+    const escape = '../../../outside';
+    expect(
+      existsSync(
+        `${join(root, '.lat', 'usage', 'graph-snapshots', escape)}.json`,
+      ),
+    ).toBe(true);
+    for (const head of [escape, '--output=x', 'a'.repeat(39), 'A'.repeat(40)]) {
+      const result = await snapshotAt(root, head, [root]);
+      expect(result.snapshot).toBeNull();
+      expect(result.reason).toBe('git head is not a full commit id');
+    }
+    expect(readFileSync(outside, 'utf-8')).toBe('{not json');
+  });
+
   // @lat: [[usage-graph-snapshot#Usage Graph Snapshot#A dirty worktree stores no code-ref edges]]
   it('stores null code-ref edges with a reason when the worktree is dirty', async () => {
     write('src/a.ts', `${SOURCE}// uncommitted edit\n`);
     const result = await snapshotAt(root, head2, [root]);
     expect(result.snapshot!.code_ref_edges).toBeNull();
     expect(result.snapshot!.code_ref_edges_reason).toBe('dirty_worktree');
+  });
+
+  // @lat: [[usage-graph-snapshot#Usage Graph Snapshot#A worktree outside the repository is never run]]
+  it('runs no git in a candidate worktree that is not one of the repository', async () => {
+    const hostile = realpathSync(
+      mkdtempSync(join(tmpdir(), 'lat-usage-hostile-')),
+    );
+    try {
+      execFileSync('git', ['clone', '-q', root, join(hostile, 'repo')]);
+      const marker = join(hostile, 'ran');
+      const hook = join(hostile, 'hook.sh');
+      writeFileSync(hook, `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 });
+      execFileSync('git', [
+        '-C',
+        join(hostile, 'repo'),
+        'config',
+        'core.fsmonitor',
+        hook,
+      ]);
+      const result = await snapshotAt(root, head2, [join(hostile, 'repo')]);
+      expect(result.snapshot!.code_ref_edges).toBeNull();
+      expect(existsSync(marker)).toBe(false);
+    } finally {
+      rmSync(hostile, { recursive: true, force: true });
+    }
   });
 
   // @lat: [[usage-graph-snapshot#Usage Graph Snapshot#A project below the repository root gets snapshots]]

@@ -58,7 +58,7 @@ The default `--specs` output for every `file#symbol` target in this repository's
 
 A symbol is covered by the spec an `// @lat: [[section]]` comment points at when the comment sits inside the symbol's line range or in the comment block directly above its declaration, as this repository's convention places it.
 
-The block is the consecutive comment lines ending on the line before the declaration. A blank or code line between the comment and the declaration ends it, so that comment does not count.
+The block is the consecutive comment lines ending on the line before the declaration. A blank or code line between the comment and the declaration ends it, so that comment does not count. In Python, Ruby and PHP every `#` line continues the block, so Python `#: doc` and `#comment` lines count. In Rust only an attribute line such as `#[derive(Debug)]` continues it. In every other language a `#` line is code and ends the block: a C `#include` or a JS private field `#cache = new Map()`.
 
 ## Lists a section nothing refers to
 

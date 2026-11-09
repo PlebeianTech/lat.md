@@ -65,9 +65,9 @@ A `discovered-from` dependency is returned with the discovered issue's and the s
 
 ## Reopen detection from the events journal
 
-The first journal row after a close whose state is not closed is a reopen, and detection returns its time.
+The first journal row after a close whose state is not closed is a reopen, and detection returns its time and the time of the close it followed.
 
-`bd reopen` clears `closed_at`, and the journal has no reopen op: with a reason it writes a comment row and then an update row. The test replays a journal captured from a throwaway bd database on 2026-11-08. An ordinary update, a first-time claim, and a reopen whose close was pruned from the journal are not reported. A tail continues the replay from the previous status.
+`bd reopen` clears `closed_at`, and the journal has no reopen op: with a reason it writes a comment row and then an update row. The test replays a journal captured from a throwaway bd database on 2026-11-08. An ordinary update, a first-time claim, and a reopen whose close was pruned from the journal are not reported. A tail continues the replay from the previous status and close time. An edit of an issue that is already closed keeps the first close time.
 
 ## Watcher re-tails only when the database changes
 

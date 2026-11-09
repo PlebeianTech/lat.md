@@ -19,6 +19,14 @@ They build a temporary project with a `lat.md` directory, write usage events and
 
 If `.lat/usage.disabled` already exists, disable refuses with a message and changes nothing. If a rename fails, the command prints both paths, sets exit code 1 and moves nothing. If both directories exist, enable changes nothing. Both commands print what they did and the real state; with `LAT_USAGE=1` disable says tracking is off for the project but the variable still enables it.
 
+## Enable refuses a symlinked usage directory
+
+When `.lat`, `.lat/usage` or `.lat/usage.disabled` is a symlink, `lat usage enable` prints one line naming it, sets exit code 1 and writes nothing where it points.
+
+## Disable refuses a symlinked usage directory
+
+When `.lat`, `.lat/usage` or `.lat/usage.disabled` is a symlink, `lat usage disable` prints one line naming it, sets exit code 1 and moves nothing where it points.
+
 ## Each filter narrows the output
 
 `--agent`, `--session`, `--issue` and `--since` each narrow the commands counted. `--issue` of an epic includes its descendants. `--since` becomes the `from` filter.

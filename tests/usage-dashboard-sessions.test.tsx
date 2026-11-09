@@ -380,6 +380,27 @@ describe('usage dashboard sessions page', () => {
     expect(next).not.toContain('src/a/b.ts');
   });
 
+  // @lat: [[usage-dashboard-sessions#Usage Dashboard Sessions#Another session never shows the previous session's events]]
+  it("hides the previous session's events while the next one loads", async () => {
+    rawPages = () => ({
+      records: [lanes.command, lanes.bypass],
+      next_cursor: null,
+    });
+    await show('sess-1');
+    const choose = [...container.querySelectorAll('button')].find((b) =>
+      b.textContent!.includes('byp-1'),
+    )!;
+    await click(choose);
+    hang = true;
+    await act(async () =>
+      root.render(createElement(SessionsPage, { id: 'sess-sub' })),
+    );
+    expect(text()).toContain('Loading events…');
+    expect(text()).not.toContain('byp-1');
+    expect(text()).not.toContain('cmd-1');
+    expect(container.querySelector('[aria-label="Selected event"]')).toBeNull();
+  });
+
   // @lat: [[usage-dashboard-sessions#Usage Dashboard Sessions#Links keep the filter query string]]
   it('keeps the filter query string on every link', async () => {
     const filters = '?agent=claude&issue=lat-9';

@@ -16,7 +16,11 @@ import {
   parseShell,
   shellWritePaths,
 } from './shell-parse.js';
-import { findWorktreeRoot, worktreeRoots } from './worktrees.js';
+import {
+  belongsToProject,
+  findWorktreeRoot,
+  worktreeRoots,
+} from './worktrees.js';
 import type { Checkpoint, ReadResult, SessionSource } from './types.js';
 import { reportedTotal, tokenCounters } from './token-counters.js';
 
@@ -77,6 +81,7 @@ async function readHead(path: string): Promise<SessionHead | null> {
 async function discover(repoRoot: string): Promise<string[]> {
   try {
     const roots = await worktreeRoots(repoRoot);
+    const gitRoots = new Map<string, string>();
     const sessionsDir = join(agentDir(), 'sessions');
     const found: string[] = [];
     for (const slug of await readdir(sessionsDir, { withFileTypes: true })) {
@@ -87,7 +92,7 @@ async function discover(repoRoot: string): Promise<string[]> {
         const path = join(slugDir, entry.name);
         try {
           const cwd = (await readHead(path))?.cwd;
-          if (cwd && roots.some((r) => isInside(r, cwd))) found.push(path);
+          if (cwd && belongsToProject(roots, cwd, gitRoots)) found.push(path);
         } catch {
           continue;
         }

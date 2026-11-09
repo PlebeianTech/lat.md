@@ -6,6 +6,9 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
+  symlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -158,4 +161,42 @@ describe('writeUsageEvent', () => {
     const ids = lines.map((l) => JSON.parse(l).event_id);
     expect(new Set(ids).size).toBe(400);
   }, 60_000);
+});
+
+// @lat: [[usage-tap#Usage Tap#Symlinks in the usage directory are never followed]]
+describe('writeUsageEvent with planted symlinks', () => {
+  const ts = '2026-11-08T10:00:00.000Z';
+
+  function outsideFile(): string {
+    const path = join(makeRoot(), 'zshrc');
+    writeFileSync(path, 'original\n');
+    return path;
+  }
+
+  it('does not append through a symlinked events file', () => {
+    const root = makeRoot();
+    const target = outsideFile();
+    mkdirSync(join(root, '.lat', 'usage'), { recursive: true });
+    symlinkSync(target, eventFilePath(root, ts));
+    expect(() => writeUsageEvent(root, makeEvent())).not.toThrow();
+    expect(readFileSync(target, 'utf-8')).toBe('original\n');
+  });
+
+  it('writes nothing when .lat/usage is a symlink', () => {
+    const root = makeRoot();
+    const outside = makeRoot();
+    mkdirSync(join(root, '.lat'));
+    symlinkSync(outside, join(root, '.lat', 'usage'));
+    expect(() => writeUsageEvent(root, makeEvent())).not.toThrow();
+    expect(readdirSync(outside)).toEqual([]);
+  });
+
+  it('writes nothing when .lat is a symlink', () => {
+    const root = makeRoot();
+    const outside = makeRoot();
+    mkdirSync(join(outside, 'usage'));
+    symlinkSync(outside, join(root, '.lat'));
+    expect(() => writeUsageEvent(root, makeEvent())).not.toThrow();
+    expect(readdirSync(join(outside, 'usage'))).toEqual([]);
+  });
 });

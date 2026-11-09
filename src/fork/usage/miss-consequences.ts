@@ -10,6 +10,7 @@ import {
   type CountedSum,
 } from './aggregate-types.js';
 import type { BdSnapshot } from './bd-attribution.js';
+import type { ReopenEvent } from './bd-client.js';
 import type { TokenCounter } from './schema.js';
 import { commandWords, parseShell } from './sources/shell-parse.js';
 import {
@@ -303,11 +304,11 @@ function reopensOf(
   const retentionDays = input.reopenRetentionDays ?? REOPEN_RETENTION_DAYS;
   const windowMs = Math.min(BUG_AND_REOPEN_WINDOW_DAYS, retentionDays) * DAY_MS;
   const facts = new Map(input.snapshot?.issues.map((i) => [i.id, i]));
-  const reopensBy = new Map<string, number[]>();
+  const reopensBy = new Map<string, ReopenEvent[]>();
   for (const reopen of input.snapshot?.reopens ?? [])
     reopensBy.set(reopen.issueId, [
       ...(reopensBy.get(reopen.issueId) ?? []),
-      Date.parse(reopen.ts),
+      reopen,
     ]);
   const eligible: boolean[] = [];
   let incomplete = 0;
@@ -323,14 +324,19 @@ function reopensOf(
       other.not_in_bd++;
       continue;
     }
+    // bd reopen clears closed_at, so a reopened issue's first close time comes
+    // from the journal close the first reopen followed. An issue never
+    // reopened keeps its closed_at.
     const reopens = reopensBy.get(id) ?? [];
-    const closedAt = timeOf(issue.closed_at);
+    const closedAt =
+      reopens.length > 0
+        ? Date.parse(reopens[0].closedTs)
+        : timeOf(issue.closed_at);
     if (closedAt === null) {
-      if (reopens.length > 0) other.close_time_unknown++;
-      else other.never_closed++;
+      other.never_closed++;
       continue;
     }
-    if (reopens.some((ts) => ts < closedAt)) {
+    if (Number.isNaN(closedAt)) {
       other.close_time_unknown++;
       continue;
     }
@@ -342,7 +348,9 @@ function reopensOf(
       incomplete++;
       continue;
     }
-    eligible.push(reopens.some((ts) => ts - closedAt <= windowMs));
+    eligible.push(
+      reopens.some((reopen) => Date.parse(reopen.ts) - closedAt <= windowMs),
+    );
   }
   return windowedRate(eligible, incomplete, other);
 }

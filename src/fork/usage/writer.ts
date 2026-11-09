@@ -1,4 +1,4 @@
-import { appendFileSync } from 'node:fs';
+import { closeSync, constants, openSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { ensureUsageDirectory } from './enabled.js';
 import type { UsageEvent } from './schema.js';
@@ -22,12 +22,23 @@ function eventLine(event: UsageEvent): string | null {
   return Buffer.byteLength(line) <= MAX_EVENT_LINE_BYTES ? line : null;
 }
 
+/** O_NOFOLLOW refuses a symlink planted at the events file. */
+function appendLine(path: string, line: string): void {
+  const { O_APPEND, O_CREAT, O_WRONLY, O_NOFOLLOW = 0 } = constants;
+  const fd = openSync(path, O_APPEND | O_CREAT | O_WRONLY | O_NOFOLLOW, 0o666);
+  try {
+    writeSync(fd, line);
+  } finally {
+    closeSync(fd);
+  }
+}
+
 export function writeUsageEvent(root: string, event: UsageEvent): void {
   try {
     const line = eventLine(event);
     if (line === null) return;
     ensureUsageDirectory(root);
-    appendFileSync(eventFilePath(root, event.ts), line);
+    appendLine(eventFilePath(root, event.ts), line);
   } catch {
     return;
   }

@@ -11,6 +11,14 @@ Tests in `tests/usage-source-claude.test.ts` for the Claude Code session reader 
 
 Discovery lists the main and subagent transcripts stored under the project directory of the repo root, and returns none for a root Claude Code never ran in.
 
+## Discovery drops another project's transcripts
+
+Paths such as `/x/my-app` and `/x/my.app` share one Claude Code project directory. Discovery keeps a transcript only when its recorded cwd belongs to the project; a transcript with no cwd is kept.
+
+## Discovery closes every transcript it opens
+
+Discovery reads a transcript's head to find its cwd. Repeated discovery of a transcript larger than one read chunk leaves no file descriptor open.
+
 ## Subagent events name their parent session
 
 A subagent transcript yields events whose session id is the agent's own and whose `parent_session_id` is the session that launched it, so aggregation can roll them up.
@@ -77,7 +85,7 @@ The lines of one assistant message are read together or not at all, so a message
 
 ## Shell parsing is shared by the readers
 
-`src/fork/usage/sources/shell-parse.ts` holds the agent-neutral shell parsing: command splitting, write paths, bypass-read arguments and bd ids.
+`src/fork/usage/sources/shell-parse.ts` holds the agent-neutral shell parsing: command splitting, write paths, bypass-read arguments and bd ids. A bd id prefix may contain hyphens (`my-app-3x9`), since `bd init` names it after the directory.
 
 Tests in `tests/usage-shell-parse.test.ts` call it directly; the Claude reader tests cover it through transcripts.
 

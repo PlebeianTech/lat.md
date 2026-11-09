@@ -18,7 +18,11 @@ import {
   parseShell,
   shellWritePaths,
 } from './shell-parse.js';
-import { findWorktreeRoot, worktreeRoots } from './worktrees.js';
+import {
+  belongsToProject,
+  findWorktreeRoot,
+  worktreeRoots,
+} from './worktrees.js';
 import type { Checkpoint, ReadResult, SessionSource } from './types.js';
 import { reportedTotal, tokenCounters } from './token-counters.js';
 
@@ -183,6 +187,7 @@ function loadHistoryWorkspaces(): Map<string, string> {
 async function discover(repoRoot: string): Promise<string[]> {
   try {
     const roots = await worktreeRoots(repoRoot);
+    const gitRoots = new Map<string, string>();
     const brain = join(storeDir(), 'brain');
     const summaries = await loadSummaries();
     const history = loadHistoryWorkspaces();
@@ -195,7 +200,7 @@ async function discover(repoRoot: string): Promise<string[]> {
       if (row?.stepCount === 0) continue;
       const typed = history.get(entry.name);
       const workspaces = row ? row.workspaces : typed ? [typed] : [];
-      if (workspaces.some((w) => roots.some((r) => isInside(r, w))))
+      if (workspaces.some((w) => belongsToProject(roots, w, gitRoots)))
         found.push(transcript);
     }
     return found.sort();

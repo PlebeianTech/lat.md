@@ -63,6 +63,12 @@ When the project root is a subdirectory of the repository, the files are matched
 
 A section that cites a file as file#symbol covers that file, also when the snapshot has no code-ref edges. Such a file is not undocumented.
 
+## A recovered snapshot is seen after the snapshot cache is forgotten
+
+A head whose snapshot failed is not captured.
+
+When the snapshot becomes available and `forgetSnapshots()` clears the graph snapshot cache, as the live server does when the git head moves, the next summary measures the session. Missed knowledge keeps no snapshot of its own across summaries.
+
 ## A snapshot without edges is not captured
 
 A session whose snapshot has no code-ref edges and no symbol-ref edges has no expected sections, counts as not_captured and has no miss.

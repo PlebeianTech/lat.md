@@ -23,7 +23,7 @@ const BYPASS_COMMANDS = new Set([
   'wc',
 ]);
 
-const ISSUE_ID = /^[a-z][a-z0-9]*-[a-z0-9]+(\.\d+)*$/;
+const ISSUE_ID = /^[a-z0-9][a-z0-9_-]*-[a-z0-9]+(\.\d+)*$/i;
 
 function findClosingQuote(text: string, open: number): number {
   const quote = text[open];

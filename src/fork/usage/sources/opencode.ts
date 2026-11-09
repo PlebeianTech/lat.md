@@ -16,7 +16,11 @@ import {
   parseShell,
   shellWritePaths,
 } from './shell-parse.js';
-import { findWorktreeRoot, worktreeRoots } from './worktrees.js';
+import {
+  belongsToProject,
+  findWorktreeRoot,
+  worktreeRoots,
+} from './worktrees.js';
 import type { Checkpoint, ReadResult, SessionSource } from './types.js';
 import { reportedTotal, tokenCounters } from './token-counters.js';
 
@@ -91,11 +95,12 @@ async function discover(repoRoot: string): Promise<string[]> {
     const database = databasePath();
     if (!existsSync(database)) return [];
     const roots = await worktreeRoots(repoRoot);
+    const gitRoots = new Map<string, string>();
     const sessions = await withDatabase(database, (query) =>
       query('SELECT id, directory FROM session ORDER BY id'),
     );
     return sessions
-      .filter((s) => roots.some((r) => isInside(r, String(s.directory))))
+      .filter((s) => belongsToProject(roots, String(s.directory), gitRoots))
       .map((s) => sessionPathOf(database, String(s.id)));
   } catch {
     return [];

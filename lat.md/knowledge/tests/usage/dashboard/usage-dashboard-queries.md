@@ -21,6 +21,10 @@ The detail view of a query shows each section it returned, how often it was retu
 
 Ranks come from the raw search and read events: a read opens the section at its position in the result ids of the session's latest search. The view also lists the queries that followed it in the same session within 60 seconds, with a count, and a sparkline of searches per day. It shows section ids and stored query strings only, never result snippets or section bodies.
 
+## Another query never shows the previous query's facts
+
+Moving from one query's detail page to another shows only the new query's sections and reformulations. The loaded events cover the filters, not one query, so the new query's facts come from them at once.
+
 ## Unknown values are shown as unknown
 
 A null result count, empty-result share, followed share or median rank reads "unknown", never 0.

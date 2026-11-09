@@ -1,7 +1,7 @@
 import {
-  cpSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -86,6 +86,10 @@ function toolResult(id: string, text = 'ok', isError = false) {
   });
 }
 
+function copyWithCwd(from: string, to: string, cwd: string): void {
+  writeFileSync(to, readFileSync(from, 'utf-8').replaceAll('/work/repo', cwd));
+}
+
 function writeTranscript(name: string, records: object[]): string {
   const path = join(scratch, name);
   writeFileSync(path, records.map((r) => JSON.stringify(r) + '\n').join(''));
@@ -108,10 +112,11 @@ describe('claude session reader', () => {
     const slug = repoRoot.replace(/[^a-zA-Z0-9]/g, '-');
     const projectDir = join(scratch, 'config', 'projects', slug);
     mkdirSync(join(projectDir, 'sess-main', 'subagents'), { recursive: true });
-    cpSync(MAIN, join(projectDir, 'sess-main.jsonl'));
-    cpSync(
+    copyWithCwd(MAIN, join(projectDir, 'sess-main.jsonl'), repoRoot);
+    copyWithCwd(
       join(FIXTURES, 'subagent.jsonl'),
       join(projectDir, 'sess-main', 'subagents', 'agent-a1.jsonl'),
+      repoRoot,
     );
     process.env.CLAUDE_CONFIG_DIR = join(scratch, 'config');
 
@@ -120,6 +125,63 @@ describe('claude session reader', () => {
       join(projectDir, 'sess-main', 'subagents', 'agent-a1.jsonl'),
     ]);
     expect(await claudeSource.discover(join(scratch, 'other'))).toEqual([]);
+  });
+
+  // @lat: [[usage-source-claude#Usage Source Claude#Discovery drops another project's transcripts]]
+  it('drops a transcript from a project whose path shares the slug', async () => {
+    const repoRoot = join(scratch, 'my-app');
+    const otherRoot = join(scratch, 'my.app');
+    mkdirSync(repoRoot);
+    mkdirSync(otherRoot);
+    const slug = repoRoot.replace(/[^a-zA-Z0-9]/g, '-');
+    expect(otherRoot.replace(/[^a-zA-Z0-9]/g, '-')).toBe(slug);
+    const projectDir = join(scratch, 'config', 'projects', slug);
+    mkdirSync(projectDir, { recursive: true });
+    copyWithCwd(MAIN, join(projectDir, 'mine.jsonl'), repoRoot);
+    copyWithCwd(MAIN, join(projectDir, 'theirs.jsonl'), otherRoot);
+    writeFileSync(
+      join(projectDir, 'no-cwd.jsonl'),
+      JSON.stringify({ type: 'summary', summary: 'no cwd' }) + '\n',
+    );
+    process.env.CLAUDE_CONFIG_DIR = join(scratch, 'config');
+
+    expect(await claudeSource.discover(repoRoot)).toEqual([
+      join(projectDir, 'mine.jsonl'),
+      join(projectDir, 'no-cwd.jsonl'),
+    ]);
+    expect(await claudeSource.discover(otherRoot)).toEqual([
+      join(projectDir, 'no-cwd.jsonl'),
+      join(projectDir, 'theirs.jsonl'),
+    ]);
+  });
+
+  // @lat: [[usage-source-claude#Usage Source Claude#Discovery closes every transcript it opens]]
+  it('leaves no file descriptor open on a transcript larger than one chunk', async () => {
+    const repoRoot = join(scratch, 'repo');
+    mkdirSync(repoRoot);
+    const slug = repoRoot.replace(/[^a-zA-Z0-9]/g, '-');
+    const projectDir = join(scratch, 'config', 'projects', slug);
+    mkdirSync(projectDir, { recursive: true });
+    const first = JSON.stringify({ type: 'user', cwd: repoRoot });
+    const filler = JSON.stringify({
+      type: 'summary',
+      summary: 'x'.repeat(1000),
+    });
+    writeFileSync(
+      join(projectDir, 'big.jsonl'),
+      [first, ...Array(200).fill(filler)].join('\n') + '\n',
+    );
+    process.env.CLAUDE_CONFIG_DIR = join(scratch, 'config');
+
+    await claudeSource.discover(repoRoot);
+    const before = readdirSync('/dev/fd').length;
+    for (let i = 0; i < 50; i++) {
+      expect(await claudeSource.discover(repoRoot)).toEqual([
+        join(projectDir, 'big.jsonl'),
+      ]);
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(readdirSync('/dev/fd').length).toBeLessThanOrEqual(before);
   });
 
   // @lat: [[usage-source-claude#Usage Source Claude#Subagent events name their parent session]]

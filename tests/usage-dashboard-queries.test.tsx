@@ -378,6 +378,23 @@ describe('usage dashboard queries page', () => {
     ).toBe('1, 1');
   });
 
+  // @lat: [[usage-dashboard-queries#Usage Dashboard Queries#Another query never shows the previous query's facts]]
+  it("shows the next query's facts, not the previous query's", async () => {
+    await show('how does the parser work');
+    expect(
+      container.querySelector('[aria-label="Reformulations"]')!.textContent,
+    ).toContain('parser internals');
+    hang = true;
+    await act(async () =>
+      root.render(createElement(QueriesPage, { id: 'nothing matches this' })),
+    );
+    expect(container.querySelector('h1')!.textContent).toBe(
+      'nothing matches this',
+    );
+    expect(text()).not.toContain('parser internals');
+    expect(text()).not.toContain('cli#CLI#Search');
+  });
+
   // @lat: [[usage-dashboard-queries#Usage Dashboard Queries#Unknown values are shown as unknown]]
   it('shows null measures as unknown, never 0', async () => {
     await show();

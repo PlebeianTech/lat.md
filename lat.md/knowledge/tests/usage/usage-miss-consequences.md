@@ -43,7 +43,7 @@ An issue reopened within 14 days of closing counts. A reopen on day 15 does not.
 
 The reopen source is the bd events journal, which keeps 7 days by default, so the window is limited to the retention. Issues closed before the retention are left out, and the limit is reported with the result. An issue never closed is excluded.
 
-A reopen counts only when the close time is known and the reopen falls inside the window. A reopened issue whose close time was cleared is left out as close time unknown. An issue closed before the retention is left out whether or not it was reopened. One window decides completeness and counting.
+`bd reopen` clears `closed_at`, so a reopened issue's close time is the journal close that its first reopen followed. A reopened issue counts whether it is still open or was closed again. A reopen counts only when it falls inside the window. A journal close time that does not parse is left out as close time unknown. An issue closed before the retention is left out whether or not it was reopened. One window decides completeness and counting.
 
 ## Failed test runs count only listed runners with a non-zero exit
 

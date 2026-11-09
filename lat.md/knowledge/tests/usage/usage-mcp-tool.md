@@ -13,6 +13,8 @@ The tests run a real MCP server with an in-memory client and seed `.lat/usage/` 
 
 `lat_usage` is listed when `.lat/usage/` exists at server start and absent when it does not. `LAT_USAGE=1` alone does not register it, so the upstream exact-list tool tests stay valid in a shell that sets it.
 
+A symlinked `.lat/usage` does not register it either, because a cloned repository can ship one that points outside it.
+
 ## Summary view returns filtered totals
 
 The default view returns JSON with the totals, the health signals and the savings estimate. An unknown total is `null`, never 0. The `agent`, `session`, `issue` and `since` arguments each narrow the result.

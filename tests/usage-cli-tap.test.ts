@@ -207,6 +207,22 @@ describe('CLI tap', () => {
     }
   });
 
+  // @lat: [[usage-tap#Usage Tap#Usage enable and disable are not tapped]]
+  it('leaves tracking off after usage disable through the real CLI', () => {
+    const root = makeProject();
+    runLat(root, ['usage', 'enable']);
+    runLat(root, ['search', 'testing']);
+    expect(readEvents(root).map((e) => e.command)).toEqual(['search']);
+
+    const result = runLat(root, ['usage', 'disable']);
+    expect(result.status).toBe(0);
+    expect(existsSync(join(root, '.lat', 'usage'))).toBe(false);
+    expect(existsSync(join(root, '.lat', 'usage.disabled'))).toBe(true);
+
+    runLat(root, ['search', 'testing']);
+    expect(existsSync(join(root, '.lat', 'usage'))).toBe(false);
+  });
+
   // @lat: [[usage-tap#Usage Tap#Registration]]
   it('registerForkCli installs a hook that records the command on exit', async () => {
     const root = makeProject();

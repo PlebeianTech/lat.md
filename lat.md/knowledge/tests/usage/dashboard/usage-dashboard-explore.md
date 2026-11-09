@@ -47,6 +47,10 @@ An `event` query parameter, repeated or not, shows only those events through the
 
 A null field reads "unknown". The table shows ids, counts, paths and section ids only: a stored command text is never rendered.
 
+## A bypass read shows its path
+
+A `bypass_read` session event shows the file it read in the section-or-path column, as a `tool_call` does, not "n/a".
+
 ## Links keep the filter query string
 
 Session and section links carry the current filters as a query string, without the `event` selection.

@@ -445,10 +445,10 @@ async function loadScope(
   const wanted = new Map(scope.worktreesByHead);
   for (const head of scope.heads.values())
     if (head && !wanted.has(head)) wanted.set(head, []);
-  for (const [head, worktrees] of wanted) {
-    if (!store.snapshots.has(head))
-      store.snapshots.set(head, await snapshotAt(root, head, worktrees));
-  }
+  // Asked again on every prepare: graph-snapshot.ts caches the result, and
+  // forgetSnapshots() is how a recovered head becomes visible here.
+  for (const [head, worktrees] of wanted)
+    store.snapshots.set(head, await snapshotAt(root, head, worktrees));
   for (const [id, head] of scope.heads) {
     const info = plan.sessions.get(id);
     if (!info || editsOf(info, store.prefix).size === 0) continue;

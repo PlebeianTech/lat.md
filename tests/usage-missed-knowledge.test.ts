@@ -766,6 +766,30 @@ describe('usage missed knowledge', () => {
     ]);
   });
 
+  // @lat: [[usage-missed-knowledge#Usage Missed Knowledge#A recovered snapshot is seen after the snapshot cache is forgotten]]
+  it('sees a recovered snapshot after forgetSnapshots', async () => {
+    const later = 'f'.repeat(40);
+    const events = sessionOf('A', EDIT_A, 0, 30 * 60);
+    const before = await run({
+      snapshots: [],
+      events,
+      usage: [usage({ ts: at(1), command: 'check', git_head: later })],
+    });
+    expect(before.totals.not_captured_sessions).toBe(1);
+
+    forgetSnapshots();
+    const after = await run({
+      snapshots: [
+        snapshotOf(later, {
+          code_ref_edges: [{ file: 'src/a.ts', line: 1, section: BETA }],
+        }),
+      ],
+      events,
+    });
+    expect(after.totals.not_captured_sessions).toBe(0);
+    expect(after.records.map((r) => r.section_id)).toEqual([BETA]);
+  });
+
   // @lat: [[usage-missed-knowledge#Usage Missed Knowledge#A snapshot without edges is not captured]]
   it('counts a session with neither edge kind as not_captured, never a miss', async () => {
     const result = await run({

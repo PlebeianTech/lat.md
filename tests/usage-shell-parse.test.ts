@@ -32,6 +32,17 @@ describe('shell parsing', () => {
   });
 
   // @lat: [[usage-source-claude#Usage Source Claude#Shell parsing is shared by the readers]]
+  it('finds bd ids whose prefix contains a hyphen', () => {
+    const segments = parseShell(
+      'bd update my-app-3x9 --claim && bd close claude-code-a1b.2',
+    );
+    expect(bdCommands(segments)).toEqual([
+      { verb: 'claim', issue_id: 'my-app-3x9' },
+      { verb: 'close', issue_id: 'claude-code-a1b.2' },
+    ]);
+  });
+
+  // @lat: [[usage-source-claude#Usage Source Claude#Shell parsing is shared by the readers]]
   it('tests directory containment by whole path segments', () => {
     expect(isInside('/a/lat.md', '/a/lat.md/x')).toBe(true);
     expect(isInside('/a/lat.md', '/a/lat.md-other')).toBe(false);

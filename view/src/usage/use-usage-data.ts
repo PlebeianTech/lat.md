@@ -17,32 +17,52 @@ const streamListeners = new Set<(message: StreamMessage) => void>();
 let stream: EventSource | null = null;
 let suspended = false;
 let connectedBefore = false;
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
+const RETRY_DELAY_MS = 3000;
 
 function notify(message: StreamMessage): void {
   for (const listener of streamListeners) listener(message);
 }
 
 function disconnect(): void {
+  clearTimeout(retryTimer);
+  retryTimer = undefined;
   stream?.close();
   stream = null;
 }
 
-/** Opens the stream when visible and closed, closes it when hidden. A reopen asks for a refresh, as events may have been missed. */
+/** Opens the stream when visible and closed, closes it when hidden. A reopen asks for a refresh once it connects, as events may have been missed. */
 function synchronize(): void {
   if (suspended || document.visibilityState === 'hidden') {
     disconnect();
     return;
   }
   if (stream) return;
-  const reopened = connectedBefore;
-  stream = new EventSource('/api/usage/events');
+  // A reopened stream refreshes on its first open, so a retry against a down
+  // server never refetches and the refetch follows stream registration.
+  let refreshOnOpen = connectedBefore;
+  const source = new EventSource('/api/usage/events');
+  stream = source;
   connectedBefore = true;
-  stream.addEventListener('usage-change', () => notify({ type: 'refresh' }));
-  stream.addEventListener('usage-error', (event) => {
+  source.addEventListener('usage-change', () => notify({ type: 'refresh' }));
+  source.addEventListener('usage-error', (event) => {
     const { message } = JSON.parse((event as MessageEvent<string>).data);
     notify({ type: 'error', message: String(message) });
   });
-  if (reopened) notify({ type: 'refresh' });
+  // The browser reconnects on its own; changes made during the gap were never sent.
+  source.addEventListener('open', () => {
+    if (refreshOnOpen) notify({ type: 'refresh' });
+    refreshOnOpen = true;
+  });
+  // A failed reconnect closes the stream for good, so drop it and open a new one later.
+  source.addEventListener('error', () => {
+    if (source !== stream || source.readyState !== EventSource.CLOSED) return;
+    stream = null;
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined;
+      synchronize();
+    }, RETRY_DELAY_MS);
+  });
 }
 function hide(): void {
   suspended = true;

@@ -325,13 +325,13 @@ export function createBdWatcher(
   let snapshot: BdSnapshot | null = null;
   let checkpoint = 0;
   let reopens: ReopenEvent[] = [];
-  let statuses = new Map<string, string>();
+  let closedSince = new Map<string, string>();
 
   async function rebaseline(): Promise<boolean> {
     const records = await exportJournal(run);
     if (!records) return false;
-    statuses = new Map();
-    reopens = findReopens(records, statuses);
+    closedSince = new Map();
+    reopens = findReopens(records, closedSince);
     checkpoint = records.reduce((max, r) => Math.max(max, r.seq), 0);
     return true;
   }
@@ -341,7 +341,7 @@ export function createBdWatcher(
     const records = await tailJournal(run, checkpoint);
     if (!records || records.length === 0) return rebaseline();
     if (records.some((r) => r.seq <= checkpoint)) return rebaseline();
-    reopens = [...reopens, ...findReopens(records, statuses)];
+    reopens = [...reopens, ...findReopens(records, closedSince)];
     checkpoint = records[records.length - 1].seq;
     return true;
   }

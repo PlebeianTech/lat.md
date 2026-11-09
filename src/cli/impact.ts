@@ -233,7 +233,20 @@ function formatReached(
   return lines.join('\n');
 }
 
-const COMMENT_LINE = /^\s*(\/\/|\/\*|\*|#)/;
+// Which `#` lines continue a comment block depends on the language. In
+// Python, Ruby and PHP `#` starts a comment. In Rust only an attribute such as
+// `#[derive(Debug)]` sits between a doc comment and its item. Everywhere
+// else `#` is code: a C or Swift directive, or a JS private field.
+const HASH_COMMENT_LINE = /^\s*(\/\/|\/\*|\*|#)/;
+const RUST_COMMENT_LINE = /^\s*(\/\/|\/\*|\*|#!?\[)/;
+const COMMENT_LINE = /^\s*(\/\/|\/\*|\*)/;
+const HASH_COMMENT_FILE = /\.(py|rb|rake|erb|php)$/;
+
+function commentLineFor(file: string): RegExp {
+  if (HASH_COMMENT_FILE.test(file)) return HASH_COMMENT_LINE;
+  if (file.endsWith('.rs')) return RUST_COMMENT_LINE;
+  return COMMENT_LINE;
+}
 
 // The comment block directly above a declaration documents it: consecutive
 // comment lines with no blank or code line between them and the declaration.
@@ -243,8 +256,9 @@ async function firstLineOfSymbolBlock(
   startLine: number,
 ): Promise<number> {
   const lines = (await readFile(join(projectRoot, file), 'utf-8')).split('\n');
+  const commentLine = commentLineFor(file);
   let first = startLine;
-  while (first > 1 && COMMENT_LINE.test(lines[first - 2])) first--;
+  while (first > 1 && commentLine.test(lines[first - 2])) first--;
   return first;
 }
 

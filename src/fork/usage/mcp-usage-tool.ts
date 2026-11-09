@@ -1,10 +1,9 @@
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { createAggregator } from './aggregate.js';
 import type { UsageSummary } from './aggregate-types.js';
 import { parseUsageFilters } from './filters.js';
+import { realUsageDirectory } from './enabled.js';
 import { findingsRoute } from './findings.js';
 import { USAGE_SCHEMA_VERSION } from './schema.js';
 import { savingsOf } from './usage-cli.js';
@@ -46,14 +45,16 @@ function text(value: unknown, isError = false) {
   };
 }
 
-/** Registers `lat_usage` when the project already records usage. */
+/**
+ * Registers `lat_usage` when `.lat/usage` is a real directory. A symlinked one
+ * from a cloned repository does not count, as with `usageEnabled`.
+ */
 export function registerUsageTool(
   server: McpServer,
   projectRoot: () => string | null,
 ): void {
-  const usageDirectory = (root: string) => join(root, '.lat', 'usage');
   const startRoot = projectRoot();
-  if (!startRoot || !existsSync(usageDirectory(startRoot))) return;
+  if (!startRoot || realUsageDirectory(startRoot) === null) return;
 
   server.tool(
     'lat_usage',
@@ -74,7 +75,7 @@ export function registerUsageTool(
     async ({ agent, session, issue, since, view = 'summary' }) => {
       try {
         const root = projectRoot();
-        if (!root || !existsSync(usageDirectory(root)))
+        if (!root || realUsageDirectory(root) === null)
           return text({ view, empty: true, reason: DISABLED_REASON });
         const filters = parseUsageFilters({
           agent,

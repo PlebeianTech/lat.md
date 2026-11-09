@@ -12,6 +12,8 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
+  static readonly CLOSED = 2;
+  readyState = 1;
   closed = false;
   listeners = new Map<string, ((event: MessageEvent<string>) => void)[]>();
   constructor(readonly url: string) {
@@ -27,6 +29,8 @@ class FakeEventSource {
     this.closed = true;
   }
   emit(name: string, data: unknown = {}) {
+    if (name === 'error' && this.readyState === FakeEventSource.CLOSED)
+      this.closed = true;
     const event = new MessageEvent(name, { data: JSON.stringify(data) });
     for (const listener of this.listeners.get(name) ?? []) listener(event);
   }
@@ -264,10 +268,70 @@ describe('usage dashboard data hook', () => {
     await setVisibility('visible');
     expect(openStreams()).toHaveLength(1);
     expect(FakeEventSource.instances).toHaveLength(2);
+    expect(requests).toHaveLength(1);
+    await emit('open');
     expect(requests).toHaveLength(2);
     await setVisibility('visible');
     expect(FakeEventSource.instances).toHaveLength(2);
     expect(requests).toHaveLength(2);
+  });
+
+  // @lat: [[usage-dashboard-data-hook#Usage Dashboard Data Hook#A browser reconnect refetches]]
+  it('refetches when the browser reopens the stream on its own', async () => {
+    await render(probe());
+    await respond(last(), { n: 1 });
+    await emit('open');
+    expect(requests).toHaveLength(1);
+    await emit('error');
+    await emit('open');
+    expect(FakeEventSource.instances).toHaveLength(1);
+    expect(requests).toHaveLength(2);
+  });
+
+  // @lat: [[usage-dashboard-data-hook#Usage Dashboard Data Hook#A closed stream is reopened]]
+  it('opens a new stream after a failed reconnect closes the old one', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      await render(probe());
+      await respond(last(), { n: 1 });
+      const first = openStreams()[0];
+      first.readyState = FakeEventSource.CLOSED;
+      await act(async () => first.emit('error'));
+      expect(openStreams()).toHaveLength(0);
+      await act(async () => vi.runOnlyPendingTimers());
+      expect(FakeEventSource.instances).toHaveLength(2);
+      expect(openStreams()).toHaveLength(1);
+      expect(requests).toHaveLength(1);
+      await act(async () => first.emit('error'));
+      expect(openStreams()).toHaveLength(1);
+      await act(async () => vi.runOnlyPendingTimers());
+      expect(FakeEventSource.instances).toHaveLength(2);
+      await emit('open');
+      expect(requests).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // @lat: [[usage-dashboard-data-hook#Usage Dashboard Data Hook#A retry refetches only once it connects]]
+  it('does not refetch while retries fail to connect', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      await render(probe());
+      await respond(last(), { n: 1 });
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const failing = openStreams()[0];
+        failing.readyState = FakeEventSource.CLOSED;
+        await act(async () => failing.emit('error'));
+        await act(async () => vi.runOnlyPendingTimers());
+      }
+      expect(FakeEventSource.instances).toHaveLength(4);
+      expect(requests).toHaveLength(1);
+      await emit('open');
+      expect(requests).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // @lat: [[usage-dashboard-data-hook#Usage Dashboard Data Hook#Unmounting aborts the request]]

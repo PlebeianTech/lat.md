@@ -1,5 +1,6 @@
-import { closeSync, openSync, readdirSync, readSync, statSync } from 'node:fs';
+import { closeSync, fstatSync, readdirSync, readSync } from 'node:fs';
 import { join } from 'node:path';
+import { openRegularFile, realUsageDirectory } from './enabled.js';
 import type { UnknownReason, UsageEvent } from './schema.js';
 import type { SessionSource } from './sources/types.js';
 import { addSessionEvent, addUsageEvent, type UsageState } from './state.js';
@@ -22,9 +23,14 @@ function parseUsageLine(line: string): UsageEvent | null {
   }
 }
 
-/** Reads the complete lines after the stored offset; returns whether any were new. */
+/**
+ * Reads the complete lines after the stored offset; returns whether any were
+ * new. Only regular files inside a real `.lat/usage` directory are read.
+ */
+// @lat: [[usage-analytics#Usage Analytics#Opt-in and the usage directory]]
 export function readLog(root: string, state: UsageState): boolean {
-  const dir = join(root, '.lat', 'usage');
+  const dir = realUsageDirectory(root);
+  if (dir === null) return false;
   let names: string[];
   try {
     names = readdirSync(dir)
@@ -39,12 +45,12 @@ export function readLog(root: string, state: UsageState): boolean {
     let offset = state.logs[name] ?? 0;
     let buffer: Buffer;
     try {
-      const size = statSync(path).size;
-      if (size < offset) offset = 0;
-      if (size === offset) continue;
-      buffer = Buffer.alloc(size - offset);
-      const fd = openSync(path, 'r');
+      const fd = openRegularFile(path);
       try {
+        const size = fstatSync(fd).size;
+        if (size < offset) offset = 0;
+        if (size === offset) continue;
+        buffer = Buffer.alloc(size - offset);
         readSync(fd, buffer, 0, buffer.length, offset);
       } finally {
         closeSync(fd);

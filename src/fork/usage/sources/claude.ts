@@ -1,6 +1,8 @@
+import { createReadStream } from 'node:fs';
 import { open, readdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { createInterface } from 'node:readline';
 
 import {
   sessionEventId,
@@ -17,7 +19,11 @@ import {
   shellWritePaths,
 } from './shell-parse.js';
 import type { Checkpoint, ReadResult, SessionSource } from './types.js';
-import { findWorktreeRoot, worktreeRoots } from './worktrees.js';
+import {
+  belongsToProject,
+  findWorktreeRoot,
+  worktreeRoots,
+} from './worktrees.js';
 import { tokenCounters } from './token-counters.js';
 
 interface TranscriptLine {
@@ -76,14 +82,52 @@ async function transcriptsIn(projectDir: string): Promise<string[]> {
   return found;
 }
 
+// Bytes read from a transcript's head when looking for its cwd.
+const CWD_SCAN_BYTES = 1024 * 1024;
+
+/**
+ * The first cwd a transcript records, or null when its head has none. Closing
+ * readline does not close its input, so the stream is destroyed to free the fd.
+ */
+async function firstCwd(path: string): Promise<string | null> {
+  const input = createReadStream(path, { end: CWD_SCAN_BYTES - 1 });
+  const lines = createInterface({ input, crlfDelay: Infinity });
+  try {
+    for await (const line of lines) {
+      try {
+        const cwd = JSON.parse(line)?.cwd;
+        if (typeof cwd === 'string') return cwd;
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  } finally {
+    lines.close();
+    input.destroy();
+  }
+}
+
 async function discover(repoRoot: string): Promise<string[]> {
   try {
     const projectsDir = join(claudeConfigDir(), 'projects');
+    const roots = await worktreeRoots(repoRoot);
+    const gitRoots = new Map<string, string>();
     const found: string[] = [];
-    for (const root of await worktreeRoots(repoRoot)) {
-      found.push(
-        ...(await transcriptsIn(join(projectsDir, projectSlug(root)))),
-      );
+    // The slug maps every non-alphanumeric character to `-`, so /x/my-app and
+    // /x/my.app share a directory. A transcript's own cwd decides.
+    for (const root of roots) {
+      for (const path of await transcriptsIn(
+        join(projectsDir, projectSlug(root)),
+      )) {
+        try {
+          const cwd = await firstCwd(path);
+          if (cwd === null || belongsToProject(roots, cwd, gitRoots))
+            found.push(path);
+        } catch {
+          continue;
+        }
+      }
     }
     return [...new Set(found)].sort();
   } catch {

@@ -49,6 +49,34 @@ After `lat usage enable`, a read, and `lat usage disable`, neither `lat usage`, 
 
 `lat usage enable` writes `.lat/usage/.gitignore` holding `*`, so `git status` shows nothing new. On a directory that already exists without one, enable adds it.
 
+## A committed ignore file is replaced
+
+A repository can commit `.lat/usage/.gitignore` empty. Enable and saving state replace it with `*`, so `git add -A` stages nothing else. A symlink there is replaced, never written through.
+
 ## Saving state adds a missing ignore file
 
 Saving state into an existing `.lat/usage/` that lacks `.gitignore` adds it, so `git status` stays clean. With `LAT_USAGE=1` and no directory, saving state writes nothing.
+
+## Saving state never follows a planted symlink
+
+A symlink planted at the state temporary file `state.json.<pid>.tmp` is removed, not followed, and the file it points to is not changed. The temporary file is created exclusively.
+
+## Saving state survives a stale temporary file
+
+A crash can leave `state.json.<pid>.tmp` behind. A later save with that pid removes it first, so the save still succeeds.
+
+## Saving state refuses a symlinked usage directory
+
+When `.lat/usage` is a symlink, saving state returns silently and writes nothing in the directory it points to.
+
+## A symlinked .lat is not opted in
+
+When `.lat` or `.lat/usage` is a symlink, usage is off for the project. `LAT_USAGE=1` still turns it on.
+
+## Loading state reads only a regular file
+
+When `state.json` is a symlink, to an outside file or to `/dev/zero`, loading state does not read it and starts from an empty state.
+
+## The event log reads only regular files
+
+A symlinked events file is not ingested. A regular events file at the same path is.

@@ -1,11 +1,14 @@
 import { execFileSync } from 'node:child_process';
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -41,7 +44,14 @@ import {
 import { configureUsageLive, stopUsageLive } from '../src/fork/usage/live.js';
 import { registerUsageTool } from '../src/fork/usage/mcp-usage-tool.js';
 import type { SessionEvent } from '../src/fork/usage/schema.js';
-import { saveState, emptyState } from '../src/fork/usage/state.js';
+import { readLog } from '../src/fork/usage/ingest.js';
+import {
+  saveState,
+  emptyState,
+  loadState,
+  USAGE_STATE_VERSION,
+} from '../src/fork/usage/state.js';
+import { usageEnabled } from '../src/fork/usage/enabled.js';
 import { registerUsageCommand } from '../src/fork/usage/usage-cli.js';
 import { startViewServer } from '../src/view/server.js';
 
@@ -285,6 +295,36 @@ describe('the usage directory is always ignored by git', () => {
     );
   });
 
+  // @lat: [[usage-opt-in#Usage Opt-in#A committed ignore file is replaced]]
+  it('replaces an empty committed .gitignore with one that ignores everything', async () => {
+    mkdirSync(usageDir(root), { recursive: true });
+    writeFileSync(join(usageDir(root), '.gitignore'), '');
+    git(root, 'add', '-A');
+    git(root, 'commit', '-q', '-m', 'ship an empty ignore file');
+    await lat('enable');
+    expect(readFileSync(join(usageDir(root), '.gitignore'), 'utf-8')).toBe(
+      '*\n',
+    );
+    saveState(root, emptyState());
+    git(root, 'add', '-A');
+    expect(git(root, 'diff', '--cached', '--name-only').split('\n')).toEqual([
+      '.lat/usage/.gitignore',
+    ]);
+  });
+
+  it('replaces a symlinked .gitignore without writing through it', () => {
+    mkdirSync(usageDir(root), { recursive: true });
+    const outside = join(root, 'outside.txt');
+    writeFileSync(outside, 'original\n');
+    symlinkSync(outside, join(usageDir(root), '.gitignore'));
+    saveState(root, emptyState());
+    expect(readFileSync(outside, 'utf-8')).toBe('original\n');
+    expect(lstatSync(join(usageDir(root), '.gitignore')).isFile()).toBe(true);
+    expect(readFileSync(join(usageDir(root), '.gitignore'), 'utf-8')).toBe(
+      '*\n',
+    );
+  });
+
   // @lat: [[usage-opt-in#Usage Opt-in#Saving state adds a missing ignore file]]
   it('saving state into a directory without an ignore file adds one', () => {
     mkdirSync(usageDir(root), { recursive: true });
@@ -298,9 +338,93 @@ describe('the usage directory is always ignored by git', () => {
     );
   });
 
+  // @lat: [[usage-opt-in#Usage Opt-in#Saving state never follows a planted symlink]]
+  it('saving state through a planted temporary-file symlink changes nothing outside', () => {
+    mkdirSync(usageDir(root), { recursive: true });
+    const outside = join(root, 'outside.txt');
+    writeFileSync(outside, 'original\n');
+    symlinkSync(outside, join(usageDir(root), `state.json.${process.pid}.tmp`));
+    expect(() => saveState(root, emptyState())).not.toThrow();
+    expect(readFileSync(outside, 'utf-8')).toBe('original\n');
+  });
+
+  // @lat: [[usage-opt-in#Usage Opt-in#Saving state survives a stale temporary file]]
+  it('saving state replaces a stale temporary file of the same pid', () => {
+    mkdirSync(usageDir(root), { recursive: true });
+    const temporary = join(usageDir(root), `state.json.${process.pid}.tmp`);
+    writeFileSync(temporary, 'left by a crash');
+    saveState(root, emptyState());
+    expect(
+      JSON.parse(readFileSync(join(usageDir(root), 'state.json'), 'utf-8')),
+    ).toEqual(emptyState());
+    expect(existsSync(temporary)).toBe(false);
+  });
+
+  // @lat: [[usage-opt-in#Usage Opt-in#Saving state refuses a symlinked usage directory]]
+  it('saving state through a symlinked .lat/usage writes nothing outside', () => {
+    const outside = join(root, 'outside');
+    mkdirSync(outside);
+    mkdirSync(latDir(root));
+    symlinkSync(outside, usageDir(root));
+    expect(() => saveState(root, emptyState())).not.toThrow();
+    expect(readdirSync(outside)).toEqual([]);
+  });
+
   it('saving state with no directory writes nothing', () => {
     vi.stubEnv('LAT_USAGE', '1');
     saveState(root, emptyState());
     expect(existsSync(latDir(root))).toBe(false);
+  });
+});
+
+describe('readers never follow a planted symlink', () => {
+  const event = JSON.stringify({
+    event_id: 'e1',
+    command: 'search',
+    ts: '2026-11-08T10:00:00Z',
+    result_ids: [],
+  });
+
+  // @lat: [[usage-opt-in#Usage Opt-in#A symlinked .lat is not opted in]]
+  it('a symlinked .lat or .lat/usage does not opt the project in', () => {
+    const outside = join(root, 'outside');
+    mkdirSync(join(outside, 'usage'), { recursive: true });
+    symlinkSync(outside, latDir(root));
+    expect(usageEnabled(root)).toBe(false);
+    rmSync(latDir(root));
+    mkdirSync(latDir(root));
+    symlinkSync(join(outside, 'usage'), usageDir(root));
+    expect(usageEnabled(root)).toBe(false);
+    vi.stubEnv('LAT_USAGE', '1');
+    expect(usageEnabled(root)).toBe(true);
+  });
+
+  // @lat: [[usage-opt-in#Usage Opt-in#Loading state reads only a regular file]]
+  it('loading state does not read a symlinked or special state.json', () => {
+    mkdirSync(usageDir(root), { recursive: true });
+    const outside = join(root, 'outside.json');
+    const foreign = { ...emptyState(), logs: { 'x.jsonl': 7 } };
+    expect(foreign.version).toBe(USAGE_STATE_VERSION);
+    writeFileSync(outside, JSON.stringify(foreign));
+    symlinkSync(outside, join(usageDir(root), 'state.json'));
+    expect(loadState(root)).toEqual(emptyState());
+    rmSync(join(usageDir(root), 'state.json'));
+    symlinkSync('/dev/zero', join(usageDir(root), 'state.json'));
+    expect(loadState(root)).toEqual(emptyState());
+  });
+
+  // @lat: [[usage-opt-in#Usage Opt-in#The event log reads only regular files]]
+  it('a symlinked events file is not ingested', () => {
+    mkdirSync(usageDir(root), { recursive: true });
+    const outside = join(root, 'outside.jsonl');
+    writeFileSync(outside, event + '\n');
+    symlinkSync(outside, join(usageDir(root), 'events-2026-11.jsonl'));
+    const state = emptyState();
+    expect(readLog(root, state)).toBe(false);
+    expect(state.usage).toEqual({});
+    rmSync(join(usageDir(root), 'events-2026-11.jsonl'));
+    writeFileSync(join(usageDir(root), 'events-2026-11.jsonl'), event + '\n');
+    expect(readLog(root, state)).toBe(true);
+    expect(Object.keys(state.usage)).toEqual(['e1']);
   });
 });

@@ -409,7 +409,8 @@ function SessionDetail({
       ) : (
         <p>This session is not in the summary under the current filters.</p>
       )}
-      <SessionEvents id={id} refresh={refresh} />
+      {/* Keyed by id so another session's events never show under this heading. */}
+      <SessionEvents key={id} id={id} refresh={refresh} />
     </section>
   );
 }

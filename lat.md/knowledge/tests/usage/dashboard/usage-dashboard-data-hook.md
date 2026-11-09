@@ -7,7 +7,7 @@ lat:
 
 Tests in `tests/usage-dashboard-data-hook.test.tsx` for `useUsageData` and `fetchAllUsageEvents` in `view/src/usage/use-usage-data.ts`, which every dashboard page reads through.
 
-They render hooks in jsdom with a fake `fetch` and a fake `EventSource` that the test drives by hand. None asserts on elapsed time: each test emits an event or resolves a request, then awaits the result.
+They render hooks in jsdom with a fake `fetch` and a fake `EventSource` that the test drives by hand. None waits on real time: each test emits an event or resolves a request, then awaits the result. The retry tests run the pending timers with fake timers.
 
 ## The request carries the filters and extra parameters
 
@@ -43,7 +43,19 @@ Any number of hook instances open a single event stream. It closes when the last
 
 ## Hidden tabs close the stream
 
-When the tab becomes hidden the stream closes. When it becomes visible again the hook opens one new stream and refetches once.
+When the tab becomes hidden the stream closes. When it becomes visible again the hook opens one new stream and refetches once, on that stream's first `open`.
+
+## A browser reconnect refetches
+
+When the browser reopens the stream on its own after an `error`, the hook refetches once, because changes made while the stream was down were never sent. The first `open` does not refetch.
+
+## A closed stream is reopened
+
+When a reconnect fails and the stream is `CLOSED`, the hook drops it and opens a new stream after a short delay. It refetches once, when the new stream's first `open` arrives. An `error` from the old, dropped stream is ignored.
+
+## A retry refetches only once it connects
+
+While the server is down, each retry stream fails before `open`, and no retry refetches. The first `open` after the retries sends one refetch, so the stream is registered before the data is read again.
 
 ## Unmounting aborts the request
 

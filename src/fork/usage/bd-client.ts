@@ -72,13 +72,15 @@ export interface JournalRecord {
   ts: string;
   op: string;
   issue_id: string;
-  issue: { status?: string } | null;
+  issue: { status?: string; closed_at?: string } | null;
 }
 
 export interface ReopenEvent {
   issueId: string;
   ts: string;
   seq: number;
+  /** When the issue was closed before this reopen, from the journal. */
+  closedTs: string;
 }
 
 interface ListedIssue extends BdIssue {
@@ -172,8 +174,10 @@ export async function tailJournal(
  * Verified against a throwaway database on 2026-11-08: `bd reopen --reason`
  * journals a `comment` row (status already open) and then an `update` row, so
  * the op cannot be the test. closed_at is gone from the after-state and from `bd show`.
- * `lastStatus` carries the last status per issue across calls so a tail can
- * continue a replay.
+ * `closedSince` maps each issue that is closed now to the time it was
+ * closed, and carries across calls so a tail can continue a replay. It lets
+ * the reopen report when the issue was closed even after `closed_at` is gone.
+ * The time is the close row's `closed_at`, else its ts.
  *
  * Reach: the journal covers this clone only (a pulled sync journals nothing)
  * and is pruned to events-journal-retain-days (7 here) and 100k rows. A reopen
@@ -182,27 +186,31 @@ export async function tailJournal(
  */
 export function findReopens(
   records: JournalRecord[],
-  lastStatus: Map<string, string>,
+  closedSince: Map<string, string>,
 ): ReopenEvent[] {
   const reopens: ReopenEvent[] = [];
   for (const record of records) {
     const status = record.issue?.status;
     if (record.op === 'delete') {
-      lastStatus.delete(record.issue_id);
+      closedSince.delete(record.issue_id);
       continue;
     }
     if (!status) continue;
-    if (
-      record.op !== 'close' &&
-      status !== 'closed' &&
-      lastStatus.get(record.issue_id) === 'closed'
-    )
+    const closedTs = closedSince.get(record.issue_id);
+    if (status === 'closed') {
+      // A later edit of a closed issue keeps the first close time.
+      if (closedTs === undefined)
+        closedSince.set(record.issue_id, record.issue?.closed_at ?? record.ts);
+      continue;
+    }
+    if (record.op !== 'close' && closedTs !== undefined)
       reopens.push({
         issueId: record.issue_id,
         ts: record.ts,
         seq: record.seq,
+        closedTs,
       });
-    lastStatus.set(record.issue_id, status);
+    closedSince.delete(record.issue_id);
   }
   return reopens;
 }

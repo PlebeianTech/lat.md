@@ -258,15 +258,16 @@ describe('usage miss consequences', () => {
       ],
       spans: ['a', 'b', 'c', 'd'].map((id) => span(id, 0, 1)),
       snapshot: snapshot({
+        // bd reopen clears closed_at: the close time comes from the journal.
         issues: [
-          issue('soon', 10),
-          issue('late', 10),
+          issue('soon', null),
+          issue('late', null),
           issue('never', null),
           issue('untouched', 10),
         ],
         reopens: [
-          { issueId: 'soon', ts: iso(day(24)), seq: 1 },
-          { issueId: 'late', ts: iso(day(25)), seq: 2 },
+          { issueId: 'soon', ts: iso(day(24)), seq: 1, closedTs: iso(day(10)) },
+          { issueId: 'late', ts: iso(day(25)), seq: 2, closedTs: iso(day(10)) },
         ],
       }),
       reopenRetentionDays: 60,
@@ -278,26 +279,49 @@ describe('usage miss consequences', () => {
   });
 
   // @lat: [[usage-miss-consequences#Usage Miss Consequences#A reopen counts inside the window and the journal retention]]
-  it('leaves out a reopened issue whose close time is unknown', () => {
+  it('counts a reopened issue that is still open or was closed again', () => {
     const result = build({
       sessions: [
         session('a', { issues: ['cleared'] }),
         session('b', { issues: ['reclosed'] }),
+        session('c', { issues: ['garbled'] }),
       ],
-      spans: [span('a', 0, 1), span('b', 0, 1)],
+      spans: ['a', 'b', 'c'].map((id) => span(id, 0, 1)),
       snapshot: snapshot({
-        issues: [issue('cleared', null), issue('reclosed', 30)],
+        // The snapshot shapes bd leaves: closed_at cleared by the reopen, or
+        // set again by a later close after the reopen.
+        issues: [
+          issue('cleared', null),
+          issue('reclosed', 30),
+          issue('garbled', null),
+        ],
         reopens: [
-          { issueId: 'cleared', ts: iso(day(20)), seq: 1 },
-          { issueId: 'reclosed', ts: iso(day(20)), seq: 2 },
+          {
+            issueId: 'cleared',
+            ts: iso(day(20)),
+            seq: 1,
+            closedTs: iso(day(10)),
+          },
+          {
+            issueId: 'reclosed',
+            ts: iso(day(20)),
+            seq: 2,
+            closedTs: iso(day(10)),
+          },
+          {
+            issueId: 'garbled',
+            ts: iso(day(20)),
+            seq: 3,
+            closedTs: 'not a time',
+          },
         ],
       }),
       reopenRetentionDays: 60,
     });
     const reopens = result.groups.reached_everything.reopened_issues;
-    expect(reopens.sample).toBe(0);
-    expect(reopens.rate).toBeNull();
-    expect(reopens.left_out_other).toEqual({ close_time_unknown: 2 });
+    expect(reopens.sample).toBe(2);
+    expect(reopens.count).toBe(2);
+    expect(reopens.left_out_other).toEqual({ close_time_unknown: 1 });
   });
 
   // @lat: [[usage-miss-consequences#Usage Miss Consequences#A reopen counts inside the window and the journal retention]]
@@ -314,10 +338,17 @@ describe('usage miss consequences', () => {
         issues: [
           issue('old', 30),
           issue('kept', 63),
-          issue('old-reopened', 30),
+          issue('old-reopened', null),
           issue('recent', 68),
         ],
-        reopens: [{ issueId: 'old-reopened', ts: iso(day(35)), seq: 1 }],
+        reopens: [
+          {
+            issueId: 'old-reopened',
+            ts: iso(day(35)),
+            seq: 1,
+            closedTs: iso(day(30)),
+          },
+        ],
       }),
       lastEvent: day(70),
       now: day(70),
@@ -341,8 +372,15 @@ describe('usage miss consequences', () => {
       ],
       spans: [span('a', 0, 1), span('b', 0, 1)],
       snapshot: snapshot({
-        issues: [issue('inside', 68), issue('outside', 68)],
-        reopens: [{ issueId: 'inside', ts: iso(day(71)), seq: 1 }],
+        issues: [issue('inside', null), issue('outside', 68)],
+        reopens: [
+          {
+            issueId: 'inside',
+            ts: iso(day(71)),
+            seq: 1,
+            closedTs: iso(day(68)),
+          },
+        ],
       }),
       lastEvent: day(75),
       now: day(75),

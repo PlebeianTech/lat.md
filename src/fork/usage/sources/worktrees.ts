@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
+import { isInside } from './shell-parse.js';
 
 const run = promisify(execFile);
 
@@ -39,4 +40,21 @@ export function findWorktreeRoot(
   }
   cache.set(cwd, dir);
   return dir;
+}
+
+/**
+ * True when a session's cwd belongs to the project: it sits under one of the
+ * project's worktree roots and is not inside a separate git repository nested
+ * below that root. A cwd with no enclosing repository still belongs.
+ */
+export function belongsToProject(
+  roots: string[],
+  cwd: string,
+  cache: Map<string, string>,
+): boolean {
+  if (!roots.some((r) => isInside(r, cwd))) return false;
+  const gitRoot = findWorktreeRoot(cwd, cache);
+  if (roots.includes(gitRoot) || !existsSync(join(gitRoot, '.git')))
+    return true;
+  return !roots.some((r) => isInside(r, gitRoot));
 }

@@ -140,9 +140,13 @@ function EventTable({
             const sectionId =
               record.type === 'usage' ? record.event.section_id : null;
             const path =
-              record.type === 'session' && record.event.kind === 'tool_call'
-                ? record.event.tool.path
-                : null;
+              record.type !== 'session'
+                ? null
+                : record.event.kind === 'tool_call'
+                  ? record.event.tool.path
+                  : record.event.kind === 'bypass_read'
+                    ? record.event.path
+                    : null;
             return (
               <tr key={record.id} data-event-id={record.id}>
                 <td>{record.ts}</td>
