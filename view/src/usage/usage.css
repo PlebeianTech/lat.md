@@ -1,0 +1,133 @@
+@import '../styles.css';
+
+/* Data colors only: the grayscale tokens come from styles.css. */
+:root {
+  --agent-claude: #b4531f;
+  --agent-codex: #0b7a75;
+  --agent-antigravity: #6d4fc2;
+  --agent-pi: #a8325e;
+  --agent-opencode: #3a6fb0;
+  /* Heat ramp, low to high. */
+  --heat-1: #eaf1fb;
+  --heat-2: #bcd3f0;
+  --heat-3: #82aee3;
+  --heat-4: #4a82cc;
+  --heat-5: #1f55a3;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --agent-claude: #e8895a;
+    --agent-codex: #4fc0b8;
+    --agent-antigravity: #a994ef;
+    --agent-pi: #ee7fa5;
+    --agent-opencode: #7fb0ee;
+    --heat-1: #12243d;
+    --heat-2: #1d3d6b;
+    --heat-3: #2f5fa3;
+    --heat-4: #5b8fd6;
+    --heat-5: #9cc0f0;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.usage-nav {
+  display: flex;
+  flex: 0 0 11rem;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 1rem 0.5rem;
+  background: var(--sidebar);
+  border-right: 1px solid var(--panel-border);
+}
+
+.usage-brand {
+  padding: 0 0.5rem 0.75rem;
+}
+
+.usage-nav a {
+  padding: 0.375rem 0.5rem;
+  border-radius: 6px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.usage-nav a:hover,
+.usage-nav a[aria-current='page'] {
+  background: var(--sidebar-selection);
+  color: var(--text);
+}
+
+.usage-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.usage-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.usage-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.usage-filters input,
+.usage-filters select {
+  max-width: 100%;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
+
+.usage-content {
+  min-width: 0;
+  padding: 1rem;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .usage-shell {
+    flex-direction: column;
+  }
+
+  .usage-nav {
+    flex: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: 0;
+    border-bottom: 1px solid var(--panel-border);
+  }
+
+  .usage-brand {
+    flex: 1 0 100%;
+    padding-bottom: 0.25rem;
+  }
+}

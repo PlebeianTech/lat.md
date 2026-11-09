@@ -1,0 +1,336 @@
+{
+  "sessions": [
+    {
+      "id": "ses_main",
+      "parent_id": null,
+      "directory": "{{ROOT}}",
+      "title": "Synthetic opencode session",
+      "time_created": 1000
+    },
+    {
+      "id": "ses_child",
+      "parent_id": "ses_main",
+      "directory": "{{ROOT}}/src",
+      "title": "Child session - 2026-11-08T10:00:00.000Z",
+      "time_created": 1500
+    },
+    {
+      "id": "ses_elsewhere",
+      "parent_id": null,
+      "directory": "{{SCRATCH}}/elsewhere",
+      "title": "Not this repo",
+      "time_created": 1600
+    }
+  ],
+  "messages": [
+    {
+      "id": "msg_01",
+      "session_id": "ses_main",
+      "time_created": 1100,
+      "data": { "role": "user", "time": { "created": 1100 } }
+    },
+    {
+      "id": "msg_02",
+      "session_id": "ses_main",
+      "time_created": 2000,
+      "data": {
+        "role": "assistant",
+        "modelID": "model-a",
+        "cost": 0.01,
+        "tokens": {
+          "input": 100,
+          "output": 20,
+          "reasoning": 5,
+          "cache": { "read": 300, "write": 40 }
+        },
+        "time": { "created": 2000, "completed": 2500 }
+      }
+    },
+    {
+      "id": "msg_03",
+      "session_id": "ses_main",
+      "time_created": 3000,
+      "data": {
+        "role": "assistant",
+        "modelID": "model-b",
+        "cost": 0,
+        "tokens": {
+          "input": 7,
+          "output": 3,
+          "reasoning": 0,
+          "cache": { "read": 0, "write": 0 }
+        },
+        "time": { "created": 3000, "completed": 3500 }
+      }
+    },
+    {
+      "id": "msg_04",
+      "session_id": "ses_main",
+      "time_created": 4000,
+      "data": {
+        "role": "assistant",
+        "modelID": "model-b",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": { "read": 0, "write": 0 }
+        },
+        "time": { "created": 4000 }
+      }
+    },
+    {
+      "id": "msg_c1",
+      "session_id": "ses_child",
+      "time_created": 1700,
+      "data": {
+        "role": "assistant",
+        "modelID": "model-a",
+        "tokens": {
+          "input": 1,
+          "output": 1,
+          "reasoning": 0,
+          "cache": { "read": 0, "write": 0 }
+        },
+        "time": { "created": 1700, "completed": 1800 }
+      }
+    }
+  ],
+  "parts": [
+    {
+      "id": "prt_02a",
+      "message_id": "msg_02",
+      "session_id": "ses_main",
+      "data": {
+        "type": "tool",
+        "tool": "bash",
+        "state": {
+          "status": "completed",
+          "input": { "command": "lat search \"token budget\"" },
+          "output": "found",
+          "metadata": { "exit": 0 }
+        }
+      }
+    },
+    {
+      "id": "prt_02b",
+      "message_id": "msg_02",
+      "session_id": "ses_main",
+      "data": {
+        "type": "tool",
+        "tool": "read",
+        "state": {
+          "status": "completed",
+          "input": { "filePath": "{{ROOT}}/lat.md/notes.md" },
+          "output": "twelve bytes"
+        }
+      }
+    },
+    {
+      "id": "prt_02c",
+      "message_id": "msg_02",
+      "session_id": "ses_main",
+      "data": {
+        "type": "tool",
+        "tool": "edit",
+        "state": {
+          "status": "completed",
+          "input": { "filePath": "{{ROOT}}/src/a.ts" },
+          "output": "Edit applied successfully."
+        }
+      }
+    },
+    {
+      "id": "prt_02d",
+      "message_id": "msg_02",
+      "session_id": "ses_main",
+      "data": {
+        "type": "tool",
+        "tool": "write",
+        "state": {
+          "status": "completed",
+          "input": { "filePath": "{{ROOT}}/src/new.ts", "content": "x" },
+          "output": "Wrote file successfully."
+        }
+      }
+    },
+    {
+      "id": "prt_02e",
+      "message_id": "msg_02",
+      "session_id": "ses_main",
+      "data": {
+        "type": "tool",
+        "tool": "edit",
+        "state": {
+          "status": "error",
+          "input": { "filePath": "{{ROOT}}/src/failed.ts" },
+          "error": "oldString not found"
+        }
+      }
+    },
+    {
+      "id": "prt_03a",
+      "message_id": "msg_03",
+      "session_id": "ses_main",
+      "data": {
+        "type": "tool",
+        "tool": "bash",
+        "state": {
+          "status": "completed",
+          "input": { "command": "bd update lat-x.1 --claim" },
+          "output": "ok",
+          "metadata": { "exit": 0 }
+        }
+      }
+    },
+    {
+      "id": "prt_03b",
+      "message_id": "msg_03",
+      "session_id": "ses_main",
+      "data": {
+        "type": "tool",
+        "tool": "bash",
+        "state": {
+          "status": "completed",
+          "input": { "command": "bd close lat-x.1 --reason no-action" },
+          "output": "ok",
+          "metadata": { "exit": 0 }
+        }
+      }
+    },
+    {
+      "id": "prt_03c",
+      "message_id": "msg_03",
+      "session_id": "ses_main",
+      "data": {
+        "type": "tool",
+        "tool": "bash",
+        "state": {
+          "status": "completed",
+          "input": {
+            "command": "echo hi > out.txt",
+            "workdir": "{{ROOT}}/src"
+          },
+          "output": "",
+          "metadata": { "exit": null }
+        }
+      }
+    },
+    {
+      "id": "prt_03d",
+      "message_id": "msg_03",
+      "session_id": "ses_main",
+      "data": {
+        "type": "tool",
+        "tool": "bash",
+        "state": {
+          "status": "completed",
+          "input": { "command": "pnpm test" },
+          "output": "failed",
+          "metadata": { "exit": 2 }
+        }
+      }
+    },
+    {
+      "id": "prt_03e",
+      "message_id": "msg_03",
+      "session_id": "ses_main",
+      "data": {
+        "type": "tool",
+        "tool": "bash",
+        "state": {
+          "status": "error",
+          "input": { "command": "bd close lat-y.9" },
+          "error": "The user rejected permission to use this specific tool call."
+        }
+      }
+    },
+    {
+      "id": "prt_03f",
+      "message_id": "msg_03",
+      "session_id": "ses_main",
+      "data": {
+        "type": "tool",
+        "tool": "bash",
+        "state": {
+          "status": "completed",
+          "input": { "command": "cat {{ROOT}}/lat.md/spec.md" },
+          "output": "spec text",
+          "metadata": { "exit": 0 }
+        }
+      }
+    },
+    {
+      "id": "prt_03g",
+      "message_id": "msg_03",
+      "session_id": "ses_main",
+      "data": {
+        "type": "tool",
+        "tool": "grep",
+        "state": {
+          "status": "completed",
+          "input": { "pattern": "widget", "path": "{{ROOT}}/lat.md" },
+          "output": "Found 1 matches"
+        }
+      }
+    },
+    {
+      "id": "prt_03h",
+      "message_id": "msg_03",
+      "session_id": "ses_main",
+      "data": {
+        "type": "tool",
+        "tool": "glob",
+        "state": {
+          "status": "completed",
+          "input": { "pattern": "**/*.ts", "path": "{{ROOT}}/src" },
+          "output": "none"
+        }
+      }
+    },
+    {
+      "id": "prt_03i",
+      "message_id": "msg_03",
+      "session_id": "ses_main",
+      "data": {
+        "type": "tool",
+        "tool": "apply_patch",
+        "state": {
+          "status": "completed",
+          "input": {
+            "patchText": "*** Begin Patch\n*** Update File: {{ROOT}}/src/b.ts\n@@\n-a\n+b\n*** Add File: {{SCRATCH}}/other/z.txt\n+z\n*** End Patch"
+          },
+          "output": "Success."
+        }
+      }
+    },
+    {
+      "id": "prt_04a",
+      "message_id": "msg_04",
+      "session_id": "ses_main",
+      "data": {
+        "type": "tool",
+        "tool": "bash",
+        "state": {
+          "status": "running",
+          "input": { "command": "sleep 100" }
+        }
+      }
+    },
+    {
+      "id": "prt_c1a",
+      "message_id": "msg_c1",
+      "session_id": "ses_child",
+      "data": {
+        "type": "tool",
+        "tool": "read",
+        "state": {
+          "status": "completed",
+          "input": { "filePath": "{{ROOT}}/src/a.ts" },
+          "output": "abc"
+        }
+      }
+    }
+  ]
+}

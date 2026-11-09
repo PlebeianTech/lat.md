@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config'
+import { forkPoolOptions } from './src/fork/vitest-pool-options'
 
 export default defineConfig({
   test: {
@@ -7,5 +8,6 @@ export default defineConfig({
     // heavy tests and their beforeAll hooks generous headroom.
     testTimeout: 30000,
     hookTimeout: 30000,
+    poolOptions: forkPoolOptions,
   },
 })

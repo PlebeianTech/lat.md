@@ -60,4 +60,6 @@ Shared patterns for writing and organizing tests in this project.
 - [TS Fallback](ts-fallback.md) — Tests that verify the pure-TypeScript code-ref scanner produces identical results to the ripgrep path.
 - [Untrusted Text Additional Coverage](untrusted.md) — Additional coverage for \[\[packages/core/src/untrusted.ts\]\] beyond its original core tests: wider invisible-Unicode stripping and the \`cleanUntrustedId\` helper for values embedded into ids and headings rather than quoted prose.
 - [Wiki Tests](wiki.md) — Functional and unit specifications for GitHub Wiki export and publication.
+- [Impact](impact.md) — Placeholder spec for the \`lat impact\` command of the usage analytics epic.
+- [Usage](usage/usage.md) — Specifications for the usage analytics epic: event schema, taps, session readers, aggregation, dashboard and findings.
 <!-- lat:index:end -->

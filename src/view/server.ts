@@ -38,6 +38,7 @@ import {
 import { createViewSearch, type ViewSearch } from './search.js';
 import { createViewStore, type ViewStore } from './store.js';
 import { rewriteClientAssetUrls } from './client-shell.js';
+import { handleUsage } from '../fork/usage/live.js';
 import {
   documentResourcePath,
   documentPath,
@@ -259,6 +260,8 @@ export async function createViewApp(
         send(res, 405, 'text/plain; charset=utf-8', 'Method not allowed');
         return;
       }
+
+      if (await handleUsage(req, res, ctx.projectRoot, clientDir)) return;
 
       if (url.pathname === '/') {
         const entry = store.getIndex().entry;

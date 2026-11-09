@@ -177,3 +177,11 @@ Two workflows validate the tree, and both run our own build of `lat` rather than
 Upstream's version of `lat-check.yaml` used `lars20070/lat-check-action@v1`, whose `action.yaml` hardcodes `npm install -g lat.md` with no input to override it. Upstream's `parseIndexEntries` matches only `- [[name]] — description`. This fork's writes `- [Label](dest.md) — description` and its parser reads both, so upstream's sees zero entries in our index files and reports every child as missing. It never once passed. Pinning it to a commit would have fixed the mutable-tag exposure without fixing the failure.
 
 Windows is not in the `ci.yml` matrix. The POSIX-path and `eol=lf` conventions in [[dev-process#Testing#Continuous Integration]] still hold, but no runner enforces them.
+
+### The suite on Node 25 and later
+
+From Node 25, a global `localStorage` stays undefined without `--localstorage-file`, and it blocks jsdom's own, so DOM tests read undefined.
+
+The jsdom environment finds that global already present and never installs its own `localStorage`.
+
+[[src/fork/vitest-pool-options.ts#forkPoolOptions]] starts the test workers with `--no-experimental-webstorage` whenever Node defines that global. That removes it and lets jsdom's work. Older Node versions, such as CI's Node 22, get no extra flag. `vitest.config.ts` is upstream, so it takes only the import and one `poolOptions` line.

@@ -23,6 +23,7 @@ import {
   externalShowCommand,
 } from '@plebeiantech/lat.md-core/cli/external';
 import { FORK_MCP_TOOL_DESCRIPTIONS } from './fork-tool-descriptions.js';
+import { registerForkMcp } from '../fork/usage/mcp-registration.js';
 
 function toMcp(result: CmdResult) {
   const content = [{ type: 'text' as const, text: result.output }];
@@ -48,6 +49,7 @@ export async function startMcpServer(): Promise<void> {
     name: 'lat',
     version: '1.0.0',
   });
+  registerForkMcp(server);
 
   server.tool(
     'lat_locate',

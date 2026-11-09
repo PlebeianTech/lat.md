@@ -6,6 +6,7 @@ import {
   packageVersion,
 } from '@plebeiantech/lat.md-core/cli';
 import { resolveContext } from '@plebeiantech/lat.md-core/cli/context';
+import { registerForkCli } from '../fork/usage/cli-registration.js';
 import {
   DEFAULT_SEARCH_LIMIT,
   DEFAULT_MIN_SIMILARITY,
@@ -640,4 +641,5 @@ wikiCmd
     },
   );
 
+registerForkCli(program);
 await program.parseAsync(checkTargetArgs.args, { from: 'user' });

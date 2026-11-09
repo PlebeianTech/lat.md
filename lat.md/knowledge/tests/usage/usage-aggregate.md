@@ -1,0 +1,126 @@
+---
+lat:
+  require-code-mention: true
+---
+
+# Usage Aggregate
+
+Tests in `tests/usage-aggregate.test.ts` for `src/fork/usage/aggregate.ts`, `state.ts` and `filters.ts` in the same folder.
+
+They use synthetic usage events, synthetic session events, fake session sources and a stubbed bd snapshot, in a temporary project root. None reads a real agent store or the live bd database.
+
+## Feeding the same events twice changes nothing
+
+Ingesting a batch of usage events and session events a second time, by log re-read or by a reader that re-emits, produces a summary equal to the first.
+
+## Summaries are memoized per data version
+
+Two concurrent identical summaries share one computation, and a repeat after a refresh that read nothing new is served from the cache.
+
+Different filters compute again. New data, or `invalidate()`, starts a new data version, so the next summary is computed afresh. The cache key also holds the UTC day, so relative ranges move on at midnight.
+
+## A restart resumes from state.json
+
+An aggregator stopped after its first refresh and rebuilt from `state.json` reads only the new log lines and new session events.
+
+Its summary equals that of one aggregator that ran uninterrupted. A log that shrank is read again from its start without double counting.
+
+## Latest wins for repeated session events
+
+Readers re-emit `session_end`, `model` and `session_name` on every resumed read with new event ids. Each session keeps only the latest of each kind, so its end time, model and name are not added up.
+
+## All five agents are listed
+
+The agent breakdown has one row for each of claude, codex, pi, opencode and antigravity, with zero counts when an agent has no sessions.
+
+An agent that has events but no session reader is listed too. A reader that reports a reason for missing data carries the reason on its agent row.
+
+## Sessions keep children separate
+
+A subagent session is its own row with its `parent_session_id`.
+
+The parent row carries its own totals and rolled-up totals that include its children, through any depth. A row shows its start, end, duration, agent, name, model, tokens, lat commands, bypass reads and the bd issues it worked on.
+
+## Issues carry own and rolled-up totals
+
+An issue row carries the totals of events attributed to it and, separately, the totals including its descendants. It also names its bd parent, which need not share a dotted id with it, or null for a top-level issue.
+
+An event credited to a parent and a child counts once in the parent's rolled-up totals. Events attributed to no issue go to an unattributed row.
+
+A shared event counts in full in each issue's own totals. The grand total counts it once, because it comes from the events and not from the issue rows.
+
+## Commands and days
+
+The command breakdown counts non-hook events by command name. The day breakdown has one row per UTC day.
+
+## Queries are normalized
+
+Queries that differ in case or spacing are one row.
+
+A query row has its count, its sessions, its median result count, its empty-result share, its follow-through share, its median opened rank, the sections it returned with how often each was opened, and its reformulations.
+
+## Another search within 60 seconds is a reformulation
+
+A search followed by another search in the same session within 60 seconds is reformulated. One at 61 seconds is not, and a search in another session is not.
+
+## A read follows only the latest earlier search
+
+A section read follows a search when the same session's most recent earlier search has that section in its result ids.
+
+The rank opened is its 1-based position there. A section in an older search only, or in a search of another session, is not followed and has no rank.
+
+## Hook injections are not reads
+
+A hook-injected event with a section id is not a section read and not a command. Its injected bytes are totalled apart.
+
+## Sections and documents count reads
+
+A section row has its reads, its reads for each day, the queries whose search led to the read and the bd issues, with ancestors, whose sessions read it. A document row sums the reads of its sections.
+
+## Unknown is not zero
+
+A null token counter, result count or output size is counted as unknown and never added as zero. A total whose every value is unknown is null.
+
+## Daily series and the previous range
+
+Every row carries one point for each UTC day of the range and the totals of the previous range of equal length. Without a start date there is no previous range, and the field is null.
+
+## Each row carries four health signals
+
+Agent, session and issue rows carry lat commands per session, search success, bypass rate, and net tokens saved with the injected bytes beside it. Net tokens saved is null until a contribution supplies it.
+
+## Filters narrow the summary
+
+`parseUsageFilters` reads `from`, `to`, `agent`, `session` and `issue` from a query string or a plain object.
+
+A date-only `to` includes that day. An invalid date throws. The session filter matches an id or a name. The issue filter includes descendants. Filtering does not change how events are attributed.
+
+## Contributions register one line each
+
+A contribution listed in the registration array adds its result under `extensions` in the summary, and may supply net tokens saved.
+
+## A throwing contribution is isolated
+
+A contribution whose `compute` throws is reported as an error object under its key in `extensions`. The other contributions and the rest of the summary are unaffected.
+
+A throwing `netTokensSaved` leaves the signal null and names the reason beside it.
+
+## state.json keeps no shell command text
+
+Session events are stored in `state.json` as pointers, not copies of transcript text. A tool call keeps its name, action, path, bytes, shell exit code and `source` pointer, and drops the shell command string.
+
+A consumer that needs the command re-reads the source line through the pointer.
+
+## A parent link on any event attributes a subagent
+
+A subagent session whose parent link appears only on a `session_start` or a `tool_call` still gets its lat commands attributed through the parent's claim.
+
+The Sessions table shows the same parent.
+
+## Prepare runs before rows are built
+
+A contribution's optional `prepare` is awaited before any row is built. Its synchronous `netTokensSaved` sees the prepared state on the first summary.
+
+## A throwing prepare is isolated
+
+A throwing `prepare` is recorded under the contribution's key like a throwing `compute`, and `compute` is skipped. Its `netTokensSaved` yields null with the error as reason. Other contributions and the summary are unaffected.

@@ -38,3 +38,4 @@ The public guide, release history, and Lat's own engineering knowledge share thi
 - [[knowledge]] — The internal knowledge graph that documents and drives Lat itself
 - [[explanation]] — Why this fork is shaped the way it is, and what the alternatives cost
 - [[how-to]] — Recipes for recurring tasks in this fork
+- [Usage](usage/usage.md) — Field reference for the usage events lat records about its own commands and agent sessions
