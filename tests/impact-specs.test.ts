@@ -48,6 +48,23 @@ describe('lat impact --specs', () => {
     expect(output).not.toContain('code:');
   });
 
+  // @lat: [[impact#Impact#Lists the specs that cover a symbol]]
+  it('treats a leading ./ in the file part like the plain path', async () => {
+    const plain = await reportSpecCoverage(index, projectRoot, FIXTURE, {
+      depth: DEFAULT_DEPTH,
+    });
+    const dotted = await reportSpecCoverage(
+      index,
+      projectRoot,
+      `./${FIXTURE}`,
+      {
+        depth: DEFAULT_DEPTH,
+      },
+    );
+    expect(dotted.isError).toBeFalsy();
+    expect(dotted.output.replace('./', '')).toBe(plain.output);
+  });
+
   // @lat: [[impact#Impact#Prints a clear empty result for an uncovered symbol]]
   it('prints a clear empty result for a symbol nothing references', async () => {
     const result = await reportSpecCoverage(

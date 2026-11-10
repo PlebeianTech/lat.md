@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import {
   chmodSync,
   existsSync,
@@ -112,6 +112,27 @@ describe('writeUsageEvent', () => {
     expect(parsed.query.length).toBeLessThan(10_000);
   });
 
+  // @lat: [[usage-tap#Usage Tap#Lines stay under 4 KB]]
+  it('drops result ids from the end, keeping the query and the true result_count', () => {
+    const root = makeRoot();
+    const ids = Array.from(
+      { length: 75 },
+      (_, i) =>
+        `lat.md/some/long/path#Some Long Heading#Subsection number ${i}`,
+    );
+    writeUsageEvent(root, makeEvent({ result_ids: ids, result_count: 75 }));
+    const lines = readLines(eventFilePath(root, '2026-11-08T10:00:00.000Z'));
+    expect(lines).toHaveLength(1);
+    expect(Buffer.byteLength(lines[0]) + 1).toBeLessThanOrEqual(
+      MAX_EVENT_LINE_BYTES,
+    );
+    const parsed = JSON.parse(lines[0]) as UsageEvent;
+    expect(parsed.result_count).toBe(75);
+    expect(parsed.query).toBe('hello');
+    expect(parsed.result_ids.length).toBeGreaterThan(0);
+    expect(parsed.result_ids).toEqual(ids.slice(0, parsed.result_ids.length));
+  });
+
   // @lat: [[usage-tap#Usage Tap#A failing write is silent]]
   it('returns silently when the usage directory is read-only', () => {
     const root = makeRoot();
@@ -127,6 +148,29 @@ describe('writeUsageEvent', () => {
       chmodSync(dir, 0o755);
     }
   });
+
+  // @lat: [[usage-tap#Usage Tap#A failing write is silent]]
+  it.skipIf(process.platform === 'win32')(
+    'returns at once when the events file is a FIFO with no reader',
+    () => {
+      const root = makeRoot();
+      mkdirSync(join(root, '.lat', 'usage'), { recursive: true });
+      execFileSync('mkfifo', [eventFilePath(root, '2026-11-08T10:00:00.000Z')]);
+      // A child process, so a blocking open fails the test instead of hanging it.
+      const script = `
+        import { writeUsageEvent } from ${JSON.stringify(join(import.meta.dirname, '../src/fork/usage/writer.ts'))};
+        writeUsageEvent(${JSON.stringify(root)}, ${JSON.stringify(makeEvent())});
+      `;
+      const child = spawnSync(
+        process.execPath,
+        ['--import', 'tsx', '--input-type=module', '-e', script],
+        { stdio: 'ignore', timeout: 20_000 },
+      );
+      expect(child.signal).toBeNull();
+      expect(child.status).toBe(0);
+    },
+    30_000,
+  );
 
   // @lat: [[usage-tap#Usage Tap#Concurrent writers never interleave]]
   it('keeps whole parseable lines when 20 processes write at once', async () => {

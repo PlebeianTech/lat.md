@@ -37,6 +37,7 @@ import {
 } from './static-protocol.js';
 import { createViewStore } from './store.js';
 import { rewriteClientAssetUrls } from './client-shell.js';
+import { removeUsageDashboard } from '../fork/usage/static-export.js';
 import {
   documentResourcePath,
   documentPath,
@@ -783,6 +784,7 @@ export async function buildStaticView(
     const payloadDir = staticViewPayloadDir(stagingDir, basePath);
     await mkdir(payloadDir, { recursive: true });
     await cp(clientDir, payloadDir, { recursive: true });
+    await removeUsageDashboard(payloadDir);
     const index = { ...store.getIndex(), git: null, logoText };
     validateDocumentRoutes(index.files);
     const shell = clientShell(

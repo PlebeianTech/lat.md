@@ -79,23 +79,64 @@ const UNKNOWN_HOOK_OUTPUT: HookOutputFields = {
   injectedBytes: null,
 };
 
+interface HookJson {
+  hookSpecificOutput?: {
+    additionalContext?: unknown;
+    permissionDecisionReason?: unknown;
+  };
+  reason?: unknown;
+  additional_context?: unknown;
+  followup_message?: unknown;
+  injectSteps?: unknown;
+}
+
 /**
- * The ids a hook injected for the user prompt. Reads only the bullets under
- * the search results heading, so the Stop hook's linked-sections list and the
- * refs inside a full section body stay out. One match prints its whole body,
- * and then that section is also the section id.
+ * Every text field of a hook's JSON output that reaches the agent: Claude and
+ * Codex context and PreToolUse deny reasons, Stop `reason`, Cursor's
+ * `additional_context` and `followup_message`, and Antigravity's
+ * `injectSteps[].ephemeralMessage`.
+ */
+function injectedTexts(output: HookJson | null): string[] {
+  const steps: Array<{ ephemeralMessage?: unknown } | null> = Array.isArray(
+    output?.injectSteps,
+  )
+    ? output.injectSteps
+    : [];
+  return [
+    output?.hookSpecificOutput?.additionalContext,
+    output?.hookSpecificOutput?.permissionDecisionReason,
+    output?.reason,
+    output?.additional_context,
+    output?.followup_message,
+    ...steps.map((step) => step?.ephemeralMessage),
+  ].filter((text): text is string => typeof text === 'string');
+}
+
+/**
+ * The bytes a hook injected, summed over every text field the agent sees, and
+ * the ids it injected for the user prompt. Ids come from `additionalContext`
+ * only, from the bullets under the search results heading, so the Stop hook's
+ * linked-sections list and the refs inside a full section body stay out. One
+ * match prints its whole body, and then that section is also the section id.
  */
 export function parseHookOutput(stdout: string): HookOutputFields {
   if (stdout.trim() === '') return { ...UNKNOWN_HOOK_OUTPUT, injectedBytes: 0 };
-  let additionalContext: unknown;
+  let output: HookJson | null;
   try {
-    additionalContext =
-      JSON.parse(stdout)?.hookSpecificOutput?.additionalContext;
+    output = JSON.parse(stdout);
   } catch {
     return UNKNOWN_HOOK_OUTPUT;
   }
-  if (typeof additionalContext !== 'string') return UNKNOWN_HOOK_OUTPUT;
-  const injectedBytes = Buffer.byteLength(additionalContext, 'utf-8');
+  if (typeof output !== 'object' || output === null || Array.isArray(output))
+    return UNKNOWN_HOOK_OUTPUT;
+  const texts = injectedTexts(output);
+  const injectedBytes = texts.reduce(
+    (sum, text) => sum + Buffer.byteLength(text, 'utf-8'),
+    0,
+  );
+  const additionalContext = output?.hookSpecificOutput?.additionalContext;
+  if (typeof additionalContext !== 'string')
+    return { ...UNKNOWN_HOOK_OUTPUT, injectedBytes };
   const lines = stripAnsi(additionalContext).split('\n');
   const heading = lines.findIndex((line) => HOOK_SEARCH_HEADING.test(line));
   if (heading === -1) return { ...UNKNOWN_HOOK_OUTPUT, injectedBytes };
@@ -161,7 +202,11 @@ export function applyParsedOutput(
   event: UsageEvent,
   parsed: ParsedOutput,
 ): void {
-  if (parsed.resultIds !== null) {
+  // `lat search` with no or an empty query only rebuilds the index, so it has
+  // no results.
+  const ranSearch =
+    event.command !== 'search' || (event.query !== null && event.query !== '');
+  if (parsed.resultIds !== null && ranSearch) {
     event.result_ids = parsed.resultIds;
     event.result_count = parsed.resultIds.length;
     delete event.unknown_reasons.result_count;

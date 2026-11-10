@@ -32,8 +32,12 @@ function totals(overrides: {
   bypass_reads?: number;
   tokens?: number | null;
   unknownTokens?: number;
+  messages?: number;
 }): Totals {
   const tokens = overrides.tokens === undefined ? 10 : overrides.tokens;
+  const messages =
+    overrides.messages ??
+    (tokens === null ? 0 : 1) + (overrides.unknownTokens ?? 0);
   return {
     commands: overrides.commands ?? 0,
     sessions: 1,
@@ -50,9 +54,9 @@ function totals(overrides: {
     bytes_out: sum(0),
     latency_ms: { p50: null, p95: null },
     tokens: {
-      messages: 0,
+      messages,
       input: sum(tokens, overrides.unknownTokens ?? 0),
-      output: sum(tokens),
+      output: sum(tokens, overrides.unknownTokens ?? 0),
       cache_read: sum(0),
       cache_write: sum(0),
       reasoning: sum(0),
@@ -73,6 +77,7 @@ function session(
     bypass_reads?: number;
     tokens?: number | null;
     unknownTokens?: number;
+    messages?: number;
     search_success?: number | null;
   } = {},
 ): SessionRow {
@@ -175,7 +180,7 @@ const lanes = {
   command: usageRecord('cmd-1', '2026-01-02T10:00:10.000Z'),
   hook: usageRecord('hook-1', '2026-01-02T10:00:20.000Z', {
     surface: 'hook',
-    command: 'hook',
+    command: 'hook Stop',
     injected_bytes: 640,
   }),
   bypass: sessionRecord('byp-1', '2026-01-02T10:00:30.000Z', {
@@ -338,6 +343,8 @@ describe('usage dashboard sessions page', () => {
     expect(row('cmd-1')[0]).toBe('Lat commands');
     expect(row('cmd-1')[3]).toBe('2026-01-02T10:00:10Z');
     expect(row('hook-1')[0]).toBe('Injected context');
+    expect(row('hook-1')[2]).toBe('hook Stop');
+    expect(row('cmd-1')[2]).toMatch(/^lat /);
     expect(row('hook-1')[3]).toBe('2026-01-02T10:00:20Z');
     expect(row('byp-1')[0]).toBe('Bypass reads');
     expect(row('byp-1')[3]).toBe('2026-01-02T10:00:30Z');
@@ -378,6 +385,31 @@ describe('usage dashboard sessions page', () => {
     expect(next).toContain('search');
     expect(next).not.toContain('secret words');
     expect(next).not.toContain('src/a/b.ts');
+  });
+
+  // @lat: [[usage-dashboard-sessions#Usage Dashboard Sessions#Selecting an event shows its fields]]
+  it('shows unknown only for a null field with a reason', async () => {
+    rawPages = () => ({
+      records: [
+        usageRecord('cmd-2', '2026-01-02T10:00:10.000Z', {
+          unknown_reasons: { section_id: 'not_captured' },
+        }),
+      ],
+      next_cursor: null,
+    });
+    await show('sess-1');
+    await click(
+      [...container.querySelectorAll('button')].find((b) =>
+        b.textContent!.includes('cmd-2'),
+      )!,
+    );
+    const panel = container.querySelector('[aria-label="Selected event"]')!;
+    const value = (name: string) =>
+      [...panel.querySelectorAll('dt')].find((dt) => dt.textContent === name)!
+        .nextElementSibling!.textContent;
+    expect(value('section')).toBe('unknown');
+    expect(value('error class')).toBe('—');
+    expect(value('injected bytes')).toBe('—');
   });
 
   // @lat: [[usage-dashboard-sessions#Usage Dashboard Sessions#Another session never shows the previous session's events]]
@@ -426,6 +458,8 @@ describe('usage dashboard sessions page', () => {
     hang = true;
     await show();
     expect(text()).toContain('Loading');
+    await show('sess-1');
+    expect(text()).not.toContain('not in the summary');
     await act(async () => root.unmount());
     root = createRoot(container);
     hang = false;
@@ -446,10 +480,17 @@ describe('usage dashboard sessions page', () => {
   // @lat: [[usage-dashboard-sessions#Usage Dashboard Sessions#Unknown token counts are shown]]
   it('shows the unknown token count beside the known total', async () => {
     sessions = [
-      session('part', { tokens: 5, unknownTokens: 40 }),
-      session('none', { tokens: null, unknownTokens: 40 }),
+      // 20 messages with neither count known: 20 unknown inputs plus 20
+      // unknown outputs.
+      session('part', { tokens: 5, unknownTokens: 20 }),
+      session('none', { tokens: null, unknownTokens: 20 }),
     ];
     await show();
+    const headers = [...container.querySelectorAll('th')].map(
+      (th) => th.textContent,
+    );
+    expect(headers.some((h) => h!.includes('Unknown counts'))).toBe(true);
+    expect(headers.some((h) => h!.includes('Unknown msgs'))).toBe(false);
     const row = (id: string) =>
       [...container.querySelectorAll('tbody tr')].find((tr) =>
         tr.textContent!.includes(id),
@@ -459,8 +500,20 @@ describe('usage dashboard sessions page', () => {
     expect(row('none')).toContain('+40 unknown');
     expect(row('none').match(/unknown/g)!.length).toBeGreaterThanOrEqual(2);
     await show('part');
-    expect(text()).toContain('tokens 10 (+40 unknown)');
+    expect(text()).toContain('tokens 10 (+40 unknown counts)');
     await show('none');
+    expect(text()).toContain('tokens unknown');
+  });
+
+  // @lat: [[usage-dashboard-sessions#Usage Dashboard Sessions#A session with no token usage message shows unknown tokens]]
+  it('shows unknown, not zero, for a session with no token usage message', async () => {
+    // The reader found no message: a sum of nothing is 0 with nothing known.
+    sessions = [session('empty', { tokens: 0, messages: 0 })];
+    await show();
+    const row = container.querySelector('tbody tr')!.textContent!;
+    // Search success, Tokens and Unknown counts; the Issues "none" stays.
+    expect(row.match(/unknown/g)).toHaveLength(3);
+    await show('empty');
     expect(text()).toContain('tokens unknown');
   });
 });

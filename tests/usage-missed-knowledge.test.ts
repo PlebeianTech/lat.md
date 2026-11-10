@@ -4,23 +4,30 @@ import {
   mkdtempSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createAggregator } from '../src/fork/usage/aggregate.js';
+import type {
+  AggregateContext,
+  Contribution,
+} from '../src/fork/usage/aggregate-types.js';
 import type { BdSnapshot } from '../src/fork/usage/bd-attribution.js';
 import type { BdIssue } from '../src/fork/usage/bd-client.js';
 import type { UsageFilters } from '../src/fork/usage/filters.js';
 import {
   forgetSnapshots,
+  snapshotAt,
   type GraphSnapshot,
 } from '../src/fork/usage/graph-snapshot.js';
 import {
   MISSED_KNOWLEDGE_METHOD_VERSION,
   forgetMissedKnowledge,
   missedKnowledgeContribution,
+  readLineAt,
   type MissedKnowledge,
 } from '../src/fork/usage/missed-knowledge.js';
 import {
@@ -33,6 +40,15 @@ import type {
   SessionSource,
 } from '../src/fork/usage/sources/types.js';
 import { writeUsageEvent } from '../src/fork/usage/writer.js';
+
+// Keeps the real snapshot behaviour and cache; only counts the calls.
+vi.mock('../src/fork/usage/graph-snapshot.js', async (importOriginal) => {
+  const real =
+    await importOriginal<
+      typeof import('../src/fork/usage/graph-snapshot.js')
+    >();
+  return { ...real, snapshotAt: vi.fn(real.snapshotAt) };
+});
 
 const T0 = Date.parse('2026-11-08T10:00:00Z');
 const at = (minutes: number) => new Date(T0 + minutes * 60_000).toISOString();
@@ -246,6 +262,7 @@ interface Run {
   filters?: UsageFilters;
   dir?: string;
   baseline?: boolean;
+  contributions?: Contribution[];
 }
 
 async function run(options: Run = {}): Promise<MissedKnowledge> {
@@ -281,7 +298,10 @@ async function run(options: Run = {}): Promise<MissedKnowledge> {
       fakeSource('codex', options.codexEvents ?? []),
     ],
     bd: { refresh: async () => bd },
-    contributions: [missedKnowledgeContribution],
+    contributions: [
+      missedKnowledgeContribution,
+      ...(options.contributions ?? []),
+    ],
     now: () => Date.parse('2026-11-10T00:00:00Z'),
   });
   await aggregator.refresh();
@@ -316,6 +336,30 @@ afterEach(() => {
 });
 
 describe('usage missed knowledge', () => {
+  // @lat: [[usage-missed-knowledge#Usage Missed Knowledge#Prepare and compute run once per context]]
+  it('prepares and computes once per context', async () => {
+    let context: AggregateContext | undefined;
+    await run({
+      events: sessionOf('A', EDIT_A),
+      contributions: [
+        {
+          key: 'probe',
+          compute: (seen) => {
+            context = seen;
+            return null;
+          },
+        },
+      ],
+    });
+    const seen = context!;
+    const first = missedKnowledgeContribution.compute(seen);
+    vi.mocked(snapshotAt).mockClear();
+    await missedKnowledgeContribution.prepare!(seen);
+    await missedKnowledgeContribution.prepare!(seen);
+    expect(snapshotAt).not.toHaveBeenCalled();
+    expect(missedKnowledgeContribution.compute(seen)).toBe(first);
+  });
+
   // @lat: [[usage-missed-knowledge#Usage Missed Knowledge#A section read before the first edit is reached]]
   it('marks a section read before the first edit as reached', async () => {
     const result = await run({
@@ -613,6 +657,23 @@ describe('usage missed knowledge', () => {
   });
 
   // @lat: [[usage-missed-knowledge#Usage Missed Knowledge#Files without a section are no-coverage]]
+  it('does not count an edit under lat.md/ as a source file', async () => {
+    const result = await run({
+      events: sessionOf('A', [
+        [10, 'lat.md/notes.md'],
+        [11, 'lat.md/notes.md'],
+      ]),
+    });
+    expect(result.undocumented_files).toEqual([]);
+    expect(result.sessions[0].status).toBe('no_edits');
+    expect(result.sessions[0].no_coverage).toEqual({
+      new_file: 0,
+      undocumented: 0,
+      unclassified: 0,
+    });
+  });
+
+  // @lat: [[usage-missed-knowledge#Usage Missed Knowledge#Files without a section are no-coverage]]
   it('reports unclassified files when the tree cannot be listed', async () => {
     const fake = 'e'.repeat(40);
     const result = await run({
@@ -737,7 +798,7 @@ describe('usage missed knowledge', () => {
     });
   });
 
-  // @lat: [[usage-missed-knowledge#Usage Missed Knowledge#The snapshot follows the latest head of the session]]
+  // @lat: [[usage-missed-knowledge#Usage Missed Knowledge#The snapshot follows the earliest head of the session]]
   it('keeps the head of a session that crosses the range boundary', async () => {
     const h1 = '1'.repeat(40);
     const h2 = '2'.repeat(40);
@@ -750,13 +811,13 @@ describe('usage missed knowledge', () => {
       ],
       events: sessionOf('A', EDIT_A, 0, 30 * 60),
       usage: [
-        usage({ ts: at(1), command: 'check', git_head: h1 }),
-        usage({ ts: at(20 * 60), command: 'check', git_head: h2 }),
+        usage({ ts: at(1), command: 'check', git_head: h2 }),
+        usage({ ts: at(20 * 60), command: 'check', git_head: h1 }),
       ],
     };
     const filtered = await run({
       ...options,
-      filters: { from: '2026-11-08', to: '2026-11-08' },
+      filters: { from: '2026-11-09', to: '2026-11-09' },
     });
     forgetMissedKnowledge();
     const whole = await run(options);
@@ -876,8 +937,8 @@ describe('usage missed knowledge', () => {
     expect(result.unjoinable_events).toBe(2);
   });
 
-  // @lat: [[usage-missed-knowledge#Usage Missed Knowledge#The snapshot follows the latest head of the session]]
-  it('uses the snapshot at the latest head of the session lat commands', async () => {
+  // @lat: [[usage-missed-knowledge#Usage Missed Knowledge#The snapshot follows the earliest head of the session]]
+  it('uses the snapshot at the earliest head of the session lat commands', async () => {
     const h1 = '1'.repeat(40);
     const h2 = '2'.repeat(40);
     const h3 = '3'.repeat(40);
@@ -889,8 +950,8 @@ describe('usage missed knowledge', () => {
       snapshots: [snapshotOf(h1), onlyBeta(h2), snapshotOf(h3)],
       events: [...sessionOf('A', EDIT_A), ...sessionOf('B', EDIT_A, 5, 60)],
       usage: [
-        usage({ ts: at(1), command: 'check', git_head: h1, session_id: 'A' }),
-        usage({ ts: at(2), command: 'check', git_head: h2, session_id: 'A' }),
+        usage({ ts: at(1), command: 'check', git_head: h2, session_id: 'A' }),
+        usage({ ts: at(2), command: 'check', git_head: h1, session_id: 'A' }),
         usage({ ts: at(30), command: 'check', git_head: h3, session_id: 'C' }),
       ],
     });
@@ -901,7 +962,41 @@ describe('usage missed knowledge', () => {
     expect(result.records.find((r) => r.session_id === 'B')!.git_head).toBe(h3);
   });
 
-  // @lat: [[usage-missed-knowledge#Usage Missed Knowledge#The snapshot follows the latest head of the session]]
+  // @lat: [[usage-missed-knowledge#Usage Missed Knowledge#The snapshot follows the earliest head of the session]]
+  it('expects nothing of a file and section the session created and committed', async () => {
+    const first = head;
+    write(root, 'src/new.ts', '// @lat: [[notes#Notes#New]]\n');
+    write(root, 'lat.md/notes.md', '# Notes\n\n## New\n\nx\n');
+    git(root, 'add', '-A');
+    git(root, 'commit', '-qm', 'second');
+    const second = git(root, 'rev-parse', 'HEAD');
+    const NEW = 'lat.md/notes#Notes#New';
+    const result = await run({
+      snapshots: [
+        snapshotOf(first, { code_ref_edges: [] }),
+        snapshotOf(second, {
+          code_ref_edges: [{ file: 'src/new.ts', line: 1, section: NEW }],
+          sections: [
+            { id: NEW, document: 'lat.md/notes.md', bytes: 1, hash: 'h' },
+          ],
+        }),
+      ],
+      events: sessionOf('A', [[10, 'src/new.ts']], 0, 40),
+      usage: [
+        usage({ ts: at(1), command: 'search', git_head: first }),
+        usage({ ts: at(30), command: 'check', git_head: second }),
+      ],
+    });
+    expect(result.sessions[0]).toMatchObject({
+      git_head: first,
+      expected_sections: 0,
+      had_a_miss: false,
+      no_coverage: { new_file: 1, undocumented: 0, unclassified: 0 },
+    });
+    expect(result.records).toEqual([]);
+  });
+
+  // @lat: [[usage-missed-knowledge#Usage Missed Knowledge#The snapshot follows the earliest head of the session]]
   it('is not captured when no snapshot can be found', async () => {
     const result = await run({
       baseline: false,
@@ -1101,4 +1196,33 @@ describe('usage missed knowledge', () => {
     expect(result.totals.measured_sessions).toBe(0);
     expect(result.totals.reach).toBeNull();
   });
+});
+
+describe('readLineAt', () => {
+  // @lat: [[usage-missed-knowledge#Usage Missed Knowledge#A transcript line is read only from a regular file]]
+  it('reads the line at an offset of a regular file', async () => {
+    const path = join(root, 'session.jsonl');
+    writeFileSync(path, 'first\nsecond\n');
+    expect(await readLineAt(path, 6)).toBe('second');
+  });
+
+  // @lat: [[usage-missed-knowledge#Usage Missed Knowledge#A transcript line is read only from a regular file]]
+  it('gives no line for a symlinked transcript', async () => {
+    const target = join(root, 'target.jsonl');
+    writeFileSync(target, 'line\n');
+    const link = join(root, 'link.jsonl');
+    symlinkSync(target, link);
+    expect(await readLineAt(link, 0)).toBeNull();
+  });
+
+  // @lat: [[usage-missed-knowledge#Usage Missed Knowledge#A transcript line is read only from a regular file]]
+  it.skipIf(process.platform === 'win32')(
+    'gives no line for a FIFO transcript and does not hang',
+    async () => {
+      const fifo = join(root, 'fifo.jsonl');
+      execFileSync('mkfifo', [fifo]);
+      expect(await readLineAt(fifo, 0)).toBeNull();
+    },
+    5000,
+  );
 });

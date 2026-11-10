@@ -21,9 +21,17 @@ A read from offset zero opens with a session start taken from the header, carrie
 
 A pi `edit` or `write` call yields a tool call with action `edit` and its path, relative to the worktree root when inside it and absolute otherwise. A call without a path yields nothing.
 
+## A failed edit is not an edit
+
+An edit or write call whose tool result has `isError`, such as "Could not find the exact text", yields no edit event: it changed nothing.
+
 ## Shell calls carry command and exit code
 
 A `bash` call yields a shell tool call with its command text. The exit code comes from the result: a successful result is zero, `Command exited with code N` is N, and a timeout, abort or missing result is null with reason `not_captured`.
+
+## A blocked shell call records only the shell call
+
+An errored `bash` result with no `Command exited with code N`, such as a blocked, denied or aborted call, records the shell tool call with exit code null and reason `not_captured`, but no bd command, edit or bypass read.
 
 ## Reads and extension tools
 
@@ -42,6 +50,10 @@ A `lat search` run through `bash` is a shell tool call whose command text names 
 ## Bypass reads target the knowledge directory
 
 A `read` of a file under the worktree's `lat.md/` directory, and a shell reader aimed there, add a bypass read event with the result size. The same call aimed elsewhere does not.
+
+## An errored read or grep is not a bypass read
+
+A read, grep or find call aimed at `lat.md/` whose tool result has `isError` yields its tool call but no bypass read event: it read nothing.
 
 ## Beads claim and close carry issue ids
 
@@ -66,6 +78,12 @@ A shell command that redirects output, or runs `tee`, `sed -i`, `cp` or `mv`, ad
 Reading from the returned checkpoint yields only new events, and the two reads together equal one full read with no repeats.
 
 A final line without its newline is left for the next read, and so is a tail assistant message whose tool results have not arrived.
+
+## A forked session repeats the copied event ids
+
+pi's fork and branch write a new session file that copies earlier entries with their ids and timestamps. Those copies yield the same event ids, so the state keeps each once.
+
+Token usage, tool calls, bypass reads and bd commands take their event ids from the entry id and timestamp, not the file path. Session start, end, name and model keep path-based ids, so the fork is still its own session. An entry with no id keeps the path-based id.
 
 ## Unreadable store returns a reason
 

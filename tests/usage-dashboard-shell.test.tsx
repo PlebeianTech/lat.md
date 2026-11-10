@@ -166,6 +166,17 @@ describe('usage dashboard shell', () => {
     expect(params.get('issue')).toBe('lat-1');
   });
 
+  // @lat: [[usage-dashboard-shell#Usage Dashboard Shell#Navigation keeps the filters]]
+  it('carries only the filters, not a page parameter such as event', async () => {
+    await open('/_usage/explore?event=evt-1&agent=claude');
+    expect(navLink('Sessions').getAttribute('href')).toBe(
+      '/_usage/sessions?agent=claude',
+    );
+    expect(navLink('Explore').getAttribute('href')).toBe(
+      '/_usage/explore?agent=claude',
+    );
+  });
+
   // @lat: [[usage-dashboard-shell#Usage Dashboard Shell#A malformed detail path shows not found]]
   it('shows not found for a malformed escape in a detail path', async () => {
     await open('/_usage/sessions/%E0%A4%A');
@@ -191,6 +202,26 @@ describe('usage dashboard shell', () => {
     const params = new URLSearchParams(window.location.search);
     expect(params.get('agent')).toBe('pi');
     expect(params.get('issue')).toBe('lat-9');
+  });
+
+  // @lat: [[usage-dashboard-shell#Usage Dashboard Shell#Changing a filter keeps page parameters]]
+  it('keeps page parameters when a filter changes', async () => {
+    let apply: () => void = () => {};
+    function Probe(): ReactElement {
+      const { setFilters } = useUsageFilters();
+      apply = () => setFilters({ agent: 'codex' });
+      return createElement('span');
+    }
+    window.history.replaceState(
+      null,
+      '',
+      '/_usage/explore?agent=claude&event=e1&event=e2',
+    );
+    await render(createElement(Probe));
+    await act(async () => apply());
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get('agent')).toBe('codex');
+    expect(params.getAll('event')).toEqual(['e1', 'e2']);
   });
 
   // @lat: [[usage-dashboard-shell#Usage Dashboard Shell#An unlisted agent stays visible]]

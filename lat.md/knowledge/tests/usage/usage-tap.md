@@ -17,11 +17,15 @@ The first write creates `.lat/usage/.gitignore` holding a single asterisk, so ev
 
 ## Lines stay under 4 KB
 
-Every line, newline included, stays under 4096 bytes so that appends from concurrent processes stay atomic. The writer shortens the query to fit.
+Every line, newline included, stays under 4096 bytes so that appends from concurrent processes stay atomic.
+
+When the result ids alone are too long, the writer drops ids from the end until they fit and keeps `result_count` as the true count. It then shortens the query to fit. So a command records one event, unless the line is still over 4096 bytes with no result ids and no query, which only very long fixed fields such as `repo_root` or `worktree` can cause. Then the writer drops the event.
 
 ## A failing write is silent
 
-A read-only `.lat/usage/` makes the writer return without throwing and without a partial line. The tap must never change a command's output or exit code.
+A read-only `.lat/usage/` makes the writer return without throwing and without a partial line.
+
+A FIFO at the events file makes it return at once instead of blocking: the file is opened non-blocking, and only a regular file is written. The tap must never change a command's output or exit code.
 
 ## Concurrent writers never interleave
 
@@ -41,7 +45,7 @@ When neither `.lat/usage/` exists nor `LAT_USAGE=1` is set, a command makes no f
 
 With tracking on, each command appends exactly one valid event. `search`, `section`, `expand`, `refs` and `hook` are covered.
 
-The event is written from the process exit listener because commands call `process.exit` on failure and skip any post-action hook. Hook commands record the surface `hook` and the caller `hook-injected`. `lat mcp` is not tapped here because the MCP server records its own calls.
+The event is written from the process exit listener because commands call `process.exit` on failure and skip any post-action hook. Hook commands record the command `hook` plus the hook event, such as `hook Stop`, the surface `hook` and the caller `hook-injected`. `lat mcp` is not tapped here because the MCP server records its own calls.
 
 ## A failed command still records
 
@@ -57,6 +61,8 @@ The agent and session id come from the calling agent's environment variables.
 
 Claude Code (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`), Codex (`CODEX_THREAD_ID`), Antigravity (`ANTIGRAVITY_CONVERSATION_ID`), pi (`PI_CODING_AGENT`, no session id) and OpenCode (`OPENCODE`, no session id). Where no variable exists the value is null with the reason `unsupported_by_agent`. A detected agent makes the caller `agent`.
 
+Claude Code sets `CLAUDE_CODE_CHILD_SESSION=1` on every process it spawns, main session included, so the tap ignores it. `session_id` is `CLAUDE_CODE_SESSION_ID`, and `parent_session_id` stays null with `not_captured`. A Claude subagent's commands carry the parent's id, so they land in the parent session.
+
 ## A read-only usage directory changes nothing
 
 With a read-only `.lat/usage/`, a command prints the same output and exits with the same code as with tracking off.
@@ -66,6 +72,10 @@ With a read-only `.lat/usage/`, a command prints the same output and exits with 
 `lat usage enable` and `lat usage disable` are never tapped, because they move `.lat/usage/` themselves.
 
 Run through the real CLI registration, `usage disable` leaves no `.lat/usage/` behind, and a later command records nothing. A tapped disable would recreate the directory at exit and turn tracking back on.
+
+## A disable during a command is kept
+
+When `.lat/usage` is moved away while a tapped command runs, as `lat usage disable` does, the exit listener checks again that tracking is on and writes nothing. `.lat/usage` is not created again, so tracking stays off.
 
 ## Registration
 

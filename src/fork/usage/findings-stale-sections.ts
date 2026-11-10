@@ -16,8 +16,13 @@ export const HOT_SECTION_LIMIT = 20;
 /** Runs git with an argument array in `cwd` and returns its stdout. */
 export type GitRunner = (cwd: string, args: string[]) => Promise<string>;
 
+// `git log --name-only` over the whole history passes the 1 MB default early.
 const runGit: GitRunner = async (cwd, args) =>
-  (await execFileAsync('git', ['-C', cwd, ...args])).stdout;
+  (
+    await execFileAsync('git', ['-C', cwd, ...args], {
+      maxBuffer: 256 * 1024 * 1024,
+    })
+  ).stdout;
 
 /** What one section depends on, by project-root-relative path. */
 interface SectionFiles {
@@ -27,7 +32,8 @@ interface SectionFiles {
 
 /**
  * Seconds since the epoch of each file's last commit, from one pass over the
- * history. The first sighting of a path is its latest commit; untracked
+ * history. A commit's time line starts with NUL, which no path can. The
+ * first sighting of a path is its latest commit; untracked
  * files are absent.
  */
 async function lastCommitTimes(
@@ -40,12 +46,12 @@ async function lastCommitTimes(
     'log',
     '--name-only',
     '--relative',
-    '--format=@%ct',
+    '--format=%x00%ct',
   ]);
   const times = new Map<string, number>();
   let time = 0;
   for (const line of out.split('\n')) {
-    if (line.startsWith('@')) time = Number(line.slice(1));
+    if (line.startsWith('\0')) time = Number(line.slice(1));
     else if (line !== '' && !times.has(line)) times.set(line, time);
   }
   return times;

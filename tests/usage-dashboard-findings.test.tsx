@@ -31,8 +31,8 @@ const emptySearch: Finding = {
 const bypassed: Finding = {
   ...emptySearch,
   kind: 'bypassed-file',
-  id: 'bypassed-file:src/a/b.ts',
-  subject: 'src/a/b.ts',
+  id: 'bypassed-file:lat.md/notes.md',
+  subject: 'lat.md/notes.md',
   count: 2,
   suggestion: null,
 };
@@ -110,7 +110,7 @@ describe('usage dashboard findings page', () => {
       'Last seen',
     ])
       expect(headers).toContain(header);
-    for (const word of ['graph walk', 'src/a/b.ts', 'future-kind'])
+    for (const word of ['graph walk', 'lat.md/notes.md', 'future-kind'])
       expect(text()).toContain(word);
     expect(container.querySelectorAll('tbody tr')).toHaveLength(3);
     expect(container.querySelectorAll('tbody [role="img"]')).toHaveLength(3);
@@ -118,6 +118,40 @@ describe('usage dashboard findings page', () => {
       row.textContent!.includes('future-kind'),
     )!;
     expect(unknownRow.textContent).toContain('unknown');
+  });
+
+  // @lat: [[usage-dashboard-findings#Usage Dashboard Findings#Section findings show no invented measures]]
+  it('shows a dash, not zero sessions or unknown dates, for section findings', async () => {
+    const stale: Finding = {
+      ...emptySearch,
+      kind: 'stale-hot-section',
+      id: 'stale-hot-section:cli#CLI',
+      subject: 'cli#CLI',
+      count: 7,
+      sessions: 0,
+      first_seen: null,
+      last_seen: null,
+      daily: daily.map((d) => ({ ...d, count: 0 })),
+      evidence: [],
+      suggestion: null,
+    };
+    const neverRead: Finding = {
+      ...stale,
+      kind: 'never-read-section',
+      id: 'never-read-section:cli#Other',
+      subject: 'cli#Other',
+      count: 1,
+    };
+    serve({ findings: [stale, neverRead] });
+    await show();
+    const rows = [...container.querySelectorAll('tbody tr')];
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      const cells = [...row.querySelectorAll('td')].map((td) => td.textContent);
+      expect(cells.slice(3, 6)).toEqual(['—', '—', '—']);
+      expect(row.textContent).not.toContain('unknown');
+      expect(row.querySelector('[role="img"]')).toBeNull();
+    }
   });
 
   // @lat: [[usage-dashboard-findings#Usage Dashboard Findings#The kind filter narrows the list]]
@@ -137,7 +171,7 @@ describe('usage dashboard findings page', () => {
       });
     await choose('bypassed-file');
     expect(container.querySelectorAll('tbody tr')).toHaveLength(1);
-    expect(text()).toContain('src/a/b.ts');
+    expect(text()).toContain('lat.md/notes.md');
     await choose('');
     expect(container.querySelectorAll('tbody tr')).toHaveLength(3);
   });
@@ -167,12 +201,15 @@ describe('usage dashboard findings page', () => {
 
   // @lat: [[usage-dashboard-findings#Usage Dashboard Findings#The detail view explains the finding]]
   it('explains a finding and suggests an action', async () => {
-    serve({ findings: [emptySearch, mystery] });
+    serve({ findings: [emptySearch, bypassed, mystery] });
     await show(emptySearch.id);
     expect(text()).toContain('What it means');
     expect(text()).toContain('What to do');
     expect(text()).toContain('searched for returned nothing');
     expect(text()).toContain('cli#CLI#Walk');
+    await show(bypassed.id);
+    expect(text()).toContain('under lat.md/ directly instead of through lat');
+    expect(text()).toContain('split the file if it is too large');
     await show(mystery.id);
     expect(text()).toContain('future-kind');
     expect(text()).toContain('What it means');
@@ -240,6 +277,44 @@ describe('usage dashboard findings page', () => {
     ).toBe(true);
   });
 
+  // @lat: [[usage-dashboard-findings#Usage Dashboard Findings#A finding without events fetches none]]
+  it('fetches no events for a finding without evidence and says why', async () => {
+    const stale: Finding = {
+      ...emptySearch,
+      kind: 'stale-hot-section',
+      id: 'stale-hot-section:cli#CLI',
+      subject: 'cli#CLI',
+      count: 7,
+      sessions: 0,
+      first_seen: null,
+      last_seen: null,
+      evidence: [],
+      suggestion: null,
+    };
+    const neverRead: Finding = {
+      ...stale,
+      kind: 'never-read-section',
+      id: 'never-read-section:cli#CLI',
+      count: 1,
+    };
+    serve({ findings: [stale, neverRead] });
+    await show(stale.id);
+    expect(text()).toContain('the section was read 7 times');
+    expect(text()).toContain("its count is the section's reads");
+    expect(text()).not.toContain('nothing read the section');
+    expect(text()).not.toContain('events in 0 sessions');
+    await show(neverRead.id);
+    expect(text()).toContain(
+      'never-read-section: no agent read this section in the selected period.',
+    );
+    expect(text()).toContain('nothing read the section');
+    expect(text()).not.toContain('events in');
+    expect(useUsageData).not.toHaveBeenCalledWith(
+      '/api/usage/raw',
+      expect.anything(),
+    );
+  });
+
   // @lat: [[usage-dashboard-findings#Usage Dashboard Findings#An unknown finding id says it no longer applies]]
   it('says an unknown finding no longer applies', async () => {
     serve({ findings: [emptySearch] });
@@ -256,7 +331,7 @@ describe('usage dashboard findings page', () => {
   it('keeps the filter query string on list links', async () => {
     serve({ findings: [bypassed] });
     await show(undefined, '?issue=lat-9&from=2026-01-01');
-    const detail = links().find((a) => a.textContent === 'src/a/b.ts')!;
+    const detail = links().find((a) => a.textContent === 'lat.md/notes.md')!;
     expect(detail.getAttribute('href')).toBe(
       `/_usage/findings/${encodeURIComponent(bypassed.id)}?from=2026-01-01&issue=lat-9`,
     );

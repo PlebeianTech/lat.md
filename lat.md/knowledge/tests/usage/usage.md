@@ -12,6 +12,7 @@ Specifications for the usage analytics epic: the event schema, the in-process ta
 - [[usage-source-opencode]] — OpenCode session reader
 - [[usage-source-antigravity]] — Antigravity session reader
 - [[usage-bd-attribution]] — Attribution of events to bd issues
+- [[usage-bd-client]] — bd store fingerprint
 - [[usage-aggregate]] — Aggregation of events
 - [[usage-cli]] — The `lat usage` command
 - [[usage-live]] — Live dashboard server

@@ -1,4 +1,5 @@
 import {
+  appendFileSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -179,6 +180,32 @@ describe('antigravity session reader', () => {
     expect(end[0].ts).toBe('2026-11-08T12:00:24Z');
   });
 
+  // @lat: [[usage-source-antigravity#Usage Source Antigravity#Session lifecycle and name]]
+  it('emits a title written after the first read on the next read', async () => {
+    const path = transcriptPath(CHILD);
+    const first = await antigravitySource.read(path, null);
+    expect(ofKind(first.events, 'session_name')).toEqual([]);
+
+    await new Promise((done) => setTimeout(done, 20));
+    const db = new DatabaseSync(join(store, 'conversation_summaries.db'));
+    db.prepare(
+      'UPDATE conversation_summaries SET title = ? WHERE conversation_id = ?',
+    ).run('Late title', CHILD);
+    db.close();
+    appendFileSync(
+      path,
+      `${JSON.stringify({ type: 'USER_INPUT', created_at: '2026-11-08T13:00:00Z' })}\n`,
+    );
+
+    const second = await antigravitySource.read(path, first.checkpoint);
+    const names = ofKind(second.events, 'session_name');
+    expect(names.map((e) => e.name)).toEqual(['Late title']);
+    const fresh = await antigravitySource.read(path, null);
+    expect(ofKind(fresh.events, 'session_name')[0].event_id).toBe(
+      names[0].event_id,
+    );
+  });
+
   // @lat: [[usage-source-antigravity#Usage Source Antigravity#Subagent conversations are their own sessions]]
   it('emits a subagent conversation as its own session with its parent', async () => {
     const child = await antigravitySource.read(transcriptPath(CHILD), null);
@@ -225,6 +252,7 @@ describe('antigravity session reader', () => {
       ['bd close lat-1.2 lat-1.3 --reason finished', { value: 0 }],
       ['bd close lat-9', { value: 1 }],
       ['sleep 5 && lat check', { value: 0 }],
+      // Older than an hour with no finish: released with a null exit code.
       ['sleep 600', { value: null, reason: 'not_captured' }],
       ['lat expand "[[x]]"', { value: null, reason: 'not_captured' }],
     ]);
@@ -273,6 +301,57 @@ describe('antigravity session reader', () => {
       'lat.md/notes.md',
       'lat.md',
     ]);
+  });
+
+  // @lat: [[usage-source-antigravity#Usage Source Antigravity#An errored read or grep is not a bypass read]]
+  it('records an errored read or grep without a bypass read', async () => {
+    const rows = [
+      {
+        step_index: 0,
+        source: 'MODEL',
+        type: 'PLANNER_RESPONSE',
+        status: 'DONE',
+        created_at: '2026-11-08T12:00:01Z',
+        tool_calls: [
+          { name: 'read_file', args: { Path: `${repo}/lat.md/a.md` } },
+          { name: 'view_file', args: { AbsolutePath: `${repo}/lat.md/b.md` } },
+          {
+            name: 'grep_search',
+            args: { Query: 'x', SearchPath: `${repo}/lat.md` },
+          },
+        ],
+      },
+      ...[1, 2, 3].map((step_index) => ({
+        step_index,
+        source: 'MODEL',
+        type: 'GENERIC',
+        status: 'ERROR',
+        created_at: '2026-11-08T12:00:02Z',
+        content: 'file not found',
+      })),
+      {
+        step_index: 4,
+        source: 'USER_EXPLICIT',
+        type: 'USER_INPUT',
+        status: 'DONE',
+        created_at: '2026-11-08T12:00:03Z',
+        content: 'next',
+      },
+    ];
+    writeFileSync(
+      transcriptPath(OTHER),
+      rows.map((r) => JSON.stringify(r) + '\n').join(''),
+    );
+    const { events } = await antigravitySource.read(
+      transcriptPath(OTHER),
+      null,
+    );
+    expect(toolCalls(events).map((t) => t.name)).toEqual([
+      'read_file',
+      'view_file',
+      'grep_search',
+    ]);
+    expect(ofKind(events, 'bypass_read')).toEqual([]);
   });
 
   // @lat: [[usage-source-antigravity#Usage Source Antigravity#Beads claim and close carry issue ids]]
@@ -398,13 +477,15 @@ describe('antigravity session reader', () => {
       first.checkpoint,
     );
     expect(ofKind(second.events, 'session_start')).toEqual([]);
+    // Each read re-emits the latest-wins kinds in a fixed slot.
+    const once = (e: SessionEvent) =>
+      e.kind !== 'session_end' && e.kind !== 'session_name';
     const ids = [...first.events, ...second.events]
-      .filter((e) => e.kind !== 'session_end')
+      .filter(once)
       .map((e) => e.event_id);
-    expect(ids).toEqual(
-      full.events
-        .filter((e) => e.kind !== 'session_end')
-        .map((e) => e.event_id),
+    expect(ids).toEqual(full.events.filter(once).map((e) => e.event_id));
+    expect(ofKind(second.events, 'session_name')[0].event_id).toBe(
+      ofKind(full.events, 'session_name')[0].event_id,
     );
     expect(ofKind(second.events, 'token_usage')).toHaveLength(4);
 
@@ -413,6 +494,132 @@ describe('antigravity session reader', () => {
       second.checkpoint,
     );
     expect(again.events).toEqual([]);
+  });
+
+  // @lat: [[usage-source-antigravity#Usage Source Antigravity#Resume from a checkpoint]]
+  it('waits for a background command to finish across reads', async () => {
+    const { head, part, whole, command } = backgroundTranscript(Date.now());
+    writeFileSync(transcriptPath(MAIN), whole);
+    const full = await readMain();
+    writeFileSync(transcriptPath(MAIN), part);
+    const first = await readMain();
+    writeFileSync(transcriptPath(MAIN), whole);
+    const second = await antigravitySource.read(
+      transcriptPath(MAIN),
+      first.checkpoint,
+    );
+
+    // The first read emits the turn's other call but not the waiting command.
+    const shellOf = (events: SessionEvent[]) =>
+      toolCalls(events).filter((t) => t.shell?.command === command);
+    expect(shellOf(first.events)).toEqual([]);
+    expect(toolCalls(first.events).some((t) => t.path === 'src/a.ts')).toBe(
+      true,
+    );
+
+    // Merged first-wins by event id, as the usage state does.
+    const merged = new Map<string, SessionEvent>();
+    for (const e of [...first.events, ...second.events])
+      if (!merged.has(e.event_id)) merged.set(e.event_id, e);
+    const latestWins = (e: SessionEvent) =>
+      e.kind !== 'session_end' && e.kind !== 'session_name';
+    const byId = (a: SessionEvent, b: SessionEvent) =>
+      a.event_id.localeCompare(b.event_id);
+    expect([...merged.values()].filter(latestWins).sort(byId)).toEqual(
+      full.events.filter(latestWins).sort(byId),
+    );
+    expect(shellOf(full.events).map((t) => t.shell?.exit_code)).toEqual([
+      { value: 3 },
+    ]);
+    // A failed command adds no edit, bypass read or bd close.
+    const fromCommand = full.events.filter(
+      (e) =>
+        e.source.offset === Buffer.byteLength(head) &&
+        (e.kind === 'bypass_read' ||
+          e.kind === 'bd_command' ||
+          (e.kind === 'tool_call' && e.tool.path === 'out.txt')),
+    );
+    expect(fromCommand).toEqual([]);
+  });
+
+  // @lat: [[usage-source-antigravity#Usage Source Antigravity#Resume from a checkpoint]]
+  it('releases a background command with no finish after an hour', async () => {
+    const { part, command } = backgroundTranscript(
+      Date.now() - 2 * 60 * 60 * 1000,
+    );
+    writeFileSync(transcriptPath(MAIN), part);
+    const { events, checkpoint } = await readMain();
+    expect(
+      toolCalls(events).find((t) => t.shell?.command === command)?.shell
+        ?.exit_code,
+    ).toEqual({ value: null, reason: 'not_captured' });
+    expect(ofKind(events, 'bd_command')).toContainEqual(
+      expect.objectContaining({ verb: 'close', issue_id: 'lat-7' }),
+    );
+    expect(checkpoint.offset).toBe(Buffer.byteLength(part));
+  });
+
+  function backgroundTranscript(startMs: number) {
+    const lines = readFileSync(transcriptPath(MAIN), 'utf-8').split('\n');
+    const row = (step: number, type: string, extra: object) =>
+      JSON.stringify({
+        step_index: step,
+        source: 'MODEL',
+        type,
+        status: 'DONE',
+        created_at: new Date(startMs + (step - 30) * 1000).toISOString(),
+        ...extra,
+      });
+    const command = `cat ${repo}/lat.md/a.md > out.txt && bd close lat-7`;
+    const running = [
+      row(30, 'PLANNER_RESPONSE', {
+        tool_calls: [
+          { name: 'run_command', args: { CommandLine: command } },
+          { name: 'view_file', args: { AbsolutePath: `${repo}/src/a.ts` } },
+        ],
+      }),
+      row(31, 'GENERIC', {
+        status: 'RUNNING',
+        content:
+          'Tool is running as a background task with task id: AAAA/task-31\n',
+      }),
+      row(32, 'GENERIC', { content: 'file text' }),
+      row(33, 'PLANNER_RESPONSE', { tool_calls: [] }),
+    ];
+    const finish = row(34, 'SYSTEM_MESSAGE', {
+      source: 'SYSTEM',
+      content:
+        '<SYSTEM_MESSAGE>\n[Message] sender=AAAA/task-31 content=Task id "AAAA/task-31" finished with result:\nCommand exited with code 3.\n</SYSTEM_MESSAGE>',
+    });
+    const head = lines.slice(0, 25).join('\n') + '\n';
+    const part = head + running.join('\n') + '\n';
+    const whole = part + finish + '\n';
+    return { head, part, whole, command };
+  }
+
+  // @lat: [[usage-source-antigravity#Usage Source Antigravity#Resume from a checkpoint]]
+  it('releases a waiting background command at the next prompt', async () => {
+    const lines = readFileSync(transcriptPath(MAIN), 'utf-8').split('\n');
+    const prompt = JSON.stringify({
+      step_index: 30,
+      source: 'USER_EXPLICIT',
+      type: 'USER_INPUT',
+      status: 'DONE',
+      created_at: '2026-11-08T12:01:00Z',
+      content: 'next',
+    });
+    writeFileSync(
+      transcriptPath(MAIN),
+      lines.slice(0, 25).join('\n') + '\n' + prompt + '\n',
+    );
+    const { events, checkpoint } = await readMain();
+    expect(
+      toolCalls(events).find((t) => t.shell?.command === 'sleep 600')?.shell
+        ?.exit_code,
+    ).toEqual({ value: null, reason: 'not_captured' });
+    expect(checkpoint.offset).toBe(
+      Buffer.byteLength(lines.slice(0, 25).join('\n') + '\n' + prompt + '\n'),
+    );
   });
 
   // @lat: [[usage-source-antigravity#Usage Source Antigravity#Resume from a checkpoint]]

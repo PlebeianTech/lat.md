@@ -41,13 +41,15 @@ A bug created before the close, after 14 days, or of another type does not count
 
 An issue reopened within 14 days of closing counts. A reopen on day 15 does not.
 
-The reopen source is the bd events journal, which keeps 7 days by default, so the window is limited to the retention. Issues closed before the retention are left out, and the limit is reported with the result. An issue never closed is excluded.
+The reopen source is the bd events journal, which keeps 7 days by default, so the window is limited to half the retention (3.5 days by default). An issue must close inside the retention and its window must end by the last event; a window as long as the retention would leave no such issue unless the last event is now. Issues closed before the retention are left out, and the limit is reported with the result. An issue never closed is excluded.
 
 `bd reopen` clears `closed_at`, so a reopened issue's close time is the journal close that its first reopen followed. A reopened issue counts whether it is still open or was closed again. A reopen counts only when it falls inside the window. A journal close time that does not parse is left out as close time unknown. An issue closed before the retention is left out whether or not it was reopened. One window decides completeness and counting.
 
 ## Failed test runs count only listed runners with a non-zero exit
 
-A shell call counts when its command starts with a listed test runner and its exit code is non-zero. A null exit code is not counted. A listed runner with exit code 0 and an unlisted command do not count.
+A shell call counts when its command starts with a listed test runner and its exit code is non-zero. A listed runner with exit code 0 and an unlisted command do not count.
+
+A null exit code is not counted as a failure. A session with a test run whose exit code is null and no known failed run is unknown: it is counted in `unknown_sessions`, not in the sample.
 
 ## Test runner matching splits compound commands
 
@@ -63,7 +65,7 @@ State holds no command text. A failed shell call is re-read through its source p
 
 Each group reports, per token counter, the median of the issue totals, and the median session duration per issue, with the issues measured and unknown.
 
-Counters are never merged. Tokens and duration come from the issue's own sessions, and duration skips subagent sessions. An issue with only subagent sessions has unknown duration, not 0.
+Counters are never merged. Tokens and duration come from the issue's own sessions over the same span: the whole session, even when it crosses the start of the range. Duration skips subagent sessions. An issue with only subagent sessions has unknown duration, not 0.
 
 A counter total is the sum of its known values, with known and unknown counts. An issue whose counter is all unknown is unknown, not zero.
 

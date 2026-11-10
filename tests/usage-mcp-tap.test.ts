@@ -20,6 +20,7 @@ import type { UsageEvent } from '../src/fork/usage/schema.js';
 const AGENT_VARIABLES = [
   'CLAUDECODE',
   'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_CODE_CHILD_SESSION',
   'CODEX_THREAD_ID',
   'ANTIGRAVITY_CONVERSATION_ID',
   'PI_CODING_AGENT',

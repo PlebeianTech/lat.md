@@ -76,6 +76,7 @@ import {
 import { readLog, readSessions } from './ingest.js';
 import { sessionSources } from './sources/index.js';
 import {
+  emptyState,
   loadState,
   saveState,
   type SlimSessionEvent,
@@ -270,7 +271,8 @@ export async function createAggregator(
   const bd = options.bd ?? createBdWatcher();
   const registered = options.contributions ?? contributions;
   const now = options.now ?? Date.now;
-  const state = loadState(root);
+  let enabled = usageEnabled(root);
+  let state = loadState(root);
   let model: Model | null = null;
   let snapshot: BdSnapshot | null = null;
   const memos = new Map<string, Promise<unknown>>();
@@ -292,7 +294,12 @@ export async function createAggregator(
 
   // @lat: [[usage-analytics#Usage Analytics#Opt-in and the usage directory]]
   async function refresh(): Promise<void> {
-    const enabled = usageEnabled(root);
+    if (usageEnabled(root) !== enabled) {
+      // Off shows the empty state; on again resumes from the saved state.
+      enabled = !enabled;
+      state = enabled ? loadState(root) : emptyState();
+      model = null;
+    }
     const logChanged = enabled && readLog(root, state);
     const sessionsChanged =
       enabled && (await readSessions(root, sources, state));

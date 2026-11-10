@@ -19,7 +19,8 @@
  * until the process ends; they are unref'd and never keep it alive.
  *
  * Change detection watches three things: the event logs under
- * <root>/.lat/usage/, the transcript directories of every session reader,
+ * <root>/.lat/usage/, the transcript directories of every session reader
+ * (only while usage is enabled),
  * and the bd database (its fingerprint, polled). A change is a different
  * signature of sizes, modification times and fingerprints; state.json is
  * ignored so the aggregator's own saves never announce themselves. On a
@@ -29,7 +30,8 @@
  * Graph snapshots remember failed, dirty and not-captured heads for the life
  * of the process. When the git head moves, forgetSnapshots() runs so the next
  * refresh evaluates them again. The head is detected by the modification of
- * `<git dir>/logs/HEAD`; a repository without a reflog never heals.
+ * `<git dir>/logs/HEAD`, where the git dir is the nearest `.git` at or above
+ * the project root; a repository without a reflog never heals.
  *
  * A refresh that throws still advances the signature and head, so later polls
  * do not retry it or forget snapshots again, and pushes `usage-error` with
@@ -54,6 +56,8 @@ import {
   type AggregatorOptions,
 } from './aggregate.js';
 import { beadsDirFingerprint } from './bd-client.js';
+import { findGitEntry } from './cli-tap.js';
+import { usageEnabled } from './enabled.js';
 import { parseUsageFilters, type UsageFilters } from './filters.js';
 import { findingsRoute } from './findings.js';
 import { forgetSnapshots } from './graph-snapshot.js';
@@ -134,10 +138,13 @@ function stat(path: string): string {
 
 function headFingerprint(root: string): string {
   try {
-    let gitDir = join(root, '.git');
+    // The project may sit below the repository root, so look upward.
+    const worktree = findGitEntry(root);
+    if (worktree === null) return '';
+    let gitDir = join(worktree, '.git');
     if (statSync(gitDir).isFile())
       gitDir = resolve(
-        root,
+        worktree,
         readFileSync(gitDir, 'utf-8')
           .replace(/^gitdir:\s*/, '')
           .trim(),
@@ -180,7 +187,9 @@ async function observe(live: Live) {
   } catch {
     parts.push('no-logs');
   }
-  for (const source of options.sources ?? sessionSources)
+  // Usage off: read no session store, as aggregate.refresh and the event index.
+  const sources = usageEnabled(root) ? (options.sources ?? sessionSources) : [];
+  for (const source of sources)
     for (const path of await source.discover(root)) {
       parts.push(stat(path));
       wanted.set(dirname(path), null);

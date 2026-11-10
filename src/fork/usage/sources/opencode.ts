@@ -172,7 +172,7 @@ async function read(
     const start = checkpoint ? checkpoint.offset : 0;
     const stored = await withDatabase(target.database, (query) => {
       const session = query(
-        'SELECT id, parent_id, directory, title, time_created FROM session WHERE id = ?',
+        'SELECT id, parent_id, directory, title, time_created, time_updated FROM session WHERE id = ?',
         target.sessionId,
       )[0];
       return {
@@ -258,7 +258,11 @@ function readFrom(
     !PLACEHOLDER_TITLE.test(title) &&
     (firstRead || messages.length > 0)
   )
-    push(0, createdTs, { kind: 'session_name', name: title });
+    // The event id never changes, so a rename wins only by a later ts.
+    push(0, iso(Number(session.time_updated)), {
+      kind: 'session_name',
+      name: title,
+    });
 
   for (const message of messages) {
     if (message.data.role !== 'assistant') continue;
@@ -320,7 +324,8 @@ function readFrom(
           path: relativePath(args.filePath),
           bytes,
         });
-        if (targetsKnowledge(args.filePath)) emitBypass(args.filePath);
+        if (completed && targetsKnowledge(args.filePath))
+          emitBypass(args.filePath);
       } else if (EDIT_TOOLS.has(name) && typeof args.filePath === 'string') {
         if (completed)
           emitTool({
@@ -341,7 +346,12 @@ function readFrom(
           path: searched === null ? null : relativePath(searched),
           bytes,
         });
-        if (name === 'grep' && searched !== null && targetsKnowledge(searched))
+        if (
+          name === 'grep' &&
+          completed &&
+          searched !== null &&
+          targetsKnowledge(searched)
+        )
           emitBypass(searched);
       } else if (name === 'bash' && typeof args.command === 'string') {
         const command = args.command;

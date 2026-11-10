@@ -124,7 +124,50 @@ async function readCommand(command: string, text = 'ok', isError = false) {
   return (await piSource.read(path, null)).events;
 }
 
+function toolTurn(name: string, args: object, text: string, isError: boolean) {
+  const id = `c${++sequence}`;
+  return [
+    message('assistant', {
+      content: [{ type: 'toolCall', id, name, arguments: args }],
+      model: 'model-a',
+    }),
+    message('toolResult', {
+      toolCallId: id,
+      toolName: name,
+      content: [{ type: 'text', text }],
+      isError,
+    }),
+  ];
+}
+
 describe('pi session reader', () => {
+  // @lat: [[usage-source-pi#Usage Source pi#An errored read or grep is not a bypass read]]
+  it('records an errored read or grep without a bypass read', async () => {
+    const path = writeSession([
+      ...toolTurn('read', { path: 'lat.md/cli.md' }, 'ENOENT', true),
+      ...toolTurn('grep', { pattern: 'x', path: 'lat.md' }, 'denied', true),
+    ]);
+    const { events } = await piSource.read(path, null);
+    expect(toolCalls(events).map((t) => t.name)).toEqual(['read', 'grep']);
+    expect(ofKind(events, 'bypass_read')).toEqual([]);
+  });
+
+  // @lat: [[usage-source-pi#Usage Source pi#A failed edit is not an edit]]
+  it('records no edit for an edit or write whose result is an error', async () => {
+    const path = writeSession([
+      ...toolTurn(
+        'edit',
+        { path: 'src/a.ts' },
+        'Could not find the exact text in src/a.ts.',
+        true,
+      ),
+      ...toolTurn('write', { path: 'src/b.ts' }, 'EACCES', true),
+      ...toolTurn('edit', { path: 'src/c.ts' }, 'ok', false),
+    ]);
+    const { events } = await piSource.read(path, null);
+    expect(toolCalls(events).map((t) => t.path)).toEqual(['src/c.ts']);
+  });
+
   // @lat: [[usage-source-pi#Usage Source pi#Discovery matches sessions by working directory]]
   it('discovers sessions whose cwd is inside the repo or a worktree', async () => {
     const repoRoot = join(scratch, 'repo');
@@ -208,6 +251,23 @@ describe('pi session reader', () => {
       value: null,
       reason: 'not_captured',
     });
+  });
+
+  // @lat: [[usage-source-pi#Usage Source pi#A blocked shell call records only the shell call]]
+  it('records a blocked shell call without its bd, edit or bypass events', async () => {
+    const command = 'bd close lat-eah.39 > out.txt && cat lat.md/cli.md';
+    const events = await readCommand(command, 'blocked by hook', true);
+    expect(toolCalls(events)).toEqual([
+      expect.objectContaining({
+        action: 'shell',
+        shell: {
+          command,
+          exit_code: { value: null, reason: 'not_captured' },
+        },
+      }),
+    ]);
+    expect(ofKind(events, 'bd_command')).toEqual([]);
+    expect(ofKind(events, 'bypass_read')).toEqual([]);
   });
 
   // @lat: [[usage-source-pi#Usage Source pi#Reads and extension tools]]
@@ -441,6 +501,43 @@ describe('pi session reader', () => {
       (e) => e.event_id,
     );
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  // @lat: [[usage-source-pi#Usage Source pi#A forked session repeats the copied event ids]]
+  it('gives copied entries in a forked session the same event ids', async () => {
+    const original = installFixture();
+    const lines = readFileSync(FIXTURE, 'utf-8').split('\n').filter(Boolean);
+    const forkHeader = {
+      ...JSON.parse(lines[0]),
+      id: 'pi-fork',
+      timestamp: '2026-11-09T00:00:00.000Z',
+      parentSession: original,
+    };
+    const forked = join(slugDir, 'fork.jsonl');
+    writeFileSync(
+      forked,
+      [JSON.stringify(forkHeader), ...lines.slice(1)].join('\n') + '\n',
+    );
+
+    const counted = (events: SessionEvent[]) =>
+      events
+        .filter((e) =>
+          ['token_usage', 'tool_call', 'bypass_read', 'bd_command'].includes(
+            e.kind,
+          ),
+        )
+        .map((e) => e.event_id);
+    const perSession = (events: SessionEvent[]) =>
+      events
+        .filter((e) => e.kind === 'session_start' || e.kind === 'session_end')
+        .map((e) => e.event_id);
+    const a = (await piSource.read(original, null)).events;
+    const b = (await piSource.read(forked, null)).events;
+
+    expect(counted(a).length).toBeGreaterThan(0);
+    expect(new Set(counted(a)).size).toBe(counted(a).length);
+    expect(counted(b)).toEqual(counted(a));
+    expect(perSession(b)).not.toEqual(perSession(a));
   });
 
   // @lat: [[usage-source-pi#Usage Source pi#Unreadable store returns a reason]]

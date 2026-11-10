@@ -32,3 +32,7 @@ The text output shows the first twenty findings and counts the rest. A detector 
 ## A search miss names its expected section
 
 A `search-miss` line ends with `expected: <section id>`, so two misses on the same query for different sections read differently.
+
+## Text output strips control characters
+
+Subjects, section titles, section ids and detector errors come from transcripts and repository files. The text output strips their control characters, so an escape sequence in a file name prints as plain text and never reaches the terminal.

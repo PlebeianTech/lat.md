@@ -325,7 +325,12 @@ function TopFindings({ search }: { search: string }) {
   );
   const top: Finding[] = data
     ? [...data.findings]
-        .sort((a, b) => b.count - a.count)
+        .sort(
+          (a, b) =>
+            b.sessions - a.sessions ||
+            b.count - a.count ||
+            (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+        )
         .slice(0, TOP_FINDINGS)
     : [];
   return (
@@ -362,7 +367,14 @@ function TopFindings({ search }: { search: string }) {
               >
                 {finding.subject}
               </Link>{' '}
-              ({finding.kind}, {finding.count.toLocaleString('en-US')} events)
+              {finding.kind === 'never-read-section' ? (
+                <>({finding.kind})</>
+              ) : (
+                <>
+                  ({finding.kind}, {finding.count.toLocaleString('en-US')}{' '}
+                  {finding.kind === 'stale-hot-section' ? 'reads' : 'events'})
+                </>
+              )}
             </li>
           ))}
         </ol>
@@ -391,9 +403,12 @@ export function OverviewPage(_props: UsagePageProps): ReactElement {
       <h1>Overview</h1>
       {error && <p role="alert">{error.message}</p>}
       {loading && !data && <p>Loading usage…</p>}
-      {data && hasNoEvents(data.totals) && (
+      {data && hasNoEvents(data.totals) && search !== '' && (
+        <p>No events match the current filters.</p>
+      )}
+      {data && hasNoEvents(data.totals) && search === '' && (
         <p>
-          No usage events under the current filters. To start tracking, run{' '}
+          No usage events yet. To start tracking, run{' '}
           <code>lat usage enable</code>.
         </p>
       )}

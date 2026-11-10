@@ -374,6 +374,49 @@ describe('usage dashboard overview page', () => {
     expect(alert.textContent).toContain('kaput');
   });
 
+  // @lat: [[usage-dashboard-overview#Usage Dashboard Overview#A stale hot section counts reads]]
+  it('labels a stale hot section count as reads', async () => {
+    serve(summary(), {
+      findings: [
+        {
+          ...finding(400),
+          kind: 'stale-hot-section',
+          id: 'stale-hot-section:a#B',
+          subject: 'a#B',
+        },
+        finding(3),
+        {
+          ...finding(1),
+          kind: 'never-read-section',
+          id: 'never-read-section:c#D',
+          subject: 'c#D',
+          sessions: 0,
+        },
+      ],
+    });
+    await show();
+    const items = [
+      ...container.querySelectorAll('[aria-label="Top findings"] li'),
+    ].map((item) => item.textContent);
+    expect(items[0]).toContain('(stale-hot-section, 400 reads)');
+    expect(items[1]).toContain('(empty-search, 3 events)');
+    expect(items[2]).toContain('c#D (never-read-section)');
+    expect(items[2]).not.toContain('events');
+  });
+
+  // @lat: [[usage-dashboard-overview#Usage Dashboard Overview#The top five findings link to their detail pages]]
+  it('ranks top findings by sessions before count', async () => {
+    serve(summary(), {
+      findings: [finding(50), { ...finding(2), sessions: 3 }],
+    });
+    await show();
+    const items = [
+      ...container.querySelectorAll('[aria-label="Top findings"] li'),
+    ].map((item) => item.textContent);
+    expect(items[0]).toContain('query 2');
+    expect(items[1]).toContain('query 50');
+  });
+
   // @lat: [[usage-dashboard-overview#Usage Dashboard Overview#With no events the page shows how to enable tracking]]
   it('shows how to enable tracking when there are no events', async () => {
     serve(
@@ -391,6 +434,10 @@ describe('usage dashboard overview page', () => {
     expect(text()).toContain('lat usage enable');
     expect(container.querySelector('article')).toBeNull();
     expect(container.querySelector('svg')).toBeNull();
+    await show('?agent=codex');
+    expect(text()).toContain('No events match the current filters.');
+    expect(text()).not.toContain('lat usage enable');
+    expect(container.querySelector('article')).toBeNull();
     serve(
       summary({
         signals: {

@@ -25,9 +25,31 @@ An aggregator stopped after its first refresh and rebuilt from `state.json` read
 
 Its summary equals that of one aggregator that ran uninterrupted. A log that shrank is read again from its start without double counting.
 
+## A session event with an unreadable time is dropped
+
+A session event whose `ts` does not parse never enters the state. The aggregation succeeds, `state.json` does not hold the event, and an aggregator restarted from that state succeeds with the same totals.
+
+## An event dated out of range is dropped
+
+A usage line or session event whose `ts` is before 2000-01-01 or more than one day after now never enters the state.
+
+One event in year 3000 would otherwise make the daily series span hundreds of thousands of days and run the process out of memory. The summary builds normally and its day list stays short.
+
+## A usage line of the wrong shape is dropped
+
+A usage log line with the wrong `schema_version`, a missing field, or a field of the wrong type is dropped, and the aggregation succeeds.
+
+The variants are a number `query` or `section_id`, a `result_ids` entry that is not a string, a missing `section_id`, and similar. The valid line written beside them is counted, and `state.json` holds none of the dropped events.
+
+## Turning usage off empties the summary
+
+When `.lat/usage/` is renamed away while an aggregator runs, its next refresh drops the events it holds, and the summary is empty. When the directory comes back, the summary equals the one before.
+
 ## Latest wins for repeated session events
 
 Readers re-emit `session_end`, `model` and `session_name` on every resumed read with new event ids. Each session keeps only the latest of each kind, so its end time, model and name are not added up.
+
+A `token_usage` event re-emitted with the same event id and a later ts replaces the stored one, so a message's final token count replaces a partial count from an earlier read.
 
 ## All five agents are listed
 

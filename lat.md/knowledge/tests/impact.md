@@ -32,6 +32,8 @@ The default output for every section in the repository is smaller than the 4,119
 
 Without this bound a change that prints leading paragraphs ships unnoticed, and the command stops being cheaper than reading the section.
 
+A section with more dependents than fit keeps its output under the budget and ends with one line counting the results it left out. `--all` prints every one.
+
 ## Rejects an unknown section
 
 A query matching no section exits with an error naming the query, so an agent does not mistake it for an empty impact.
@@ -40,11 +42,13 @@ A query matching no section exits with an error naming the query, so an agent do
 
 A section that depends on another only through a code node (code that implements the target, and a section that links to that code) is still reported, and the code node itself is never listed.
 
+The test builds a real graph: an `@lat` comment inside `src/x.ts#foo` points at the target, and another section links `[[src/x.ts#foo]]`.
+
 ## Lists the specs that cover a symbol
 
 `lat impact <file>#<symbol> --specs` prints the test-spec sections that reach the symbol through the `@lat` chain, each as an id and `file:line`.
 
-It never prints a code node or a section outside a test-spec document. The fixture `src/cli/comment-reminder.ts#judgeWrittenComments` is referenced by specs in two documents, and both must appear.
+It never prints a code node or a section outside a test-spec document. The fixture `src/cli/comment-reminder.ts#judgeWrittenComments` is referenced by specs in two documents, and both must appear. A leading `./` on the file part gives the same output as the plain path.
 
 ## Prints a clear empty result for an uncovered symbol
 

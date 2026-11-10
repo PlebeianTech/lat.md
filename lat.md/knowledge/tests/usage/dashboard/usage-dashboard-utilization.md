@@ -19,7 +19,7 @@ A stacked chart shows the six outcomes per issue type, with the issue type as th
 
 ## Findings link to their detail
 
-Top undocumented files and top search misses link to their finding, keeping the filter query string.
+Top undocumented files and top search misses link to their finding, keeping the filter query string. Each list ranks by sessions and then by count, like the server, so a finding seen in more sessions comes first.
 
 A search miss also links to its expected section on the Knowledge page. Other finding kinds do not appear, and a failed detector is named.
 
@@ -39,7 +39,9 @@ The Sections to fix first table puts the section with the most misses first and 
 
 The Did misses cost anything block compares sessions that reached everything with sessions that had a miss.
 
-It shows each group's sample size, the left-out counts, unknown values with their reasons, the method version and the label "correlation, not cause".
+It shows each group's sample size, the left-out counts, unknown values with their reasons, the count of issues whose token median used only the known part ("partly unknown"), the method version and the label "correlation, not cause".
+
+Effort covers both tokens and time: a row gives each group's median duration per issue with its sample and the count of issues whose duration is unknown, or unknown with a reason when no issue has a known duration. The reason for an empty sample reads "no eligible session or issue in the sample", which is true for every metric that reports it.
 
 ## Missing data shows unknown
 

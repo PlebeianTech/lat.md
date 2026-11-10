@@ -85,6 +85,26 @@ describe('stale-hot-section detector', () => {
     ]);
   });
 
+  // @lat: [[usage-findings-stale-sections#Usage Findings Stale Sections#A path starting with @ does not hide a commit's time]]
+  it('reads commit times past a tracked path that starts with @', async () => {
+    commit(
+      {
+        '@scope/a.ts': 'export {};\n',
+        'lat.md/doc.md': doc('Hot'),
+        'src/a.ts': ref('Hot'),
+      },
+      0,
+    );
+    commit({ 'src/a.ts': ref('Hot') + '// changed\n' }, 5);
+    const detector = createStaleHotSectionDetector();
+    await detector.prepare!({ root });
+    const found = detector.detect({
+      summary: summaryOf([row('Hot', 3)]),
+      records: [],
+    });
+    expect(found.map((f) => f.subject)).toEqual(['doc#Doc#Hot']);
+  });
+
   // @lat: [[usage-findings-stale-sections#Usage Findings Stale Sections#A section that links a source file goes stale with it]]
   it('flags a section whose wikilink names a newer source file', async () => {
     const linking =

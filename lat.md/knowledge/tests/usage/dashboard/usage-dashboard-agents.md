@@ -11,9 +11,9 @@ They render the page in jsdom with a fake `fetch` serving fixtures typed from `s
 
 ## Each signal compares agents per session
 
-Four bar charts rank the agents on lat commands per session, search success, bypass rate and net tokens saved per session. An agent with many sessions does not win on volume, because each value is a per-session figure.
+Four bar charts rank the agents on lat commands per session, search success, bypass rate and net tokens saved per session. An agent with many sessions does not win on volume, because each value is a per-session figure or a share of searches or reads.
 
-Net tokens saved is divided by the agent's sessions and labelled "correlation, not cause" with the method version.
+Net tokens saved is divided by the agent's sessions and labelled "correlation, not cause" with the method version. The table column shows the same per-session figure under a "per session" header, never the agent's total.
 
 ## Selecting an agent sets the agent filter and opens Overview
 
@@ -21,7 +21,13 @@ An agent row links to Overview with the agent filter set to that agent and every
 
 ## An agent with no sessions shows a no-sessions row
 
-All five agents appear. An agent with no sessions, or missing from the summary, shows a row marked "no sessions in range" with zero sessions and unknown measures.
+All five agents appear. An agent with no sessions, or missing from the summary, shows a row marked "no sessions in range" with zero sessions and unknown per-session measures.
+
+## Ratios show without sessions
+
+An agent with searches or reads but no session ids, such as the `unknown` agent, shows its known search success and bypass rate in the table and the charts.
+
+These are shares of searches and reads, not per-session figures. Only the per-session columns read "unknown" for it. A reason the summary gives for an unknown net tokens saved is listed even when the agent has no sessions.
 
 ## Unknown values are shown as unknown
 

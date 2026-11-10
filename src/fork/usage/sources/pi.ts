@@ -48,6 +48,15 @@ const SINGLE_SLOT_KINDS = new Set([
   'token_usage',
 ]);
 
+// Kinds that describe one session file, not work done. They keep ids from
+// the file path, so a forked session still gets its own start, end and name.
+const PER_SESSION_KINDS = new Set([
+  'session_start',
+  'session_end',
+  'session_name',
+  'model',
+]);
+
 const HEAD_BYTES = 64 * 1024;
 
 function agentDir(): string {
@@ -246,6 +255,11 @@ function readFrom(
   let lastName: string | null = null;
   let lastTs: string | null = null;
   let lastOffset: number | null = null;
+  // pi's fork and branch copy earlier entries, with their ids and timestamps,
+  // into a new file. Ids built from the entry id, and not from the path, make
+  // the copies give the same events, and the state keeps each once. Entry ids
+  // are unique only in one session, so the timestamp is part of the key.
+  let entryKey: string | null = null;
 
   const push = (
     offset: number,
@@ -257,10 +271,13 @@ function readFrom(
       ? String(payload.kind)
       : String(perOffset.get(offset) ?? 0);
     if (!single) perOffset.set(offset, Number(slot) + 1);
+    const byEntry =
+      entryKey !== null && !PER_SESSION_KINDS.has(payload.kind as string);
+    const base = byEntry ? (entryKey as string) : sessionPath;
     events.push({
       event_id: sessionEventId(
-        slot === '0' ? sessionPath : `${sessionPath}#${slot}`,
-        offset,
+        slot === '0' ? base : `${base}#${slot}`,
+        byEntry ? 0 : offset,
       ),
       session_id: head.id,
       ts,
@@ -301,6 +318,10 @@ function readFrom(
     const ts: string = record.timestamp ?? lastTs ?? head.timestamp;
     lastTs = ts;
     lastOffset = offset;
+    entryKey =
+      typeof record.id === 'string' && typeof record.timestamp === 'string'
+        ? `pi#${record.id}#${record.timestamp}`
+        : null;
 
     if (record.type === 'model_change') {
       pushModel(offset, ts, record.modelId);
@@ -337,17 +358,19 @@ function readFrom(
             path: relativePath(args.path),
             bytes,
           });
-          if (targetsKnowledge(args.path)) emitBypass(args.path);
+          if (!result?.isError && targetsKnowledge(args.path))
+            emitBypass(args.path);
         } else if (
           (call.name === 'edit' || call.name === 'write') &&
           typeof args.path === 'string'
         ) {
-          emitTool({
-            name: call.name,
-            action: 'edit',
-            path: relativePath(args.path),
-            bytes,
-          });
+          if (!result?.isError)
+            emitTool({
+              name: call.name,
+              action: 'edit',
+              path: relativePath(args.path),
+              bytes,
+            });
         } else if (
           call.name === 'grep' ||
           call.name === 'find' ||
@@ -360,7 +383,12 @@ function readFrom(
             path: target === null ? null : relativePath(target),
             bytes,
           });
-          if (call.name !== 'ls' && target !== null && targetsKnowledge(target))
+          if (
+            call.name !== 'ls' &&
+            !result?.isError &&
+            target !== null &&
+            targetsKnowledge(target)
+          )
             emitBypass(target);
         } else if (call.name === 'bash') {
           const command = args.command ?? args.cmd;
@@ -374,6 +402,9 @@ function readFrom(
             bytes,
             shell: { command, exit_code: exit },
           });
+          // An error with no exit code is a blocked or denied call: the
+          // command never ran, so it wrote, read and closed nothing.
+          if (result?.isError && exit.value === null) continue;
           for (const file of shellWritePaths(segments))
             emitTool({
               name: call.name,
@@ -391,6 +422,7 @@ function readFrom(
     }
   }
 
+  entryKey = null;
   if (lastOffset !== null && lastTs)
     push(lastOffset, lastTs, { kind: 'session_end' });
 

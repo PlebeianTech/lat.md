@@ -206,6 +206,16 @@ describe('usage dashboard agents page', () => {
     const saved = chartText(savedName);
     expect(saved).toContain('correlation, not cause');
     expect(saved).toContain('v2');
+    // The table column agrees with the chart: per session, not the total.
+    const savedCell = (name: string) =>
+      cells(rows().find((tr) => cells(tr)[0].startsWith(name))!).at(-1);
+    expect(savedCell('claude')).toBe('100');
+    expect(savedCell('codex')).toBe('10');
+    expect(
+      [...container.querySelectorAll('th')].some((th) =>
+        th.textContent!.startsWith('Net tokens saved per session'),
+      ),
+    ).toBe(true);
   });
 
   // @lat: [[usage-dashboard-agents#Usage Dashboard Agents#Selecting an agent sets the agent filter and opens Overview]]
@@ -243,6 +253,35 @@ describe('usage dashboard agents page', () => {
         'unknown',
       ]);
     }
+  });
+
+  // @lat: [[usage-dashboard-agents#Usage Dashboard Agents#Ratios show without sessions]]
+  it('shows known search success and bypass rate for an agent with no sessions', async () => {
+    const stray = agent('unknown', 0, {
+      search_success: 0.75,
+      bypass_rate: 0.25,
+      net_tokens_saved_reason: 'no sessions to compare',
+    });
+    stray.totals = { ...totals(0, 8), bypass_reads: 1 };
+    agents = [claude, stray];
+    await show();
+    const row = rows().find((tr) => cells(tr)[0].startsWith('unknown'))!;
+    expect(cells(row)[0]).toContain('no sessions in range');
+    expect(cells(row).slice(1)).toEqual([
+      '0',
+      'unknown',
+      '75%',
+      '25%',
+      'unknown',
+    ]);
+    expect(chartValues('Search success')).toMatchObject({ unknown: '75' });
+    expect(chartValues('Bypass rate')).toMatchObject({ unknown: '25' });
+    expect(chartValues('Lat commands per session')).toMatchObject({
+      unknown: 'unknown',
+    });
+    expect(text()).toContain(
+      'unknown: net tokens saved unknown (no sessions to compare)',
+    );
   });
 
   // @lat: [[usage-dashboard-agents#Usage Dashboard Agents#Unknown values are shown as unknown]]

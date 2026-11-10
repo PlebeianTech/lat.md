@@ -37,6 +37,12 @@ Each session's own claim and close bound that session's events. A second session
 
 An event in a subagent session with no claim of its own is attributed through the claims of its parent session, and through its grandparent when the parent has none. A claim in the subagent itself takes precedence.
 
+## A parent session event takes the claim of one subagent
+
+The CLI tap records a Claude subagent's lat commands under the parent session id. When an event's own session and its ancestors have no claim open at its time, the claims of the session's direct child sessions are used, with method `claim`.
+
+The event is credited only when the open child claims name exactly one issue. Two children with different open issues leave it as before, and a claim in the session or an ancestor takes precedence.
+
 ## Timestamp fallback
 
 An event with no open claim inside an assigned issue's `started_at` to `closed_at` window is attributed with method `timestamp`.
@@ -58,6 +64,8 @@ An event that matches no claim and no window is attributed to no issue with meth
 ## bd unavailable
 
 With bd missing, failing, or `BEADS_DIR` unset, loading returns null and attribution returns unattributed for every event. Nothing throws.
+
+The runner ends bd's stdin at once, so a bd that reads stdin gets end of input instead of waiting for the call timeout.
 
 ## Discovered-from links
 

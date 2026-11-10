@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { SessionEvent } from '../src/fork/usage/schema.js';
 import { claudeSource } from '../src/fork/usage/sources/claude.js';
+import { addSessionEvent, emptyState } from '../src/fork/usage/state.js';
 
 const FIXTURES = join(import.meta.dirname, 'fixtures', 'usage', 'claude');
 const MAIN = join(FIXTURES, 'main.jsonl');
@@ -294,6 +295,30 @@ describe('claude session reader', () => {
         ['lat.md', 4],
       ],
     );
+
+    const glob = writeTranscript('glob.jsonl', [
+      record('assistant', {
+        message: {
+          id: 'm-glob',
+          model: 'model-a',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'gl1',
+              name: 'Glob',
+              input: { pattern: '*.md', path: '/work/repo/lat.md' },
+            },
+          ],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
+      }),
+      toolResult('gl1', 'lat.md/cli.md'),
+    ]);
+    const listed = (await claudeSource.read(glob, null)).events;
+    expect(toolCalls(listed).map((t) => [t.name, t.path])).toEqual([
+      ['Glob', 'lat.md'],
+    ]);
+    expect(ofKind(listed, 'bypass_read')).toEqual([]);
   });
 
   // @lat: [[usage-source-claude#Usage Source Claude#Beads claim and close carry issue ids]]
@@ -456,6 +481,72 @@ describe('claude session reader', () => {
     });
   });
 
+  // @lat: [[usage-source-claude#Usage Source Claude#A blocked shell call records only the shell call]]
+  it('records a blocked shell call without its bd, edit or bypass events', async () => {
+    const command = 'bd close lat-eah.39 > out.txt && cat lat.md/cli.md';
+    const path = writeTranscript('blocked.jsonl', [
+      bashCall('mx', 'tx', command),
+      toolResult('tx', 'PreToolUse:Bash hook error: blocked', true),
+    ]);
+    const { events } = await claudeSource.read(path, null);
+    expect(toolCalls(events)).toEqual([
+      expect.objectContaining({
+        action: 'shell',
+        shell: {
+          command,
+          exit_code: { value: null, reason: 'not_captured' },
+        },
+      }),
+    ]);
+    expect(ofKind(events, 'bd_command')).toEqual([]);
+    expect(ofKind(events, 'bypass_read')).toEqual([]);
+  });
+
+  // @lat: [[usage-source-claude#Usage Source Claude#An errored Read or Grep is not a bypass read]]
+  it('records an errored Read or Grep without a bypass read', async () => {
+    const call = (id: string, name: string, input: object) =>
+      record('assistant', {
+        message: {
+          id: `m-${id}`,
+          model: 'model-a',
+          content: [{ type: 'tool_use', id, name, input }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
+      });
+    const path = writeTranscript('read-error.jsonl', [
+      call('r1', 'Read', { file_path: '/work/repo/lat.md/cli.md' }),
+      toolResult('r1', 'PreToolUse:Read hook error: blocked', true),
+      call('g1', 'Grep', { pattern: 'x', path: '/work/repo/lat.md' }),
+      toolResult('g1', 'Permission denied', true),
+    ]);
+    const { events } = await claudeSource.read(path, null);
+    expect(toolCalls(events).map((t) => t.name)).toEqual(['Read', 'Grep']);
+    expect(ofKind(events, 'bypass_read')).toEqual([]);
+  });
+
+  // @lat: [[usage-source-claude#Usage Source Claude#A failed edit is not an edit]]
+  it('records no edit for an Edit or Write whose result is an error', async () => {
+    const call = (id: string, name: string, input: object) =>
+      record('assistant', {
+        message: {
+          id: `m-${id}`,
+          model: 'model-a',
+          content: [{ type: 'tool_use', id, name, input }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
+      });
+    const path = writeTranscript('edit-error.jsonl', [
+      call('e1', 'Edit', { file_path: '/work/repo/src/a.ts' }),
+      toolResult('e1', 'String to replace not found in file.', true),
+      call('w1', 'Write', { file_path: '/work/repo/src/b.ts' }),
+      toolResult('w1', 'Permission denied', true),
+      call('e2', 'Edit', { file_path: '/work/repo/src/c.ts' }),
+      toolResult('e2', 'ok'),
+    ]);
+    const { events } = await claudeSource.read(path, null);
+    expect(toolCalls(events).map((t) => t.path)).toEqual(['src/c.ts']);
+  });
+
   // @lat: [[usage-source-claude#Usage Source Claude#Message groups are never split]]
   it('counts one token usage for a message split across reads', async () => {
     const usage = { input_tokens: 4, output_tokens: 9 };
@@ -516,6 +607,171 @@ describe('claude session reader', () => {
     const usages = ofKind([...before.events, ...after.events], 'token_usage');
     expect(usages).toHaveLength(1);
     expect(toolCalls(after.events)).toHaveLength(2);
+  });
+
+  // @lat: [[usage-source-claude#Usage Source Claude#Message groups are never split]]
+  it('keeps one token usage when a read stops between parts of a message', async () => {
+    const call = (id: string) =>
+      record('assistant', {
+        message: {
+          id: 'mgap',
+          model: 'model-a',
+          stop_reason: 'tool_use',
+          content: [
+            { type: 'tool_use', id, name: 'Bash', input: { command: 'true' } },
+          ],
+          usage: { input_tokens: 2, output_tokens: 3 },
+        },
+      });
+    const head = [call('ga'), toolResult('ga')];
+    const path = writeTranscript('gap.jsonl', head);
+    const before = await claudeSource.read(path, null);
+    writeTranscript('gap.jsonl', [...head, call('gb'), toolResult('gb')]);
+    const after = await claudeSource.read(path, before.checkpoint);
+
+    const state = emptyState();
+    for (const event of [...before.events, ...after.events])
+      addSessionEvent(state, 'claude', event);
+    const kept = Object.values(state.sessions).filter(
+      (s) => s.event.kind === 'token_usage',
+    );
+    expect(kept).toHaveLength(1);
+  });
+
+  // @lat: [[usage-source-claude#Usage Source Claude#Message groups are never split]]
+  it('takes token usage from the last line of a message', async () => {
+    const part = (kind: string, output: number) =>
+      record('assistant', {
+        message: {
+          id: 'mfinal',
+          model: 'model-a',
+          stop_reason: 'end_turn',
+          content: [{ type: kind, thinking: '', text: 'x' }],
+          usage: { input_tokens: 4, output_tokens: output },
+        },
+      });
+    const path = writeTranscript('final.jsonl', [
+      record('user', { message: { role: 'user', content: 'p' } }),
+      part('thinking', 5),
+      part('text', 253),
+    ]);
+    const usages = ofKind(
+      (await claudeSource.read(path, null)).events,
+      'token_usage',
+    );
+    expect(usages.map((e) => e.usage.output)).toEqual([253]);
+  });
+
+  // @lat: [[usage-source-claude#Usage Source Claude#Message groups are never split]]
+  it('replaces a partial token usage when a later read sees the message end', async () => {
+    const call = (id: string, output: number, timestamp: string) => ({
+      ...record('assistant', {
+        message: {
+          id: 'msplit',
+          model: 'model-a',
+          stop_reason: 'tool_use',
+          content: [
+            { type: 'tool_use', id, name: 'Bash', input: { command: 'true' } },
+          ],
+          usage: { input_tokens: 2, output_tokens: output },
+        },
+      }),
+      timestamp,
+    });
+    const head = [
+      call('sa', 5, '2026-03-01T00:00:01.000Z'),
+      { ...toolResult('sa'), timestamp: '2026-03-01T00:00:02.000Z' },
+    ];
+    const path = writeTranscript('split.jsonl', head);
+    const before = await claudeSource.read(path, null);
+    writeTranscript('split.jsonl', [
+      ...head,
+      call('sb', 253, '2026-03-01T00:00:03.000Z'),
+      { ...toolResult('sb'), timestamp: '2026-03-01T00:00:04.000Z' },
+    ]);
+    const after = await claudeSource.read(path, before.checkpoint);
+
+    const state = emptyState();
+    for (const event of [...before.events, ...after.events])
+      addSessionEvent(state, 'claude', event);
+    const kept = Object.values(state.sessions)
+      .map((s) => s.event)
+      .filter((e) => e.kind === 'token_usage');
+    expect(kept.map((e) => e.usage.output)).toEqual([253]);
+  });
+
+  // @lat: [[usage-source-claude#Usage Source Claude#Session lifecycle and name]]
+  it('starts a session at its first real timestamp, never 1970', async () => {
+    const untimed = { type: 'mode', sessionId: 'sess-gen', mode: 'default' };
+    const path = writeTranscript('untimed.jsonl', [untimed]);
+    const early = await claudeSource.read(path, null);
+    expect(early.events).toEqual([]);
+    expect(early.checkpoint.offset).toBe(0);
+
+    writeTranscript('untimed.jsonl', [
+      untimed,
+      {
+        ...record('user', { message: { role: 'user', content: 'p' } }),
+        timestamp: '2026-03-02T00:00:00.000Z',
+      },
+    ]);
+    const later = await claudeSource.read(path, early.checkpoint);
+    const starts = ofKind(later.events, 'session_start');
+    expect(starts.map((e) => e.ts)).toEqual(['2026-03-02T00:00:00.000Z']);
+    for (const event of later.events)
+      expect(event.ts).toBe('2026-03-02T00:00:00.000Z');
+  });
+
+  // @lat: [[usage-source-claude#Usage Source Claude#Message groups are never split]]
+  it('emits a finished last message that nothing follows', async () => {
+    const part = (kind: string) =>
+      record('assistant', {
+        message: {
+          id: 'mdone',
+          model: 'model-a',
+          stop_reason: 'end_turn',
+          content: [{ type: kind, thinking: '', text: 'x' }],
+          usage: { input_tokens: 4, output_tokens: 9 },
+        },
+      });
+    const path = writeTranscript('finished.jsonl', [
+      record('user', { message: { role: 'user', content: 'p' } }),
+      record('api-request', {}),
+      part('thinking'),
+      part('text'),
+    ]);
+    const result = await claudeSource.read(path, null);
+    expect(ofKind(result.events, 'token_usage')).toHaveLength(1);
+    expect(result.checkpoint.offset).toBe(readFileSync(path).length);
+  });
+
+  // @lat: [[usage-source-claude#Usage Source Claude#Copied history counts once]]
+  it('counts token usage and tool calls once when a subagent copies history', async () => {
+    const history = [
+      bashCall('mcopy', 'tcopy', 'bd close lat-9'),
+      toolResult('tcopy'),
+    ];
+    const original = writeTranscript(
+      'agent-a.jsonl',
+      history.map((r) => ({ ...r, agentId: 'a' })),
+    );
+    const copy = writeTranscript(
+      'agent-b.jsonl',
+      [...history, bashCall('mown', 'town', 'true'), toolResult('town')].map(
+        (r) => ({ ...r, agentId: 'b' }),
+      ),
+    );
+
+    const state = emptyState();
+    for (const path of [original, copy])
+      for (const event of (await claudeSource.read(path, null)).events)
+        addSessionEvent(state, 'claude', event);
+    const kinds = Object.values(state.sessions).map((s) => s.event.kind);
+    const count = (kind: string) => kinds.filter((k) => k === kind).length;
+    expect(count('token_usage')).toBe(2);
+    expect(count('tool_call')).toBe(2);
+    expect(count('bd_command')).toBe(1);
+    expect(count('session_start')).toBe(2);
   });
 
   // @lat: [[usage-source-claude#Usage Source Claude#Heredoc bodies never invent writes]]

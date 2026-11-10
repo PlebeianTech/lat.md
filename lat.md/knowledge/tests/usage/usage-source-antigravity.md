@@ -25,7 +25,9 @@ Conversations with no workspace or no steps are stubs and are left out. A conver
 
 ## Session lifecycle and name
 
-A read from offset zero opens with a session start at the first transcript row and carries the conversation title when the database has one. It closes with a session end at the last row read.
+A read from offset zero opens with a session start at the first transcript row. It closes with a session end at the last row read.
+
+Every read that has new rows carries the conversation title when the database has one, in one fixed slot, so a title written after the first read still arrives and the usage state keeps the latest.
 
 ## Subagent conversations are their own sessions
 
@@ -39,7 +41,7 @@ The `edit_file`, `write_to_file`, `write_file` and `replace_file_content` tools 
 
 A `run_command` call yields a shell tool call with its `CommandLine` and an exit code.
 
-The exit code is read from the result row's `Command exited with code` line. A background command takes the code from the later system message that reports its finish. A command still running, a truncated result, or an error row has a null exit code with reason `not_captured`.
+The exit code is read from the result row's `Command exited with code` line. A background command takes the code from the later system message that reports its finish. A background command whose finish is not reported before the next user prompt or within an hour, a truncated result, or an error row has a null exit code with reason `not_captured`.
 
 ## Reads and searches
 
@@ -52,6 +54,10 @@ A `lat search` in `run_command` is a shell tool call whose command text names th
 ## Bypass reads target the knowledge directory
 
 A read tool or `grep_search` aimed at the worktree's `lat.md/` directory, and a shell reader such as `cat` aimed there, add a bypass read event.
+
+## An errored read or grep is not a bypass read
+
+A `read_file`, `view_file` or `grep_search` call aimed at `lat.md/` whose result row is not `DONE`, such as an `ERROR` row for a missing file, yields its tool call but no bypass read event: it read nothing.
 
 ## Beads claim and close carry issue ids
 
@@ -73,9 +79,15 @@ A shell command that redirects output, or runs `tee`, `sed -i`, `cp` or `mv`, ad
 
 ## Resume from a checkpoint
 
-Reading from the returned checkpoint yields only new events. A model turn whose tool results are not all written yet is held back whole, so its tokens and calls are counted once, when the results arrive.
+Reading from the returned checkpoint yields only new events, apart from the session name and end, which every read emits again in their fixed slots.
+
+A model turn whose tool results are not all written yet is held back whole, so its tokens and calls are counted once, when the results arrive.
 
 A turn that stays short of results is released once any other row follows it. It is then emitted once, with a null exit code and reason `not_captured` for shell calls that have no result, and no edit events for calls that have none.
+
+A background command whose finish message is not written yet holds the checkpoint at its turn. Its own events wait; the rest of the turn and later rows are emitted, and the next read emits them again under the same event ids. The finish message, read later, gives the exit code, and a failed command then adds no edit, bypass read or bd event. A read split between the command and its finish gives the same events as one full read.
+
+The next user prompt releases the hold, and so does the command's RUNNING row becoming more than an hour old by the wall clock (or having no readable `created_at`). A released command is emitted with a null exit code and reason `not_captured`, so a session that ends with no finish still emits it. Its events take their own `task-<step>:` slots, so emitting them late does not change the ids of the other calls in the turn.
 
 ## Reading never modifies the store
 

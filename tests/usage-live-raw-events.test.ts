@@ -2,6 +2,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -302,6 +303,37 @@ describe('usage raw events endpoint', () => {
     expect(new Set(seen).size).toBe(seen.length);
 
     expect((await get('?cursor=nonsense')).status).toBeGreaterThanOrEqual(400);
+  });
+
+  // @lat: [[usage-live-raw-events#Usage Live Raw Events#A session event without a readable time is dropped]]
+  it('drops a session event whose ts cannot be read and pages the rest', async () => {
+    mkdirSync(join(root, '.lat', 'usage'), { recursive: true });
+    const good = [1, 2, 3, 4, 5].map((m) => session('token_usage', 'A', m));
+    fakes.sources.push(
+      claudeSource([{ ...session('token_usage', 'A', 0), ts: '' }, ...good]),
+    );
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const next: RawEventsPage = await page(
+        `?limit=2${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+      );
+      seen.push(...ids(next));
+      cursor = next.next_cursor;
+    } while (cursor);
+    expect(seen).toEqual(good.map((e) => e.event_id).reverse());
+  });
+
+  // @lat: [[usage-live-raw-events#Usage Live Raw Events#Turning usage off empties the index]]
+  it('lists no records after usage is disabled and lists them again on enable', async () => {
+    writeUsageEvent(root, usage({ ts: at(0) }));
+    const before = ids(await page());
+    expect(before).toHaveLength(1);
+    const dir = join(root, '.lat', 'usage');
+    renameSync(dir, `${dir}.disabled`);
+    expect(ids(await page())).toEqual([]);
+    renameSync(`${dir}.disabled`, dir);
+    expect(ids(await page())).toEqual(before);
   });
 
   // @lat: [[usage-live-raw-events#Usage Live Raw Events#The page is capped at 200 records]]

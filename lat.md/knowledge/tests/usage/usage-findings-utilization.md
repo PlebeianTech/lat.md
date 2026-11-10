@@ -19,7 +19,7 @@ The subject is the file path. An edit path matches after its leading `./` and th
 
 A normalized query on a `searched-not-found` outcome yields a `search-miss` finding. Its `expected_section_id` is the section that was needed.
 
-The subject is the query and the evidence is the ids of that query's search events in the sessions that missed, made before that session's first edit. A query that missed two sections yields two findings with distinct ids. Other outcomes yield none.
+The subject is the query and the evidence is the ids of that query's search events in the sessions that missed, made before that session's first edit under the project root, as the analysis takes it. An edit outside the root, such as above a project below the repository root, does not end the window, and neither does an edit under `lat.md/`. A query that missed two sections yields two findings with distinct ids. Other outcomes yield none.
 
 ## Utilization findings rank and group like other findings
 

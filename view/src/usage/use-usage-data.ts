@@ -19,6 +19,7 @@ let suspended = false;
 let connectedBefore = false;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 const RETRY_DELAY_MS = 3000;
+let teardownPending = false;
 
 function notify(message: StreamMessage): void {
   for (const listener of streamListeners) listener(message);
@@ -35,6 +36,8 @@ function disconnect(): void {
 function synchronize(): void {
   if (suspended || document.visibilityState === 'hidden') {
     disconnect();
+    // @lat: [[usage-dashboard-data-hook#Usage Dashboard Data Hook#A page opened hidden refetches when shown]]
+    connectedBefore = true;
     return;
   }
   if (stream) return;
@@ -74,12 +77,27 @@ function show(): void {
   synchronize();
 }
 
-/** One event stream serves every hook on the page; it closes with the last subscriber. */
+function stopStream(): void {
+  if (!teardownPending) return;
+  teardownPending = false;
+  document.removeEventListener('visibilitychange', synchronize);
+  window.removeEventListener('pagehide', hide);
+  window.removeEventListener('pageshow', show);
+  disconnect();
+}
+
+/**
+ * One event stream serves every hook on the page. It closes a microtask after
+ * the last subscriber leaves. A page change unmounts every hook and then
+ * subscribes the next page's hooks in the same commit, so it keeps the stream,
+ * and with it the server's live caches.
+ */
 function subscribeToStream(
   listener: (message: StreamMessage) => void,
 ): () => void {
   streamListeners.add(listener);
-  if (streamListeners.size === 1) {
+  if (teardownPending) teardownPending = false;
+  else if (streamListeners.size === 1) {
     connectedBefore = false;
     suspended = false;
     document.addEventListener('visibilitychange', synchronize);
@@ -90,10 +108,8 @@ function subscribeToStream(
   return () => {
     streamListeners.delete(listener);
     if (streamListeners.size > 0) return;
-    document.removeEventListener('visibilitychange', synchronize);
-    window.removeEventListener('pagehide', hide);
-    window.removeEventListener('pageshow', show);
-    disconnect();
+    teardownPending = true;
+    queueMicrotask(stopStream);
   };
 }
 

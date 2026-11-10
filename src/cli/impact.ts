@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import type { Command } from 'commander';
 import type { CmdContext, CmdResult } from '@plebeiantech/lat.md-core/context';
 import { toPosix } from '@plebeiantech/lat.md-core/path';
@@ -41,6 +41,8 @@ export type ImpactIndex = {
   sectionsById: Map<string, Section>;
   edges: GraphEdge[];
   referrersByNode: Map<string, string[]>;
+  /** For each `code:<file>:<line>` comment node, the linked `code:<file>#<symbol>` nodes whose range holds that line. */
+  symbolsByComment: Map<string, string[]>;
   /** Project-relative paths of the documents buildGraph treats as test specs. */
   testSpecFiles: Set<string>;
 };
@@ -61,6 +63,7 @@ export function buildImpactIndex(
   sections: Section[],
   edges: GraphEdge[],
   testSpecFiles: Set<string>,
+  symbolsByComment: Map<string, string[]> = new Map(),
 ): ImpactIndex {
   return {
     sections,
@@ -70,6 +73,7 @@ export function buildImpactIndex(
     edges,
     referrersByNode: deriveReferrers(edges),
     testSpecFiles,
+    symbolsByComment,
   };
 }
 
@@ -95,7 +99,50 @@ export async function loadImpactIndex(ctx: CmdContext): Promise<ImpactIndex> {
   const { allSections } = await commandProjectAnalysis(ctx);
   const files = await loadWorkingTreeFiles(ctx.latDir, ctx.projectRoot);
   const graph = await buildGraph(files, ctx.projectRoot, true);
-  return buildImpactIndex(allSections, graph.edges, findTestSpecFiles(files));
+  return buildImpactIndex(
+    allSections,
+    graph.edges,
+    findTestSpecFiles(files),
+    await joinCommentsToSymbols(graph.edges, ctx.projectRoot),
+  );
+}
+
+// graph-export keys an @lat comment as code:<file>:<line> but a symbol link as
+// code:<file>#<symbol>, so the two never meet. Join them by the symbol's line
+// range, the same rule --specs uses, so the walk can pass through code.
+async function joinCommentsToSymbols(
+  edges: GraphEdge[],
+  projectRoot: string,
+): Promise<Map<string, string[]>> {
+  const commentLines = new Map<string, number[]>();
+  const symbolNodes = new Set<string>();
+  for (const edge of edges) {
+    const comment = /^code:(.+):(\d+)$/.exec(edge.from);
+    if (edge.type === 'code-ref' && comment) {
+      const lines = commentLines.get(comment[1]) ?? [];
+      lines.push(Number(comment[2]));
+      commentLines.set(comment[1], lines);
+    }
+    if (edge.to.startsWith(CODE_NODE_PREFIX) && edge.to.includes('#')) {
+      symbolNodes.add(edge.to);
+    }
+  }
+  const joined = new Map<string, string[]>();
+  for (const symbolNode of symbolNodes) {
+    const [file, ...symbolParts] = symbolNode
+      .slice(CODE_NODE_PREFIX.length)
+      .split('#');
+    const lines = commentLines.get(file);
+    if (lines === undefined) continue;
+    const range = await symbolRange(projectRoot, file, symbolParts);
+    if (range === undefined) continue;
+    for (const line of lines) {
+      if (line < range.startLine || line > range.endLine) continue;
+      const commentNode = `${CODE_NODE_PREFIX}${file}:${line}`;
+      joined.set(commentNode, [...(joined.get(commentNode) ?? []), symbolNode]);
+    }
+  }
+  return joined;
 }
 
 export function resolveSection(
@@ -131,7 +178,11 @@ function walkBackwards(
   for (let distance = firstDistance; frontier.length > 0; distance++) {
     const next: string[] = [];
     for (const node of frontier) {
-      for (const referrer of index.referrersByNode.get(node) ?? []) {
+      const symbols = index.symbolsByComment.get(node) ?? [];
+      const referrers = [node, ...symbols].flatMap(
+        (n) => index.referrersByNode.get(n) ?? [],
+      );
+      for (const referrer of referrers) {
         if (seen.has(referrer)) continue;
         seen.add(referrer);
         next.push(referrer);
@@ -170,7 +221,7 @@ function formatTail(distances: number[], depth: number): string {
 export function reportImpact(
   index: ImpactIndex,
   query: string,
-  opts: { depth: number },
+  opts: { depth: number; all?: boolean },
 ): CmdResult {
   const resolved = resolveSection(index, query);
   if (!('section' in resolved)) {
@@ -197,40 +248,71 @@ export function reportImpact(
       reached,
       `${reached.length} section${reached.length === 1 ? '' : 's'} affected by ${target.id}`,
       opts.depth,
+      opts.all === true,
     ),
   };
 }
 
+// Without `all` the output stays under OUTPUT_BUDGET_BYTES: result lines that
+// do not fit are dropped and counted in one closing line. Bytes are summed as
+// lines are added, so the cost is linear in the number of results.
 function formatReached(
   reached: Reached[],
   header: string,
   depth: number,
+  all: boolean,
 ): string {
   const hidden = reached.filter((r) => r.distance > depth);
-  const lines = [header];
   const byDistance = new Map<number, Section[]>();
   for (const r of reached) {
     const sections = byDistance.get(r.distance);
     if (sections) sections.push(r.section);
     else byDistance.set(r.distance, [r.section]);
   }
+  // Each entry is one result line, preceded by its depth heading if first.
+  const entries: string[][] = [];
   const deepest = Math.max(...byDistance.keys());
   for (let distance = 1; distance <= Math.min(depth, deepest); distance++) {
     const atDistance = byDistance.get(distance) ?? [];
-    if (atDistance.length === 0) continue;
-    lines.push('', `depth ${distance} (${atDistance.length}):`);
-    lines.push(...atDistance.map(formatResult));
-  }
-  if (hidden.length > 0) {
-    lines.push(
-      '',
-      formatTail(
-        hidden.map((r) => r.distance),
-        depth,
-      ),
+    atDistance.forEach((section, i) =>
+      entries.push([
+        ...(i === 0 ? ['', `depth ${distance} (${atDistance.length}):`] : []),
+        formatResult(section),
+      ]),
     );
   }
-  return lines.join('\n');
+  const depthTail =
+    hidden.length > 0
+      ? [
+          '',
+          formatTail(
+            hidden.map((r) => r.distance),
+            depth,
+          ),
+        ]
+      : [];
+  const tail = (dropped: number) => [
+    ...depthTail,
+    ...(dropped > 0
+      ? ['', `${dropped} more not shown (--all lists them)`]
+      : []),
+  ];
+  const size = (lines: string[]) =>
+    lines.reduce((sum, line) => sum + Buffer.byteLength(line) + 1, 0);
+
+  const full = [header, ...entries.flat(), ...tail(0)];
+  if (all || size(full) < OUTPUT_BUDGET_BYTES) return full.join('\n');
+
+  let bytes = size([header, ...tail(entries.length)]);
+  const kept = [header];
+  let shown = 0;
+  for (const entry of entries) {
+    bytes += size(entry);
+    if (bytes >= OUTPUT_BUDGET_BYTES) break;
+    kept.push(...entry);
+    shown++;
+  }
+  return [...kept, ...tail(entries.length - shown)].join('\n');
 }
 
 // Which `#` lines continue a comment block depends on the language. In
@@ -262,6 +344,33 @@ async function firstLineOfSymbolBlock(
   return first;
 }
 
+// The symbol's line range, widened to the comment block directly above it.
+async function symbolRange(
+  projectRoot: string,
+  file: string,
+  symbolParts: string[],
+): Promise<{ startLine: number; endLine: number } | undefined> {
+  const symbolPath = symbolParts.join('#');
+  const { found, symbols } =
+    symbolPath === ''
+      ? { found: false, symbols: [] }
+      : await resolveSourceSymbol(file, symbolPath, projectRoot);
+  const [parent, name] =
+    symbolParts.length === 2 ? symbolParts : [undefined, symbolPath];
+  const symbol = found
+    ? symbols.find((s) => s.name === name && s.parent === parent)
+    : undefined;
+  if (symbol === undefined) return undefined;
+  return {
+    startLine: await firstLineOfSymbolBlock(
+      projectRoot,
+      file,
+      symbol.startLine,
+    ),
+    endLine: symbol.endLine,
+  };
+}
+
 // A symbol is covered at distance 1 by the sections that link to it and by the
 // sections that `@lat` comments inside its line range, or in the comment
 // block directly above it, point at. graph-export
@@ -291,38 +400,24 @@ export async function reportSpecCoverage(
   index: ImpactIndex,
   projectRoot: string,
   query: string,
-  opts: { depth: number },
+  opts: { depth: number; all?: boolean },
 ): Promise<CmdResult> {
-  const [file, ...symbolParts] = query.split('#');
+  const [rawFile, ...symbolParts] = query.split('#');
+  // Graph keys use the project-relative path, so `./src/x.ts` means `src/x.ts`.
+  const file = posix.normalize(toPosix(rawFile));
   const symbolPath = symbolParts.join('#');
-  const { found, symbols } =
-    symbolPath === ''
-      ? { found: false, symbols: [] }
-      : await resolveSourceSymbol(file, symbolPath, projectRoot);
-  const [parent, name] =
-    symbolParts.length === 2 ? symbolParts : [undefined, symbolPath];
-  const symbol = found
-    ? symbols.find((s) => s.name === name && s.parent === parent)
-    : undefined;
-  if (symbol === undefined) {
+  const range = await symbolRange(projectRoot, file, symbolParts);
+  if (range === undefined) {
     return {
       output: `error: no symbol matches "${query}" (expected <file>#<symbol>)`,
       isError: true,
     };
   }
 
-  const symbolNode = `${CODE_NODE_PREFIX}${query}`;
+  const symbolNode = `${CODE_NODE_PREFIX}${file}#${symbolPath}`;
   const seen = new Set<string>([symbolNode]);
   const direct: Reached[] = [];
   const frontier: string[] = [];
-  const range = {
-    startLine: await firstLineOfSymbolBlock(
-      projectRoot,
-      file,
-      symbol.startLine,
-    ),
-    endLine: symbol.endLine,
-  };
   for (const node of directSpecTargets(index, file, symbolNode, range)) {
     if (seen.has(node)) continue;
     seen.add(node);
@@ -339,7 +434,9 @@ export async function reportSpecCoverage(
     return { output: `No test spec covers ${query}.` };
   }
   const header = `${reached.length} test spec${reached.length === 1 ? '' : 's'} covering ${query}`;
-  return { output: formatReached(reached, header, opts.depth) };
+  return {
+    output: formatReached(reached, header, opts.depth, opts.all === true),
+  };
 }
 
 export function reportUnreferenced(
@@ -402,9 +499,12 @@ export async function impactCommand(
   }
   if (query === undefined) throw new Error('unreachable: query checked above');
   if (opts.specs === true) {
-    return reportSpecCoverage(index, ctx.projectRoot, query, { depth });
+    return reportSpecCoverage(index, ctx.projectRoot, query, {
+      depth,
+      all: opts.all === true,
+    });
   }
-  return reportImpact(index, query, { depth });
+  return reportImpact(index, query, { depth, all: opts.all === true });
 }
 
 export function registerImpactCommand(program: Command): void {
@@ -429,7 +529,10 @@ export function registerImpactCommand(program: Command): void {
       '--unreferenced',
       'list the sections nothing refers to, as ids and file:line; default output is bounded',
     )
-    .option('--all', 'with --unreferenced, print every section')
+    .option(
+      '--all',
+      'print every result instead of output bounded to the cost of lat section',
+    )
     .action(async (query: string | undefined, opts: ImpactOptions) => {
       const ctx = resolveContext(program.opts());
       handleResult(await impactCommand(ctx, query, opts));

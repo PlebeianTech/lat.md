@@ -57,7 +57,12 @@ export interface UsageEvent {
   result_ids: string[];
   result_count: number | null;
   section_id: string | null;
-  /** Hook events only: byte length of the injected additionalContext text. */
+  /**
+   * Hook events only: byte length of every injected text the agent sees,
+   * summed (additionalContext, permissionDecisionReason, the Stop reason,
+   * Cursor's additional_context and followup_message, Antigravity's
+   * ephemeralMessage steps).
+   */
   injected_bytes: number | null;
   found: boolean | null;
   bytes_out: number | null;

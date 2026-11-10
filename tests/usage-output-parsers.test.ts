@@ -206,17 +206,52 @@ describe('parseHookOutput', () => {
     expect(parsed.injectedBytes).toBe(Buffer.byteLength(stop, 'utf-8'));
   });
 
-  it('reports unknown for output that is not a hook envelope', () => {
-    expect(parseHookOutput('{"decision":"block","reason":"x"}')).toEqual({
-      resultIds: null,
-      sectionId: null,
-      injectedBytes: null,
-    });
-    expect(parseHookOutput('not json')).toEqual({
-      resultIds: null,
-      sectionId: null,
-      injectedBytes: null,
-    });
+  // @lat: [[usage-output-parsers#Usage Output Parsers#Every injected text field counts]]
+  it('counts injected bytes from every hook output shape', () => {
+    const reason = 'Review é.\n\nSections linked to modified code: [[a#B]]';
+    const bytes = Buffer.byteLength(reason, 'utf-8');
+    const shapes = [
+      { decision: 'block', reason },
+      {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: reason,
+        },
+      },
+      { additional_context: reason },
+      { followup_message: reason },
+      { injectSteps: [{ ephemeralMessage: reason }] },
+    ];
+    for (const shape of shapes)
+      expect(parseHookOutput(JSON.stringify(shape))).toEqual({
+        resultIds: null,
+        sectionId: null,
+        injectedBytes: bytes,
+      });
+    const both = parseHookOutput(
+      JSON.stringify({ additional_context: reason, followup_message: 'ab' }),
+    );
+    expect(both.injectedBytes).toBe(bytes + 2);
+  });
+
+  // @lat: [[usage-output-parsers#Usage Output Parsers#Every injected text field counts]]
+  it('counts a JSON object with no injected text field as zero bytes', () => {
+    for (const stdout of ['{"decision":"allow"}', '{"injectSteps":[]}', '{}'])
+      expect(parseHookOutput(stdout)).toEqual({
+        resultIds: null,
+        sectionId: null,
+        injectedBytes: 0,
+      });
+  });
+
+  it('reports unknown for output that is not a JSON object', () => {
+    for (const stdout of ['not json', '[]', '42', 'null'])
+      expect(parseHookOutput(stdout)).toEqual({
+        resultIds: null,
+        sectionId: null,
+        injectedBytes: null,
+      });
   });
 
   it('counts a hook that printed nothing as zero injected bytes', () => {
@@ -251,6 +286,8 @@ interface ProbeOptions {
   maxRetainedBytes?: number;
   /** What the stream's write returns; true when absent. */
   writeReturns?: boolean;
+  /** Arguments passed after the command path, such as a search query. */
+  args?: string[];
 }
 
 /**
@@ -294,7 +331,8 @@ async function runProbe(
     else installCliTap(program, options.maxRetainedBytes);
     let parent = program;
     for (const name of commandPath.slice(0, -1)) parent = parent.command(name);
-    parent.command(commandPath[commandPath.length - 1]).action(() => {
+    const leaf = parent.command(commandPath[commandPath.length - 1]);
+    leaf.argument('[args...]').action(() => {
       writeSeenByCommand = process.stdout.write;
       for (const entry of printed)
         returns.push(
@@ -303,7 +341,10 @@ async function runProbe(
           ),
         );
     });
-    await program.parseAsync(['--dir', root, ...commandPath], { from: 'user' });
+    await program.parseAsync(
+      ['--dir', root, ...commandPath, ...(options.args ?? [])],
+      { from: 'user' },
+    );
     listeners.forEach((listener) => listener(options.exitCode ?? 0));
   } finally {
     process.stdout.write = originalWrite;
@@ -322,7 +363,9 @@ async function runProbe(
 describe('stdout capture in the tap', () => {
   // @lat: [[usage-output-parsers#Usage Output Parsers#Counts and bytes come from the capture]]
   it('sets bytes_out to the captured byte length and result_count to the id count', async () => {
-    const { lines } = await runProbe(['search'], [SEARCH_OUTPUT]);
+    const { lines } = await runProbe(['search'], [SEARCH_OUTPUT], {
+      args: ['graph walk'],
+    });
     const event = JSON.parse(lines[0]) as UsageEvent;
     expect(event.bytes_out).toBe(Buffer.byteLength(SEARCH_OUTPUT, 'utf-8'));
     expect(event.result_ids).toEqual([
@@ -333,6 +376,22 @@ describe('stdout capture in the tap', () => {
     expect(event.result_count).toBe(3);
     expect(event.unknown_reasons.bytes_out).toBeUndefined();
     expect(event.unknown_reasons.result_count).toBeUndefined();
+  });
+
+  // @lat: [[usage-output-parsers#Usage Output Parsers#A search with no query has no result count]]
+  it('leaves result_count null for a search with no query', async () => {
+    const { lines } = await runProbe(['search'], []);
+    const event = JSON.parse(lines[0]) as UsageEvent;
+    expect(event.query).toBeNull();
+    expect(event.result_ids).toEqual([]);
+    expect(event.result_count).toBeNull();
+    expect(event.unknown_reasons.result_count).toBe('not_captured');
+
+    const empty = await runProbe(['search'], [], { args: [''] });
+    const emptyEvent = JSON.parse(empty.lines[0]) as UsageEvent;
+    expect(emptyEvent.query).toBe('');
+    expect(emptyEvent.result_count).toBeNull();
+    expect(emptyEvent.unknown_reasons.result_count).toBe('not_captured');
   });
 
   it('sums chunks, counting multibyte text in bytes', async () => {
@@ -470,6 +529,7 @@ describe('stdout capture in the tap', () => {
     const size = Buffer.byteLength(SEARCH_OUTPUT, 'utf-8');
     const parsed = await runProbe(['search'], [SEARCH_OUTPUT], {
       maxRetainedBytes: size,
+      args: ['graph walk'],
     });
     expect((JSON.parse(parsed.lines[0]) as UsageEvent).result_count).toBe(3);
     const counted = await runProbe(['check'], [SEARCH_OUTPUT], {

@@ -266,6 +266,38 @@ function firstOpenTail(lines: TranscriptLine[]): TranscriptLine | null {
   return null;
 }
 
+// A background run_command reports RUNNING and its exit code arrives later in
+// a SYSTEM_MESSAGE. Its turn holds the checkpoint until that message is read,
+// so the exit code and the failed-command guard apply. Many background
+// commands never report a finish, so the next USER_INPUT or an hour's age
+// releases the hold, and the command is emitted with a null exit code.
+const BACKGROUND_WAIT_MS = 60 * 60 * 1000;
+
+function waitingForBackground(
+  lines: TranscriptLine[],
+  finishedBackground: Map<number, number>,
+): Set<number> {
+  let lastUserInput = -1;
+  for (const { offset, record } of lines)
+    if (record.type === 'USER_INPUT') lastUserInput = offset;
+  const now = Date.now();
+  const held = new Set<number>();
+  lines.forEach(({ offset, record }, index) => {
+    if (offset < lastUserInput) return;
+    const results = resultsFor(lines, index);
+    const waiting = toolCallsOf(record).some(
+      (call, i) =>
+        call.name === 'run_command' &&
+        results[i]?.status === 'RUNNING' &&
+        !finishedBackground.has(Number(results[i].step_index)) &&
+        // An unreadable created_at gives NaN, which releases.
+        now - Date.parse(String(results[i].created_at)) <= BACKGROUND_WAIT_MS,
+    );
+    if (waiting) held.add(offset);
+  });
+  return held;
+}
+
 function shellExitCode(
   result: Row | undefined,
   finishedBackground: Map<number, number>,
@@ -348,7 +380,6 @@ function readFrom(
   const lines = hold
     ? parsed.lines.filter((l) => l.offset < hold.offset)
     : parsed.lines;
-  const checkpointOffset = hold ? hold.offset : parsed.end;
 
   const finishedBackground = new Map<number, number>();
   for (const { record } of parsed.lines) {
@@ -356,6 +387,13 @@ function readFrom(
     const done = BACKGROUND_FINISH.exec(String(record.content ?? ''));
     if (done) finishedBackground.set(Number(done[1]), Number(done[2]));
   }
+  // Only the waiting command is withheld. The rest of its turn and the later
+  // lines are emitted now; the next read re-emits them with the same ids.
+  const waiting = waitingForBackground(lines, finishedBackground);
+  const checkpointOffset = Math.min(
+    hold ? hold.offset : parsed.end,
+    ...waiting,
+  );
 
   const worktreeRoot = workspace
     ? findWorktreeRoot(workspace, new Map())
@@ -381,12 +419,15 @@ function readFrom(
     offset: number,
     ts: string,
     payload: Record<string, unknown>,
+    group = '',
   ) => {
     const kind = String(payload.kind);
-    const slotKey = `${offset}:${kind}`;
+    const slotKey = `${offset}:${group}${kind}`;
     const index = perSlot.get(slotKey) ?? 0;
     perSlot.set(slotKey, index + 1);
-    const slot = SINGLE_SLOT_KINDS.has(kind) ? kind : `${kind}#${index}`;
+    const slot = SINGLE_SLOT_KINDS.has(kind)
+      ? kind
+      : `${group}${kind}#${index}`;
     events.push({
       event_id: sessionEventId(`${sessionPath}#${slot}`, offset),
       session_id: sessionId,
@@ -399,11 +440,12 @@ function readFrom(
 
   const firstTs =
     lines.length > 0 ? String(lines[0].record.created_at ?? '') : '';
-  if (start === 0 && lines.length > 0) {
+  if (start === 0 && lines.length > 0)
     push(0, firstTs, { kind: 'session_start' });
-    if (summary?.title)
-      push(0, firstTs, { kind: 'session_name', name: summary.title });
-  }
+  // The title can appear after the first read, so every read with new lines
+  // emits it again in the same slot; the usage state keeps the latest.
+  if (lines.length > 0 && summary?.title)
+    push(0, firstTs, { kind: 'session_name', name: summary.title });
 
   lines.forEach(({ offset, record }, index) => {
     const ts: string =
@@ -431,19 +473,24 @@ function readFrom(
       const args: Row =
         call.args && typeof call.args === 'object' ? call.args : {};
       const result: Row | undefined = results[callIndex];
+      // A background command's events take their own slots, so emitting
+      // them late does not shift the ids of the other calls in the turn.
+      const group =
+        result?.status === 'RUNNING' ? `task-${result.step_index}:` : '';
       const completed = result?.status === 'DONE';
       const bytes =
         result && typeof result.content === 'string'
           ? Buffer.byteLength(result.content)
           : null;
       const emitTool = (tool: ToolCall) =>
-        push(offset, ts, { kind: 'tool_call', tool });
+        push(offset, ts, { kind: 'tool_call', tool }, group);
       const emitBypass = (file: string) =>
-        push(offset, ts, {
-          kind: 'bypass_read',
-          path: relativePath(file),
-          bytes,
-        });
+        push(
+          offset,
+          ts,
+          { kind: 'bypass_read', path: relativePath(file), bytes },
+          group,
+        );
       const argument = (key: string): string | null =>
         typeof args[key] === 'string' ? args[key] : null;
 
@@ -451,7 +498,7 @@ function readFrom(
         const file = argument(READ_TOOLS[name]);
         if (file === null) return;
         emitTool({ name, action: 'read', path: relativePath(file), bytes });
-        if (targetsKnowledge(file)) emitBypass(file);
+        if (completed && targetsKnowledge(file)) emitBypass(file);
       } else if (name in EDIT_TOOLS) {
         const file = argument(EDIT_TOOLS[name]);
         if (file !== null && completed)
@@ -466,6 +513,7 @@ function readFrom(
         });
         if (
           name === 'grep_search' &&
+          completed &&
           target !== null &&
           targetsKnowledge(target)
         )
@@ -475,6 +523,7 @@ function readFrom(
         if (command === null) return;
         const segments = parseShell(command);
         const exit = shellExitCode(result, finishedBackground);
+        if (group && exit.value === null && waiting.has(offset)) return;
         emitTool({
           name,
           action: 'shell',
@@ -493,7 +542,7 @@ function readFrom(
         for (const arg of bypassReadArguments(segments))
           if (targetsKnowledge(arg)) emitBypass(arg);
         for (const bd of bdCommands(segments))
-          push(offset, ts, { kind: 'bd_command', ...bd });
+          push(offset, ts, { kind: 'bd_command', ...bd }, group);
       }
     });
   });

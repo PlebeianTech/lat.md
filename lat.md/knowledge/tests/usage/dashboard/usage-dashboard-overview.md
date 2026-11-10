@@ -33,11 +33,21 @@ The page draws one column per day, stacked by command, from the per-command dail
 
 ## The top five findings link to their detail pages
 
-The five findings with the most events are listed, each linking to its detail page with the id encoded. A sixth finding is not listed. Detectors that failed are named in an alert, so a missing finding is not read as a clean bill.
+The top five findings are listed, each linking to its detail page with the id encoded. A sixth finding is not listed. Detectors that failed are named in an alert, so a missing finding is not read as a clean bill.
+
+They rank by sessions and then by count, as the server and `lat usage gaps` rank them, so a finding seen in more sessions outranks one with more events.
+
+## A stale hot section counts reads
+
+A `stale-hot-section` finding's count is the section's reads, so its Overview label says `reads`, such as `(stale-hot-section, 400 reads)`. Every other kind says `events`, except `never-read-section`.
+
+A `never-read-section` finding has no reads to count, so its label is only the kind, `(never-read-section)`.
 
 ## With no events the page shows how to enable tracking
 
-When the summary totals count no events, the page shows `lat usage enable` in place of tiles and empty charts. A null signal with events present is not treated as no events.
+When the summary totals count no events and no filter is set, the page shows `lat usage enable` in place of tiles and empty charts. A null signal with events present is not treated as no events.
+
+When a filter is set, the page says "No events match the current filters." instead, since the project may already be tracked.
 
 ## Links keep the filter query string
 

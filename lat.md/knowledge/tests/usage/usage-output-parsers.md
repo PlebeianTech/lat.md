@@ -23,7 +23,13 @@ Tests in `tests/usage-output-parsers.test.ts` for the parsers in `src/fork/usage
 
 `parseHookOutput` reads `additionalContext` from the JSON and takes only the bullet ids under the heading `Search results for the user prompt`. The Stop hook's linked-sections list is skipped.
 
-When one match printed its full body, that section is also the section id. `injected_bytes` is the byte length of the `additionalContext` text.
+When one match printed its full body, that section is also the section id.
+
+## Every injected text field counts
+
+`injected_bytes` is the sum of the UTF-8 byte lengths of every text field in the hook's JSON that reaches the agent.
+
+The fields are `hookSpecificOutput.additionalContext`, `hookSpecificOutput.permissionDecisionReason` (a PreToolUse deny), a top-level `reason` (a Stop block), Cursor's `additional_context` and `followup_message`, and each `injectSteps[].ephemeralMessage` (Antigravity). Result ids still come from `additionalContext` only. A JSON object with none of these fields, such as `{"decision":"allow"}`, `{"injectSteps":[]}` or `{}`, injected nothing, so `injected_bytes` is 0. Output that is not a JSON object, such as plain text or an array, keeps `injected_bytes` null.
 
 ## ANSI codes are stripped
 
@@ -32,6 +38,10 @@ Every parser strips ANSI colour codes before it matches.
 ## Counts and bytes come from the capture
 
 `bytes_out` is the byte length of what the command printed, for every command. `result_count` is the number of result ids whenever result ids are set.
+
+## A search with no query has no result count
+
+`lat search` with no query, or with an empty query such as `lat search ""`, only rebuilds the index and prints nothing. Its event keeps `result_count` null with its reason, so it never counts as a search that found nothing.
 
 ## Output passes through unchanged
 

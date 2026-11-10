@@ -98,6 +98,7 @@ interface Model {
 }
 
 interface Index {
+  enabled: boolean;
   state: UsageState;
   sources: SessionSource[];
   bd: Pick<BdWatcher, 'refresh'>;
@@ -175,6 +176,7 @@ async function currentModel(options: EventIndexOptions): Promise<Model> {
   let index = indexes.get(options.root);
   if (!index) {
     index = {
+      enabled: usageEnabled(options.root),
       state: emptyState(),
       sources: options.sources ?? sessionSources,
       bd: options.bd ?? createBdWatcher(),
@@ -187,6 +189,12 @@ async function currentModel(options: EventIndexOptions): Promise<Model> {
   const current = index;
   const run = current.queue.then(async () => {
     const enabled = usageEnabled(options.root);
+    if (enabled !== current.enabled) {
+      // Off lists no events; on again re-reads from the start.
+      current.enabled = enabled;
+      current.state = emptyState();
+      current.model = null;
+    }
     const logChanged = enabled && readLog(options.root, current.state);
     const sessionsChanged =
       enabled &&

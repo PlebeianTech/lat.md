@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { SessionEvent } from '../src/fork/usage/schema.js';
 import { opencodeSource } from '../src/fork/usage/sources/opencode.js';
+import { addSessionEvent, emptyState } from '../src/fork/usage/state.js';
 
 const FIXTURE = join(
   import.meta.dirname,
@@ -58,16 +59,17 @@ function loadFixture(): DatabaseSync {
   mkdirSync(join(scratch, 'data', 'opencode'), { recursive: true });
   const db = new DatabaseSync(database);
   db.exec(`
-    CREATE TABLE session (id text PRIMARY KEY, parent_id text, directory text NOT NULL, title text NOT NULL, time_created integer NOT NULL);
+    CREATE TABLE session (id text PRIMARY KEY, parent_id text, directory text NOT NULL, title text NOT NULL, time_created integer NOT NULL, time_updated integer NOT NULL);
     CREATE TABLE message (id text PRIMARY KEY, session_id text NOT NULL, time_created integer NOT NULL, data text NOT NULL);
     CREATE TABLE part (id text PRIMARY KEY, message_id text NOT NULL, session_id text NOT NULL, data text NOT NULL);
   `);
   for (const s of rows.sessions)
-    db.prepare('INSERT INTO session VALUES (?, ?, ?, ?, ?)').run(
+    db.prepare('INSERT INTO session VALUES (?, ?, ?, ?, ?, ?)').run(
       s.id,
       s.parent_id,
       s.directory,
       s.title,
+      s.time_created,
       s.time_created,
     );
   for (const m of rows.messages)
@@ -158,11 +160,12 @@ describe('opencode session reader', () => {
     const worktree = join(scratch, 'repo-wt');
     git('worktree', 'add', '-q', worktree);
     const db = loadFixture();
-    db.prepare('INSERT INTO session VALUES (?, ?, ?, ?, ?)').run(
+    db.prepare('INSERT INTO session VALUES (?, ?, ?, ?, ?, ?)').run(
       'ses_wt',
       null,
       worktree,
       'In worktree',
+      1,
       1,
     );
     db.close();
@@ -192,6 +195,30 @@ describe('opencode session reader', () => {
     const end = ofKind(events, 'session_end');
     expect(end).toHaveLength(1);
     expect(end[0].ts).toBe('1970-01-01T00:00:03.000Z');
+  });
+
+  // @lat: [[usage-source-opencode#Usage Source OpenCode#Session lifecycle, name and model]]
+  it('replaces the stored name when the session is renamed later', async () => {
+    const db = loadFixture();
+    const state = emptyState();
+    const ingest = async () => {
+      const { events } = await opencodeSource.read(
+        sessionPath('ses_main'),
+        null,
+      );
+      for (const event of events) addSessionEvent(state, 'opencode', event);
+    };
+    await ingest();
+    db.prepare(
+      "UPDATE session SET title = 'Renamed', time_updated = 9000 WHERE id = 'ses_main'",
+    ).run();
+    db.close();
+    await ingest();
+
+    const names = Object.values(state.sessions)
+      .map((s) => s.event)
+      .filter((e) => e.kind === 'session_name');
+    expect(names.map((e) => (e as { name: string }).name)).toEqual(['Renamed']);
   });
 
   // @lat: [[usage-source-opencode#Usage Source OpenCode#Subagent sessions name their parent]]
@@ -279,6 +306,33 @@ describe('opencode session reader', () => {
         ['lat.md', 15],
       ],
     );
+  });
+
+  // @lat: [[usage-source-opencode#Usage Source OpenCode#An errored read or grep is not a bypass read]]
+  it('records an errored read or grep without a bypass read', async () => {
+    const db = loadFixture();
+    const fail = (id: string, tool: string, input: object) =>
+      db.prepare('UPDATE part SET data = ? WHERE id = ?').run(
+        JSON.stringify({
+          type: 'tool',
+          tool,
+          state: { status: 'error', input, error: 'File not found' },
+        }),
+        id,
+      );
+    fail('prt_02b', 'read', { filePath: `${repo}/lat.md/notes.md` });
+    fail('prt_03g', 'grep', { pattern: 'widget', path: `${repo}/lat.md` });
+    db.close();
+    const { events } = await opencodeSource.read(sessionPath('ses_main'), null);
+
+    expect(
+      toolCalls(events)
+        .filter((t) => ['read', 'grep'].includes(t.name))
+        .map((t) => t.name),
+    ).toEqual(['read', 'grep']);
+    expect(ofKind(events, 'bypass_read').map((e) => e.path)).toEqual([
+      'lat.md/spec.md',
+    ]);
   });
 
   // @lat: [[usage-source-opencode#Usage Source OpenCode#Beads claim and close carry issue ids]]

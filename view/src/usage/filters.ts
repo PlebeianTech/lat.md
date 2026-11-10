@@ -64,10 +64,15 @@ export function useUsageFilters(): {
 } {
   const { search } = useUsageLocation();
   const setFilters = useCallback((changes: UsageFilters) => {
-    const next = filtersToSearchParams({
-      ...readFilters(window.location.search),
-      ...changes,
-    });
+    // Change only the filter names; page parameters such as Explore's
+    // `event=` selection stay.
+    const next = new URLSearchParams(window.location.search);
+    for (const name of FILTER_NAMES) {
+      if (!(name in changes)) continue;
+      const value = changes[name];
+      if (value) next.set(name, value);
+      else next.delete(name);
+    }
     const query = next.toString();
     navigateTo(
       query ? `${window.location.pathname}?${query}` : window.location.pathname,

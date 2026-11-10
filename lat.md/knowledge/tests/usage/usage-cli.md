@@ -49,4 +49,4 @@ Savings print as a low to high range with the point estimate, the `method_versio
 
 ## Issue rows are not summed
 
-The issue lines carry a note that the rows overlap and are not additive. The command prints no total of the issue rows.
+The issue lines carry a note that the rows overlap and are not additive. The command prints no total of the issue rows. Issue keys have their control characters stripped before they print.

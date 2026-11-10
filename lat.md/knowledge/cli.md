@@ -557,12 +557,14 @@ The build subcommand invokes [[src/cli/wiki.ts#wikiBuildCommand]], which catalog
 
 List which sections are affected if a section changes. Usage: `lat impact <section> [--depth <n>]`.
 
-The command walks `wikilink` and `code-ref` edges of the [[cli#graph]] projection backwards from the section until nothing new is reached, then prints the sections it found grouped by hop count. Code nodes on the path are walked through but never listed. The section argument resolves like [[cli#section]], so `cli#gen`, `cli#CLI#gen` and `lat.md/knowledge/cli#CLI#gen` give the same output.
+Two other modes use the same address-only output. `lat impact <file>#<symbol> --specs` lists the test-spec sections that cover a code symbol through the `@lat` chain, with the same depth and output budget. `lat impact --unreferenced` lists the sections that no wikilink and no `@lat` comment point at; its output is bounded, and `--all` prints every one.
+
+The command walks `wikilink` and `code-ref` edges of the [[cli#graph]] projection backwards from the section until nothing new is reached, then prints the sections it found grouped by hop count. Code nodes on the path are walked through but never listed. An `@lat` comment and a link to the symbol whose line range holds it are one code node for the walk, the join `--specs` uses. The section argument resolves like [[cli#section]], so `cli#gen`, `cli#CLI#gen` and `lat.md/knowledge/cli#CLI#gen` give the same output.
 
 Output is addresses, not content: each result is a section id followed by `file:line`, and nothing else. `lat section` stays the only command that loads text. The default depth is 2; sections further out are summarised in one line such as `18 more at depth 3-5`, and `--depth N` lists them. A section nothing refers to prints `No section depends on <id>.`
 
-The cost bound is the reason for the format. Measured for `cli#CLI#gen`, ids alone cost about 2 KB and ids plus leading paragraphs about 13 KB, against 4,119 bytes for `lat section`. A test asserts the default output of every section stays under that figure.
+The cost bound is the reason for the format. Measured for `cli#CLI#gen`, ids alone cost about 2 KB and ids plus leading paragraphs about 13 KB. The budget is 4,119 bytes, what `lat section` costs for `cli#search#Backend selection`. A test asserts the default output of every section stays under that figure. Results that do not fit, here and in `--specs`, are dropped and counted in one closing line such as `12 more not shown (--all lists them)`; `--all` prints every one.
 
-Honest limits: of 589 sections measured, 164 have no inbound refs, 383 gain nothing past one hop, and only 42 (7 percent) return more than [[cli#refs]]. It helps on hub sections (`cli#gen`: 1 direct ref, 44 reachable) and is no faster than `lat refs` elsewhere. It answers one fixed question and takes no query language.
+Honest limits: many sections have no inbound refs and most gain nothing past one hop, so for them it returns no more than [[cli#refs]]. It helps on hub sections such as `cli#gen`, which has one direct ref and dozens of sections reachable through it, and is no faster than `lat refs` elsewhere. It takes no query language.
 
 Implementation: [[src/cli/impact.ts#impactCommand]]. Run `lat impact --help` for the options.

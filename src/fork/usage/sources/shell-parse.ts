@@ -1,4 +1,4 @@
-import { sep } from 'node:path';
+import { isAbsolute, join, sep } from 'node:path';
 
 export interface ShellSegment {
   words: string[];
@@ -104,10 +104,15 @@ export function parseShell(command: string): ShellSegment[] {
     const c = command[i];
     if (c === "'" || c === '"') {
       const end = findClosingQuote(command, i);
-      word += command.slice(i + 1, end);
+      const quoted = command.slice(i + 1, end);
+      // Only single quotes keep a backslash-newline line continuation.
+      word += c === '"' ? quoted.replaceAll('\\\n', '') : quoted;
       hasWord = true;
       numeric = false;
       i = end;
+    } else if (c === '\\' && command[i + 1] === '\n') {
+      // A line continuation joins the lines and leaves nothing behind.
+      i++;
     } else if (c === '\\' && i + 1 < command.length) {
       word += command[++i];
       hasWord = true;
@@ -121,6 +126,10 @@ export function parseShell(command: string): ShellSegment[] {
     } else if (c === ';' || c === '|' || c === '&') {
       if (c === '&' && command[i - 1] === '>') continue;
       endSegment();
+    } else if (c === '#' && !hasWord) {
+      // A comment runs to the end of the line; the newline still ends the segment.
+      const newline = command.indexOf('\n', i);
+      i = (newline === -1 ? command.length : newline) - 1;
     } else if (c === ' ' || c === '\t') {
       endWord();
     } else if (c === '>') {
@@ -167,6 +176,12 @@ function isInPlaceSed(name: string, args: string[]): boolean {
   );
 }
 
+function inPlaceSedFiles(args: string[]): string[] {
+  // macOS takes the backup suffix as its own word, often empty: `sed -i ''`.
+  const kept = args.filter((a, i) => !(a === '' && args[i - 1] === '-i'));
+  return readTargets('sed', kept);
+}
+
 export function shellWritePaths(segments: ShellSegment[]): string[] {
   const paths: string[] = [];
   for (const segment of segments) {
@@ -174,7 +189,7 @@ export function shellWritePaths(segments: ShellSegment[]): string[] {
     const [name, ...args] = commandWords(segment);
     const operands = args.filter((a) => !a.startsWith('-'));
     if (name === 'tee') paths.push(...operands);
-    else if (isInPlaceSed(name, args)) paths.push(...operands.slice(1));
+    else if (isInPlaceSed(name, args)) paths.push(...inPlaceSedFiles(args));
     else if ((name === 'cp' || name === 'mv') && operands.length >= 2)
       paths.push(operands[operands.length - 1]);
   }
@@ -193,7 +208,12 @@ const BD_BOOLEAN_FLAGS = new Set([
   '-q',
   '--verbose',
   '-v',
+  '--no-daemon',
+  '--sandbox',
 ]);
+
+// Global flags before the verb that take a value in the next word.
+const BD_GLOBAL_VALUE_FLAGS = new Set(['--actor', '--db', '--dir']);
 
 function positionalArguments(args: string[]): string[] {
   const positional: string[] = [];
@@ -210,8 +230,13 @@ export function bdCommands(
 ): { verb: 'claim' | 'close'; issue_id: string }[] {
   const found: { verb: 'claim' | 'close'; issue_id: string }[] = [];
   for (const segment of segments) {
-    const [name, verb, ...args] = commandWords(segment);
+    const [name, ...rest] = commandWords(segment);
     if (name !== 'bd') continue;
+    // Skip global flags before the verb, such as `bd --sandbox --actor x update`.
+    let v = 0;
+    while (v < rest.length && rest[v].startsWith('-'))
+      v += BD_GLOBAL_VALUE_FLAGS.has(rest[v]) ? 2 : 1;
+    const [verb, ...args] = rest.slice(v);
     const ids = positionalArguments(args).filter((a) => ISSUE_ID.test(a));
     if (verb === 'update' && args.some((a) => a.startsWith('--claim')))
       for (const id of ids) found.push({ verb: 'claim', issue_id: id });
@@ -221,13 +246,77 @@ export function bdCommands(
   return found;
 }
 
+// Commands whose first positional argument is a pattern or script, not a file.
+const PATTERN_COMMANDS = new Set([
+  'grep',
+  'egrep',
+  'fgrep',
+  'rg',
+  'sed',
+  'awk',
+]);
+// Flags that carry the pattern or script, so every positional is a file.
+const PATTERN_FLAGS = new Set([
+  '-e',
+  '-f',
+  '--regexp',
+  '--file',
+  '--expression',
+]);
+
+function readTargets(reader: string, args: string[]): string[] {
+  if (reader === 'find') {
+    // Start paths come before the first expression argument.
+    const end = args.findIndex(
+      (a) => a.startsWith('-') || a === '(' || a === '!',
+    );
+    return end === -1 ? args : args.slice(0, end);
+  }
+  if (!PATTERN_COMMANDS.has(reader))
+    return args.filter((a) => !a.startsWith('-'));
+  const operands: string[] = [];
+  let patternFromFlag = false;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (PATTERN_FLAGS.has(arg)) {
+      patternFromFlag = true;
+      i++;
+    } else if (PATTERN_FLAGS.has(arg.split('=')[0])) patternFromFlag = true;
+    else if (!arg.startsWith('-')) operands.push(arg);
+  }
+  return patternFromFlag ? operands : operands.slice(1);
+}
+
+// Skips git's global options before the subcommand. `-C <dir>` moves git, so
+// relative targets are joined onto it; the callers resolve them against cwd.
+function gitSubcommand(words: string[]): { words: string[]; dir: string } {
+  let dir = '';
+  let i = 0;
+  while (i < words.length && words[i].startsWith('-')) {
+    const option = words[i++];
+    if (option === '-C') {
+      const next = words[i++] ?? '';
+      dir = isAbsolute(next) || !dir ? next : join(dir, next);
+    } else if (['-c', '--git-dir', '--work-tree'].includes(option)) i++;
+  }
+  return { words: words.slice(i), dir };
+}
+
 export function bypassReadArguments(segments: ShellSegment[]): string[] {
   const targets: string[] = [];
   for (const segment of segments) {
-    const [name, ...args] = commandWords(segment);
-    const reader = name === 'git' && args[0] === 'grep' ? 'grep' : name;
+    const [name, ...words] = commandWords(segment);
+    const git = name === 'git' ? gitSubcommand(words) : null;
+    const isGitGrep = git?.words[0] === 'grep';
+    const reader = isGitGrep ? 'grep' : name;
+    const args = isGitGrep ? git.words.slice(1) : words;
     if (!BYPASS_COMMANDS.has(reader) || isInPlaceSed(name, args)) continue;
-    targets.push(...args.filter((a) => !a.startsWith('-')));
+    const dir = isGitGrep ? git.dir : '';
+    const read = readTargets(reader, args);
+    // git grep with no path searches the whole -C directory.
+    if (isGitGrep && read.length === 0 && dir) targets.push(dir);
+    for (const target of read)
+      targets.push(dir && !isAbsolute(target) ? join(dir, target) : target);
   }
   return targets;
 }

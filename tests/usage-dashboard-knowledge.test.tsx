@@ -182,8 +182,8 @@ describe('usage dashboard knowledge page', () => {
     expect(text()).toContain('lat-2');
   });
 
-  // @lat: [[usage-dashboard-knowledge#Usage Dashboard Knowledge#The section detail shows the reach series with a marker at each content change]]
-  it('shows the reach series with a marker at each content change', async () => {
+  // @lat: [[usage-dashboard-knowledge#Usage Dashboard Knowledge#The section detail shows the reach series and lists content changes]]
+  it('shows the reach series and lists content changes', async () => {
     await show(detailId);
     expect(
       container.querySelector('[role="img"][aria-label^="Reach per day"]'),
@@ -193,6 +193,8 @@ describe('usage dashboard knowledge page', () => {
     expect(markers.textContent).toContain('abc1234');
     expect(markers.textContent).toContain('2026-01-02');
     expect(text()).toContain('cli#CLI#Old search');
+    expect(text()).toContain('of 10 times expected.');
+    expect(text()).not.toContain('expected reads');
   });
 
   // @lat: [[usage-dashboard-knowledge#Usage Dashboard Knowledge#Missing or failed extensions show unknown with a reason]]

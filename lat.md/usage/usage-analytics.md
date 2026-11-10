@@ -32,13 +32,13 @@ These are the usage event fields. Units are in each entry. A type of `X | null` 
 - `event_id` (string): a random UUID. The CLI writer makes it when the command ends.
 - `ts` (string): ISO 8601 time, in UTC. It is the time the command started.
 - `duration_ms` (number): milliseconds from command start to command exit.
-- `command` (string): the command name, such as `search` or `hook UserPromptSubmit`.
+- `command` (string): the command name, such as `search`. A hook run records `hook` and its event, such as `hook UserPromptSubmit`.
 - `surface` (`cli`, `mcp` or `hook`): where the call came from. A `hook` command gets `hook`. Every MCP tool call gets `mcp`.
 - `caller` (`agent`, `human` or `hook-injected`): who ran it. `hook-injected` is a hook run. `agent` means lat detected an agent. Otherwise it is `human`.
 - `agent` (string or null): the agent name, such as `claude` or `codex`. Lat reads it from the agent's environment variables. Null has a reason.
 - `lat_version` (string): the lat version that wrote the event. It is `unknown` if lat cannot read it.
-- `session_id` (string or null): the agent session that ran the command. Null has a reason.
-- `parent_session_id` (string or null): the session that spawned this one. The CLI writer cannot know it. It writes null with `not_captured`.
+- `session_id` (string or null): the agent session that ran the command. Null has a reason. Claude Code sets the same `CLAUDE_CODE_SESSION_ID` in a subagent's commands as in its parent's, and nothing else in the environment tells them apart (`CLAUDE_CODE_CHILD_SESSION` is set on every process Claude Code spawns). So a lat command run by a Claude subagent is recorded under the parent session. Attribution makes up for this: when the parent session has no open claim, the event takes the claim of its one subagent that has an open claim at that time.
+- `parent_session_id` (string or null): the session that spawned this one. No agent exposes it to the commands it runs, so it is always null with `not_captured`.
 - `repo_root` (string): absolute path of the project root.
 - `git_head` (string or null): the full commit hash of HEAD, read from `.git` files. Lat does not run git. Null has a reason.
 - `worktree` (string or null): absolute path of the git worktree that holds the root. Null has a reason.
@@ -46,9 +46,9 @@ These are the usage event fields. Units are in each entry. A type of `X | null` 
 - `result_ids` (array of string): ranked section ids. For `lat expand`, the resolved ids. The CLI tap fills it from `lat search` (rank order), `lat expand` and the hook's search results, on exit 0 only. Otherwise it is an empty array.
 - `result_count` (number or null): the length of `result_ids`, set whenever the tap fills `result_ids`. Otherwise null, with `not_captured`.
 - `section_id` (string or null): the section a command read: the id on the first line of `lat section` output, or the section a hook printed in full. Otherwise null, with `not_captured`. Null without a reason when `found` is false.
-- `injected_bytes` (number or null): hook events only. The byte length of the `additionalContext` text a hook added to the prompt, 0 when it printed nothing. Null, with `not_captured`, for other hook output.
+- `injected_bytes` (number or null): hook events only. The byte length of all the text a hook gave the agent, summed: `additionalContext`, `permissionDecisionReason`, the Stop hook's `reason`, Cursor's `additional_context` and `followup_message`, and each `ephemeralMessage` of Antigravity's `injectSteps`. It is 0 when the hook printed nothing. Null, with `not_captured`, for other hook output.
 - `found` (boolean or null): whether a lookup found its target. Set by `lat section` only: true when a section printed, false when the command failed with none. Otherwise null, with `not_captured`.
-- `bytes_out` (number or null): bytes the command wrote to stdout, not stderr. Set for every command except `lat ui` and `lat ui run`, where it is null with `not_captured`.
+- `bytes_out` (number or null): bytes the command wrote to stdout, not stderr. Set for every command except `lat ui` and `lat ui run`, where it would be null with `not_captured`. In practice `lat ui` records no event at all: the tap writes the event when the process emits `exit`, and Node emits no `exit` when a signal ends the process. Ctrl-C always ends `lat ui`, and any command killed by a signal likewise records nothing.
 - `exit_code` (number): the process exit code. Zero means success.
 - `error_class` (string or null): null when the exit code is zero. Otherwise `nonzero_exit`.
 - `unknown_reasons` (object): the reason for each unknown null above. Keys are field names. Values are the three reasons from [[usage-analytics#Usage Analytics#Unknown values]].
@@ -56,6 +56,8 @@ These are the usage event fields. Units are in each entry. A type of `X | null` 
 The nullable keys are `agent`, `session_id`, `parent_session_id`, `git_head`, `worktree`, `query`, `section_id`, `injected_bytes`, `found`, `result_count`, `bytes_out` and `error_class`. The type `UsageNullableField` lists them.
 
 Every null that is unknown has an entry in `unknown_reasons`. A null that is not applicable has none. `query` and `error_class` are the two that have no entry.
+
+The reader in [[src/fork/usage/ingest.ts]] drops a log line whose `schema_version` is not the current one, or whose fields do not have the types above: a missing field, a number where a string belongs, or a `result_ids` entry that is not a string. It also drops any usage line or session event whose `ts` does not parse or falls outside 2000-01-01 to one day after now. A dropped line never reaches `state.json`. Loading `state.json` applies the same usage line checks again to each stored usage event (code in [[src/fork/usage/validate.ts]]). A stored session event is kept only when its `agent` is a string, its `event` is an object and the event's `ts` is plausible; the shape of each event kind is not checked again. A `state.json` whose top-level maps are not objects starts from an empty state.
 
 ## Session event
 
@@ -65,7 +67,7 @@ A SessionEvent is one fact that lat read from an agent transcript. Each source r
 
 Every session event has these fields.
 
-- `event_id` (string): 16 hex characters. It is a SHA-256 hash of the source path and the offset. The same line always gets the same id. See `sessionEventId`.
+- `event_id` (string): 16 hex characters. It is a SHA-256 hash of the source path and the offset. The same line always gets the same id. See `sessionEventId`. The Claude reader hashes the message id for token usage, and the tool_use id with a slot for tool calls, bypass reads and bd commands, so a subagent transcript that copies another's history yields the same ids. The pi reader hashes the entry id and timestamp for the same kinds, so a forked or branched pi session that copies earlier entries yields the same ids.
 - `session_id` (string): the session the fact belongs to.
 - `parent_session_id` (string, optional): set on every event of a subagent session. It names the session that spawned it. It is absent for a top-level session, where it does not apply.
 - `ts` (string): ISO 8601 time of the fact.
@@ -84,7 +86,7 @@ The `kind` field takes one of eight values.
 - `model`: adds `model` (string), the model name in use.
 - `tool_call`: adds `tool`. See [[usage-analytics#Usage Analytics#Session event#Tool call]].
 - `token_usage`: adds `usage`. See [[usage-analytics#Usage Analytics#Session event#Token usage]].
-- `bypass_read`: an agent read a file without lat. Adds `path` (string) and `bytes` (number or null).
+- `bypass_read`: an agent read a file without lat. Adds `path` (string) and `bytes` (number or null). A read or search whose result is an error read nothing, so it yields no `bypass_read`.
 - `bd_command`: an agent ran `bd claim` or `bd close`. Adds `verb` (`claim` or `close`) and `issue_id` (string).
 
 ### Tool call
@@ -92,7 +94,7 @@ The `kind` field takes one of eight values.
 The `tool` field of a `tool_call` event. The type is [[src/fork/usage/schema.ts#ToolCall]].
 
 - `name` (string): the agent's tool name.
-- `action` (`read`, `edit`, `search` or `shell`): what kind of work the call did.
+- `action` (`read`, `edit`, `search` or `shell`): what kind of work the call did. An edit whose result is an error changed nothing, so every reader skips it.
 - `path` (string or null): the file touched. It is relative to the worktree, with `/` separators. It is absolute when the file is outside the worktree. See `toWorktreeRelativePath`.
 - `bytes` (number or null): the size of the data the call moved. Null when the agent does not say.
 - `shell` (object): present when the action is `shell`, and only then.
@@ -123,13 +125,13 @@ Only two things create `.lat/usage/`: `lat usage enable`, and the logger of a pr
 
 Reading never opts a project in. The aggregator, the raw event index, graph snapshots, `lat usage`, `lat usage gaps`, the `lat_usage` MCP tool and the live endpoints never create the directory:
 
-- When usage is off, they read no session store and no log. `lat usage` and `lat usage gaps` print that tracking is not enabled and exit 0. The dashboard shows its empty state.
+- When usage is off, they read no session store and no log. `lat usage` and `lat usage gaps` print that tracking is not enabled and exit 0. The dashboard shows its empty state. An aggregator or raw event index that is already running drops the events it holds when usage turns off, and reads them again when it turns back on.
 - When only `LAT_USAGE=1` turns usage on and the directory does not exist, the aggregator keeps its state and graph snapshots in memory. It writes nothing to disk.
 - A failed snapshot cache write never turns a built snapshot into a failure.
 
 So `lat usage disable` stays effective: after it renames the directory, no read path brings it back.
 
-A cloned repository can ship `.lat/usage/` with symlinks in it. Writers write only when `.lat`, `.lat/usage` and `graph-snapshots` are real directories, not symlinks. If one is a symlink, they write nothing. The events file is opened with `O_NOFOLLOW`. Temporary files are created exclusively after any stale one is unlinked, so a planted symlink is removed, not followed. The graph snapshot cache is not read through a symlinked `graph-snapshots`. `lat usage enable` and `lat usage disable` refuse with exit code 1 when `.lat`, `.lat/usage` or `.lat/usage.disabled` is a symlink.
+A cloned repository can ship `.lat/usage/` with symlinks in it. Writers write only when `.lat`, `.lat/usage` and `graph-snapshots` are real directories, not symlinks. If one is a symlink, they write nothing. The events file is opened with `O_NOFOLLOW` and `O_NONBLOCK`, and a line is written only when the opened file is a regular file, so a FIFO planted there never blocks a command. Temporary files are created exclusively after any stale one is unlinked, so a planted symlink is removed, not followed. The graph snapshot cache is not read through a symlinked `graph-snapshots`. `lat usage enable` and `lat usage disable` refuse with exit code 1 when `.lat`, `.lat/usage` or `.lat/usage.disabled` is a symlink.
 
 Readers are guarded the same way. They read `state.json`, the events files and the snapshot cache only inside a real `.lat/usage`, and open each one with `O_NOFOLLOW` and `O_NONBLOCK`, then refuse anything that is not a regular file. A planted link to `/dev/zero` is never read.
 

@@ -27,7 +27,11 @@ A page opened on a URL carrying filter parameters shows those values in the filt
 
 ## Navigation keeps the filters
 
-Following a navigation entry keeps the filter parameters in the query string.
+Following a navigation entry keeps the filter parameters in the query string. It carries the filters only: a page's own parameter, such as Explore's `event=`, is not put on the navigation links.
+
+## Changing a filter keeps page parameters
+
+`setFilters` changes only the five filter names in the query string. A page parameter, such as Explore's `event=` selection, stays: at `/_usage/explore?agent=claude&event=e1&event=e2`, setting the agent to `codex` keeps both `event` parameters.
 
 ## Filters serialize to search parameters
 

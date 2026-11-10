@@ -43,6 +43,12 @@ A shell reader aimed at the `lat.md/` directory of the worktree adds a bypass re
 
 `bd update <id> --claim` yields a claim event and `bd close <ids>` one close event per issue id. Flag values such as `--reason no-action` are never issue ids. A failed command yields none.
 
+## A command that never ran records only the shell call
+
+A `CommandExecution` whose status is `failed` or `declined` and whose exit code is unknown (Codex writes `-1`) never started, or the user declined it.
+
+It yields its shell tool call with a null exit code and its reason, and no read, search, edit, bypass read or bd event.
+
 ## Token usage splits the cache
 
 A `token_usage_record` yields one token usage event. Input counts only uncached tokens, because Codex reports cached tokens inside its input total. The same response id seen twice counts once.

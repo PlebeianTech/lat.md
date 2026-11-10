@@ -379,6 +379,60 @@ describe('usage dashboard explore page', () => {
     expect(text()).not.toContain('SECRET-COMMAND');
   });
 
+  // @lat: [[usage-dashboard-explore#Usage Dashboard Explore#Unknown values are shown as unknown and no command text is shown]]
+  it('shows a null with no reason as a dash, and unknown only with a reason', async () => {
+    const u5 = usage('u5', '2026-01-05T09:59:00.000Z', {
+      agent: 'claude',
+      session_id: 's1',
+      unknown_reasons: { error_class: 'not_captured' },
+    });
+    events = [...all, u5];
+    await show();
+    const errorClass = (id: string) =>
+      container.querySelectorAll(`[data-event-id="${id}"] td`)[7].textContent;
+    expect(errorClass('u1')).toBe('—');
+    expect(errorClass('u5')).toBe('unknown');
+    const facet = [...container.querySelectorAll('fieldset')].find(
+      (f) => f.querySelector('legend')!.textContent === 'error_class',
+    )!;
+    expect(facet.textContent).toContain('none (');
+    expect(facet.textContent).not.toContain('unknown (');
+  });
+
+  // @lat: [[usage-dashboard-explore#Usage Dashboard Explore#Unknown values are shown as unknown and no command text is shown]]
+  it('shows a section only as unknown when a reason is recorded', async () => {
+    const u6 = usage('u6', '2026-01-05T09:58:00.000Z', {
+      agent: 'claude',
+      session_id: 's1',
+      command: 'section',
+      unknown_reasons: { section_id: 'not_captured' },
+    });
+    events = [...all, u6];
+    await show();
+    const section = (id: string) =>
+      container.querySelectorAll(`[data-event-id="${id}"] td`)[5].textContent;
+    expect(section('u1')).toBe('—');
+    expect(section('u6')).toBe('unknown');
+    const facet = [...container.querySelectorAll('fieldset')].find(
+      (f) => f.querySelector('legend')!.textContent === 'section_id',
+    )!;
+    expect(facet.textContent).toContain('none (');
+    expect(facet.textContent).not.toContain('unknown (');
+    const select = container.querySelector<HTMLSelectElement>(
+      'select[aria-label="Group by"]',
+    )!;
+    await act(async () => {
+      select.value = 'section_id';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => {});
+    const rows = [
+      ...container.querySelectorAll('[data-group-table] tbody tr'),
+    ].map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent));
+    expect(rows).toContainEqual(['none', '2']);
+    expect(rows).toContainEqual(['unknown', '1']);
+  });
+
   // @lat: [[usage-dashboard-explore#Usage Dashboard Explore#A bypass read shows its path]]
   it('shows the path of a bypass read', async () => {
     const b1 = {

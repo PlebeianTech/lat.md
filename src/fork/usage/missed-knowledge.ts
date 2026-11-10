@@ -1,6 +1,6 @@
 // @lat: [[usage-missed-knowledge#Usage Missed Knowledge]]
 import { execFile } from 'node:child_process';
-import { open } from 'node:fs/promises';
+import { closeSync, readSync } from 'node:fs';
 import { promisify } from 'node:util';
 import {
   dayOf,
@@ -14,6 +14,7 @@ import {
   type GraphSnapshot,
   type SnapshotResult,
 } from './graph-snapshot.js';
+import { openRegularFile } from './enabled.js';
 import type { SlimSessionEvent } from './state.js';
 
 const execFileAsync = promisify(execFile);
@@ -242,13 +243,27 @@ function latestHead(items: Item[]): string | null {
   return latest;
 }
 
+/** The head of the earliest item that carries one: the tree before the session's own commits. */
+function earliestHead(items: Item[]): string | null {
+  let earliest: string | null = null;
+  let earliestTs = Infinity;
+  for (const item of items) {
+    const head = item.usage?.git_head;
+    if (head && item.ts < earliestTs) {
+      earliest = head;
+      earliestTs = item.ts;
+    }
+  }
+  return earliest;
+}
+
 function scopePlan(plan: Plan, items: Item[]): ScopePlan {
   const inScope = new Set(items.map((item) => item.id));
   const rangeHead = latestHead(items);
   const heads = new Map<string, string | null>();
   for (const [id, sessionItems] of plan.itemsBySession) {
     if (!sessionItems.some((item) => inScope.has(item.id))) continue;
-    heads.set(id, latestHead(sessionItems) ?? rangeHead);
+    heads.set(id, earliestHead(sessionItems) ?? rangeHead);
   }
   const worktreesByHead = new Map<string, string[]>();
   const sessionItems = [...heads.keys()].flatMap(
@@ -352,18 +367,22 @@ export function collectCommands(
 const MAX_LINE_BYTES = 8 * 1024 * 1024;
 const CHUNK_BYTES = 64 * 1024;
 
+/**
+ * The line at `offset`, or null. The path comes from a session index, so it is
+ * opened like any usage file: no symlink, no FIFO or device, never blocking.
+ */
 export async function readLineAt(
   path: string,
   offset: number,
 ): Promise<string | null> {
-  let handle;
+  let fd: number | undefined;
   try {
-    handle = await open(path, 'r');
+    fd = openRegularFile(path);
     const chunks: Buffer[] = [];
     let position = offset;
     while (position - offset < MAX_LINE_BYTES) {
       const buffer = Buffer.alloc(CHUNK_BYTES);
-      const { bytesRead } = await handle.read(buffer, 0, CHUNK_BYTES, position);
+      const bytesRead = readSync(fd, buffer, 0, CHUNK_BYTES, position);
       if (bytesRead === 0) break;
       const newline = buffer.subarray(0, bytesRead).indexOf(0x0a);
       if (newline !== -1) {
@@ -377,7 +396,7 @@ export async function readLineAt(
   } catch {
     return null;
   } finally {
-    await handle?.close();
+    if (fd !== undefined) closeSync(fd);
   }
 }
 
@@ -402,7 +421,10 @@ async function sectionIdsAt(path: string, offset: number): Promise<string[]> {
   return [...ids];
 }
 
-function relativeToRoot(path: string | null, prefix: string): string | null {
+export function relativeToRoot(
+  path: string | null,
+  prefix: string,
+): string | null {
   if (path === null || path === '' || path === '.' || path.startsWith('/'))
     return null;
   const clean = path.replace(/^\.\//, '');
@@ -410,11 +432,20 @@ function relativeToRoot(path: string | null, prefix: string): string | null {
   return clean.startsWith(prefix) ? clean.slice(prefix.length) : null;
 }
 
+/** An edited file under the project root that is not in its `lat.md/` knowledge directory. */
+export function sourceFileOf(
+  path: string | null,
+  prefix: string,
+): string | null {
+  const file = relativeToRoot(path, prefix);
+  return file === null || file.startsWith('lat.md/') ? null : file;
+}
+
 function editsOf(info: SessionInfo, prefix: string) {
   const edits = new Map<string, { first: number; count: number }>();
   for (const event of info.events) {
     if (event.kind !== 'tool_call' || event.tool.action !== 'edit') continue;
-    const file = relativeToRoot(event.tool.path, prefix);
+    const file = sourceFileOf(event.tool.path, prefix);
     if (file === null) continue;
     const ts = Date.parse(event.ts);
     const known = edits.get(file);
@@ -787,90 +818,113 @@ function measureScope(
   return measured;
 }
 
-export const missedKnowledgeContribution: Contribution = {
-  key: 'missed_knowledge',
-  async prepare(context) {
-    const plan = buildPlan(context);
-    const store =
-      loaded.get(context.root) ?? newStore(await readPrefix(context.root));
-    loaded.set(context.root, store);
-    const lines = new Map<string, string[]>();
-    const scopes = [context.items];
-    if (context.previousItems) scopes.push(context.previousItems);
-    for (const items of scopes)
-      await loadScope(context.root, plan, scopePlan(plan, items), store, lines);
-  },
-  compute(context): MissedKnowledge {
-    const store = loaded.get(context.root) ?? newStore('');
-    const plan = buildPlan(context);
-    const current = measureScope(context.items, plan, context, store);
-    const results = current.map((measured) => measured.result);
-    const previous = context.previousItems
-      ? statsOf(
-          measureScope(context.previousItems, plan, context, store).map(
-            (measured) => measured.result,
-          ),
-        )
-      : null;
+async function loadAll(context: AggregateContext): Promise<void> {
+  const plan = buildPlan(context);
+  const store =
+    loaded.get(context.root) ?? newStore(await readPrefix(context.root));
+  loaded.set(context.root, store);
+  const lines = new Map<string, string[]>();
+  const scopes = [context.items];
+  if (context.previousItems) scopes.push(context.previousItems);
+  for (const items of scopes)
+    await loadScope(context.root, plan, scopePlan(plan, items), store, lines);
+}
 
-    const undocumented = new Map<string, { sessions: number; edits: number }>();
-    for (const measured of current)
-      for (const [path, edits] of measured.undocumented) {
-        const row = undocumented.get(path) ?? { sessions: 0, edits: 0 };
-        row.sessions++;
-        row.edits += edits;
-        undocumented.set(path, row);
+function measureAll(context: AggregateContext): MissedKnowledge {
+  const store = loaded.get(context.root) ?? newStore('');
+  const plan = buildPlan(context);
+  const current = measureScope(context.items, plan, context, store);
+  const results = current.map((measured) => measured.result);
+  const previous = context.previousItems
+    ? statsOf(
+        measureScope(context.previousItems, plan, context, store).map(
+          (measured) => measured.result,
+        ),
+      )
+    : null;
+
+  const undocumented = new Map<string, { sessions: number; edits: number }>();
+  for (const measured of current)
+    for (const [path, edits] of measured.undocumented) {
+      const row = undocumented.get(path) ?? { sessions: 0, edits: 0 };
+      row.sessions++;
+      row.edits += edits;
+      undocumented.set(path, row);
+    }
+
+  const byDay = new Map<string, SessionReach[]>();
+  for (const result of results) {
+    if (result.start === null) continue;
+    const day = dayOf(Date.parse(result.start));
+    byDay.set(day, [...(byDay.get(day) ?? []), result]);
+  }
+  const days = context.days;
+
+  const rolledSessions = new Map<string, Set<string>>();
+  for (const result of results)
+    for (const item of plan.itemsBySession.get(result.session_id) ?? [])
+      for (const id of context.rolledIssues.get(item.id) ?? []) {
+        const sessions = rolledSessions.get(id) ?? new Set<string>();
+        sessions.add(result.session_id);
+        rolledSessions.set(id, sessions);
       }
 
-    const byDay = new Map<string, SessionReach[]>();
-    for (const result of results) {
-      if (result.start === null) continue;
-      const day = dayOf(Date.parse(result.start));
-      byDay.set(day, [...(byDay.get(day) ?? []), result]);
+  const scopeIds = new Set(context.items.map((item) => item.id));
+  return {
+    method_version: MISSED_KNOWLEDGE_METHOD_VERSION,
+    notes: NOTES,
+    totals: statsOf(results),
+    previous,
+    daily: days.map((day) => {
+      const { sessions, expected_sections, reached, reach } = statsOf(
+        byDay.get(day) ?? [],
+      );
+      return { day, sessions, expected_sections, reached, reach };
+    }),
+    by_issue_type: groupedStats(results, (result) => result.issue_types),
+    by_agent: groupedStats(results, (result) => [result.agent ?? 'unknown']),
+    by_issue: [...rolledSessions]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([key, sessionIds]) => ({
+        key,
+        issue_type:
+          context.attribution.issues.get(key)?.issue_type ?? 'untyped',
+        own: statsOf(results.filter((r) => r.issue_ids.includes(key))),
+        rolled_up: statsOf(results.filter((r) => sessionIds.has(r.session_id))),
+      })),
+    sessions: results,
+    records: current.flatMap((measured) => measured.records),
+    undocumented_files: [...undocumented]
+      .map(([path, row]) => ({ path, ...row }))
+      .sort((a, b) => b.edits - a.edits || a.path.localeCompare(b.path)),
+    unjoinable_events: [...plan.unjoinable].filter((id) => scopeIds.has(id))
+      .length,
+  };
+}
+
+// One summary asks for prepare and compute several times (the scorecard and
+// miss-consequences contributions call them too); each AggregateContext does
+// the work once.
+const preparedByContext = new WeakMap<AggregateContext, Promise<void>>();
+const measuredByContext = new WeakMap<AggregateContext, MissedKnowledge>();
+
+export const missedKnowledgeContribution: Contribution = {
+  key: 'missed_knowledge',
+  prepare(context) {
+    let promise = preparedByContext.get(context);
+    if (!promise) {
+      promise = loadAll(context);
+      preparedByContext.set(context, promise);
+      promise.catch(() => preparedByContext.delete(context));
     }
-    const days = context.days;
-
-    const rolledSessions = new Map<string, Set<string>>();
-    for (const result of results)
-      for (const item of plan.itemsBySession.get(result.session_id) ?? [])
-        for (const id of context.rolledIssues.get(item.id) ?? []) {
-          const sessions = rolledSessions.get(id) ?? new Set<string>();
-          sessions.add(result.session_id);
-          rolledSessions.set(id, sessions);
-        }
-
-    const scopeIds = new Set(context.items.map((item) => item.id));
-    return {
-      method_version: MISSED_KNOWLEDGE_METHOD_VERSION,
-      notes: NOTES,
-      totals: statsOf(results),
-      previous,
-      daily: days.map((day) => {
-        const { sessions, expected_sections, reached, reach } = statsOf(
-          byDay.get(day) ?? [],
-        );
-        return { day, sessions, expected_sections, reached, reach };
-      }),
-      by_issue_type: groupedStats(results, (result) => result.issue_types),
-      by_agent: groupedStats(results, (result) => [result.agent ?? 'unknown']),
-      by_issue: [...rolledSessions]
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([key, sessionIds]) => ({
-          key,
-          issue_type:
-            context.attribution.issues.get(key)?.issue_type ?? 'untyped',
-          own: statsOf(results.filter((r) => r.issue_ids.includes(key))),
-          rolled_up: statsOf(
-            results.filter((r) => sessionIds.has(r.session_id)),
-          ),
-        })),
-      sessions: results,
-      records: current.flatMap((measured) => measured.records),
-      undocumented_files: [...undocumented]
-        .map(([path, row]) => ({ path, ...row }))
-        .sort((a, b) => b.edits - a.edits || a.path.localeCompare(b.path)),
-      unjoinable_events: [...plan.unjoinable].filter((id) => scopeIds.has(id))
-        .length,
-    };
+    return promise;
+  },
+  compute(context): MissedKnowledge {
+    let result = measuredByContext.get(context);
+    if (!result) {
+      result = measureAll(context);
+      measuredByContext.set(context, result);
+    }
+    return result;
   },
 };

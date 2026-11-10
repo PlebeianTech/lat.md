@@ -221,9 +221,14 @@ export function attributeActivity(
   const intervals = claimIntervals(sessionEvents, snapshot.issues);
   const issueParent = parentLinks(snapshot.issues);
   const parentOf = new Map<string, string>();
+  const childrenOf = new Map<string, Set<string>>();
   for (const item of [...sessionEvents, ...activity])
-    if (item.session_id && item.parent_session_id)
+    if (item.session_id && item.parent_session_id) {
       parentOf.set(item.session_id, item.parent_session_id);
+      const children = childrenOf.get(item.parent_session_id) ?? new Set();
+      children.add(item.session_id);
+      childrenOf.set(item.parent_session_id, children);
+    }
 
   for (const item of activity) {
     const ts = Date.parse(item.ts);
@@ -236,6 +241,15 @@ export function attributeActivity(
     ) {
       seen.add(session);
       claimed = openIssues(intervals.get(session), ts);
+    }
+    // The CLI tap logs a subagent's lat commands under its parent's session
+    // id, so a claim held by one direct child session covers them too.
+    if (claimed.length === 0 && item.session_id) {
+      const fromChildren = new Set<string>();
+      for (const child of childrenOf.get(item.session_id) ?? [])
+        for (const id of openIssues(intervals.get(child), ts))
+          fromChildren.add(id);
+      if (fromChildren.size === 1) claimed = [...fromChildren];
     }
     if (claimed.length > 0) {
       attributions.set(

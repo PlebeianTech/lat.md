@@ -17,7 +17,7 @@ Facet filters apply in the page, over all events of the current filters, because
 
 ## Group-by produces counts by the chosen field
 
-Choosing a field in the group-by control replaces the event table with a table of counts per value, most frequent first, with unknown values counted as "unknown" and the top 20 values shown.
+Choosing a field in the group-by control replaces the event table with a table of counts per value, most frequent first, with unknown values counted as "unknown" (a null error class as "none") and the top 20 values shown.
 
 ## Paging loads the next page without duplicates
 
@@ -46,6 +46,8 @@ An `event` query parameter, repeated or not, shows only those events through the
 ## Unknown values are shown as unknown and no command text is shown
 
 A null field reads "unknown". The table shows ids, counts, paths and section ids only: a stored command text is never rendered.
+
+A null error class or section id reads "unknown" only when the event records a reason for it. With no reason the field does not apply, such as the error class of a success or the section of a `lat search`, and it reads "—". Its facet and group-by bucket is labelled "none", and nulls with a reason get their own "unknown" bucket.
 
 ## A bypass read shows its path
 

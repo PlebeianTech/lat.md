@@ -154,7 +154,12 @@ function FindingList({
 }) {
   const shown = result.findings
     .filter((f) => f.kind === kind)
-    .sort((a, b) => b.count - a.count || a.id.localeCompare(b.id))
+    .sort(
+      (a, b) =>
+        b.sessions - a.sessions ||
+        b.count - a.count ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    )
     .slice(0, TOP_FINDINGS);
   return (
     <>
@@ -338,7 +343,7 @@ const GROUPS: { name: GroupName; title: string }[] = [
 ];
 
 const REASON_PHRASES: Record<string, string> = {
-  no_eligible_sample: 'no session or issue is old enough to judge',
+  no_eligible_sample: 'no eligible session or issue in the sample',
   session_end_unknown: 'session end time unknown',
   never_closed: 'issue never closed',
   not_in_bd: 'issue not in bd',
@@ -368,12 +373,35 @@ function rateText(rate: WindowedRate): string {
 
 function effortText(effort: CounterEffort): string {
   const unknown =
-    effort.unknown_issues > 0
+    (effort.unknown_issues > 0
       ? ` +${count(effort.unknown_issues)} unknown`
-      : '';
+      : '') +
+    (effort.issues_with_unknown > 0
+      ? `; ${count(effort.issues_with_unknown)} partly unknown`
+      : '');
   if (effort.median === null)
     return unknownText(reasonPhrase(effort.reason ?? 'no sample')) + unknown;
   return `${count(effort.median)} (n=${count(effort.sample)})${unknown}`;
+}
+
+function formatDuration(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  if (minutes === 0) return `${seconds}s`;
+  const hours = Math.floor(minutes / 60);
+  return hours === 0
+    ? `${minutes}m ${seconds % 60}s`
+    : `${hours}h ${minutes % 60}m`;
+}
+
+function durationText({ effort }: GroupResult): string {
+  const unknown =
+    effort.duration_unknown > 0
+      ? ` +${count(effort.duration_unknown)} unknown`
+      : '';
+  if (effort.duration_ms_median === null)
+    return `${unknownText(reasonPhrase(effort.duration_reason ?? 'no sample'))} (n=${count(effort.duration_sample)})${unknown}`;
+  return `${formatDuration(effort.duration_ms_median)} (n=${count(effort.duration_sample)})${unknown}`;
 }
 
 function failedRunsText(group: GroupResult): string {
@@ -402,6 +430,7 @@ function comparisonRows(
       cell: (g: GroupResult) =>
         effortText(g.effort.tokens[counter as keyof typeof g.effort.tokens]),
     })),
+    { metric: 'Median duration per issue', cell: durationText },
   ];
 }
 

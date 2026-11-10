@@ -77,6 +77,12 @@ When `.lat` or `.lat/usage` is a symlink, usage is off for the project. `LAT_USA
 
 When `state.json` is a symlink, to an outside file or to `/dev/zero`, loading state does not read it and starts from an empty state.
 
+## Loading state drops malformed content
+
+A `state.json` with version 2 but no maps, such as `{"version":2}`, loads as an empty state, and an aggregator refresh over it does not throw.
+
+A stored usage event dated 3000-01-01 and a stored session event with no plausible ts are dropped on load. Valid stored events are kept.
+
 ## The event log reads only regular files
 
 A symlinked events file is not ingested. A regular events file at the same path is.

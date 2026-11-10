@@ -231,6 +231,38 @@ describe('utilization findings', () => {
     });
   });
 
+  // @lat: [[usage-findings-utilization#Usage Findings Utilization#A search that missed a needed section is reported]]
+  it('takes the first edit under the project root, not above it', async () => {
+    const detector = createUtilizationDetector(async () => 'pkg/');
+    await detector.prepare!({ root: '/r' });
+    const [found] = detector.detect(
+      input(
+        [
+          edit('e1', 'A', 'other/x.ts', 1),
+          search('s1', 'A', 'locks', 2),
+          edit('e2', 'A', 'pkg/a.ts', 3),
+        ],
+        analysis([], [missed('A', 'locks#Locks#Order', ['locks'])]),
+      ),
+    );
+    expect(found).toMatchObject({ count: 1, sessions: 1, evidence: ['s1'] });
+  });
+
+  // @lat: [[usage-findings-utilization#Usage Findings Utilization#A search that missed a needed section is reported]]
+  it('does not end the window at an edit under lat.md/', () => {
+    const result = computeFindings(
+      input(
+        [
+          edit('e1', 'A', 'lat.md/notes.md', 1),
+          search('s1', 'A', 'locks', 2),
+          edit('e2', 'A', 'src/a.ts', 3),
+        ],
+        analysis([], [missed('A', 'locks#Locks#Order', ['locks'])]),
+      ),
+    );
+    expect(result.findings[0]).toMatchObject({ evidence: ['s1'] });
+  });
+
   // @lat: [[usage-findings-utilization#Usage Findings Utilization#Utilization findings rank and group like other findings]]
   it('ranks both kinds with the other detectors', () => {
     const result = computeFindings(

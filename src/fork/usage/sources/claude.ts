@@ -210,6 +210,8 @@ function firstOpenMessageGroup(lines: TranscriptLine[]): TranscriptLine | null {
   });
   if (last === -1 || lines.slice(last + 1).some((l) => isClosingLine(l.record)))
     return null;
+  // A finished turn ends the transcript with nothing after it.
+  if (lines[last].record.message.stop_reason === 'end_turn') return null;
   const id = lines[last].record.message.id;
   return (
     lines.find(
@@ -306,13 +308,38 @@ function readFrom(
   const lines = parsed.lines.filter((line) => line.offset < holdOffset);
   const checkpointOffset = holdOffset;
 
+  // Records such as `mode` and `last-prompt` carry no timestamp. Lines before
+  // the first timestamp take that one. A read with no timestamp at all has no
+  // real time to give, so it reports nothing and is read again later.
+  const firstTs = lines.find((l) => typeof l.record.timestamp === 'string')
+    ?.record.timestamp as string | undefined;
+  if (firstTs === undefined)
+    return { events: [], checkpoint: { offset: start }, reason: null };
+
+  // Claude Code writes one line per content block of a message, and the usage
+  // on early lines is a partial streaming count. The last line holds the
+  // final count, and its timestamp makes a later read's event replace an
+  // earlier read's partial one in the usage state.
+  const finalUsage = new Map<string, { usage: any; ts: string }>();
+  for (const { record } of lines) {
+    const message = record.message;
+    if (record.type === 'assistant' && message?.id && message.usage)
+      finalUsage.set(message.id, {
+        usage: message.usage,
+        ts:
+          typeof record.timestamp === 'string'
+            ? record.timestamp
+            : (finalUsage.get(message.id)?.ts ?? firstTs),
+      });
+  }
+
   const events: SessionEvent[] = [];
   const perOffset = new Map<number, number>();
   const rootCache = new Map<string, string>();
   const seenMessages = new Set<string>();
   let lastModel: string | null = null;
   let lastTitle: string | null = null;
-  let lastTs: string | null = null;
+  let lastTs = firstTs;
   let lastOffset: number | null = null;
   let lastIds: SessionIds | null = null;
   let cwd = '';
@@ -322,6 +349,7 @@ function readFrom(
     ts: string,
     ids: SessionIds,
     payload: Record<string, unknown>,
+    eventId?: string,
   ) => {
     const slot = SINGLE_SLOT_KINDS.has(payload.kind as string)
       ? String(payload.kind)
@@ -329,10 +357,12 @@ function readFrom(
     if (!SINGLE_SLOT_KINDS.has(payload.kind as string))
       perOffset.set(offset, Number(slot) + 1);
     events.push({
-      event_id: sessionEventId(
-        slot === '0' ? sessionPath : `${sessionPath}#${slot}`,
-        offset,
-      ),
+      event_id:
+        eventId ??
+        sessionEventId(
+          slot === '0' ? sessionPath : `${sessionPath}#${slot}`,
+          offset,
+        ),
       session_id: ids.sessionId,
       ts,
       source: { path: sessionPath, offset },
@@ -349,7 +379,7 @@ function readFrom(
     const ids: SessionIds = record.agentId
       ? { sessionId: `agent-${record.agentId}`, parent: transcriptSession }
       : { sessionId: transcriptSession, parent: null };
-    const ts = lastTs ?? new Date(0).toISOString();
+    const ts = lastTs;
 
     if (lastIds === null && start === 0)
       push(offset, ts, ids, { kind: 'session_start' });
@@ -374,19 +404,33 @@ function readFrom(
       lastModel = message.model;
       push(offset, ts, ids, { kind: 'model', model: message.model });
     }
-    if (message.usage && message.id && !seenMessages.has(message.id)) {
+    const final = message.id ? finalUsage.get(message.id) : undefined;
+    if (final && !seenMessages.has(message.id)) {
       seenMessages.add(message.id);
-      const usage = message.usage;
-      push(offset, ts, ids, {
-        kind: 'token_usage',
-        usage: tokenCounters({
-          input: usage.input_tokens,
-          output: usage.output_tokens,
-          cache_read: usage.cache_read_input_tokens,
-          cache_write: usage.cache_creation_input_tokens,
-          reasoning: usage.output_tokens_details?.thinking_tokens,
-        }),
-      });
+      const usage = final.usage;
+      // One message spans several lines, and a live read can stop between
+      // them. The id comes from the message id, not the line offset, so a
+      // later read that sees the same message again gives the same event,
+      // which replaces the stored one when its timestamp is later. The id
+      // leaves out the transcript path too: a subagent transcript can begin
+      // with a copy of another agent's messages, and the copy must not count
+      // the same tokens again.
+      push(
+        offset,
+        final.ts,
+        ids,
+        {
+          kind: 'token_usage',
+          usage: tokenCounters({
+            input: usage.input_tokens,
+            output: usage.output_tokens,
+            cache_read: usage.cache_read_input_tokens,
+            cache_write: usage.cache_creation_input_tokens,
+            reasoning: usage.output_tokens_details?.thinking_tokens,
+          }),
+        },
+        sessionEventId(`claude#token_usage#${message.id}`, 0),
+      );
     }
 
     const worktreeRoot = findWorktreeRoot(cwd || '/', rootCache);
@@ -400,14 +444,24 @@ function readFrom(
       const input = use.input ?? {};
       const result = results.get(use.id);
       const bytes = result ? Buffer.byteLength(result.text) : null;
+      // Ids come from the tool_use id, which is unique across transcripts,
+      // and not from the transcript path. A copied history in a subagent
+      // transcript then gives the same events, and the state keeps each once.
+      let useSlot = 0;
+      const useEventId = () =>
+        typeof use.id === 'string'
+          ? sessionEventId(`claude#tool_use#${use.id}#${useSlot++}`, 0)
+          : undefined;
       const emitTool = (tool: ToolCall) =>
-        push(offset, ts, ids, { kind: 'tool_call', tool });
+        push(offset, ts, ids, { kind: 'tool_call', tool }, useEventId());
       const emitBypass = (file: string) =>
-        push(offset, ts, ids, {
-          kind: 'bypass_read',
-          path: relativePath(file),
-          bytes,
-        });
+        push(
+          offset,
+          ts,
+          ids,
+          { kind: 'bypass_read', path: relativePath(file), bytes },
+          useEventId(),
+        );
 
       switch (use.name) {
         case 'Read': {
@@ -419,7 +473,8 @@ function readFrom(
             path: relativePath(file),
             bytes,
           });
-          if (targetsKnowledge(file)) emitBypass(file);
+          // An errored Read (hook block, denial) read nothing.
+          if (!result?.isError && targetsKnowledge(file)) emitBypass(file);
           break;
         }
         case 'Edit':
@@ -427,7 +482,7 @@ function readFrom(
         case 'MultiEdit':
         case 'NotebookEdit': {
           const file = input.file_path ?? input.notebook_path;
-          if (typeof file !== 'string') break;
+          if (typeof file !== 'string' || result?.isError) break;
           emitTool({
             name: use.name,
             action: 'edit',
@@ -445,7 +500,15 @@ function readFrom(
             path: target === null ? null : relativePath(target),
             bytes,
           });
-          if (target !== null && targetsKnowledge(target)) emitBypass(target);
+          // Glob lists names and reads no content, as pi's ls, OpenCode's
+          // glob and Antigravity's find_by_name do: not a bypass read.
+          if (
+            use.name === 'Grep' &&
+            !result?.isError &&
+            target !== null &&
+            targetsKnowledge(target)
+          )
+            emitBypass(target);
           break;
         }
         case 'Bash': {
@@ -460,6 +523,9 @@ function readFrom(
             bytes,
             shell: { command, exit_code: exit },
           });
+          // An error with no exit code is a hook block or a permission
+          // denial: the command never ran, so it wrote, read and closed nothing.
+          if (result?.isError && exit.value === null) break;
           for (const file of shellWritePaths(segments))
             emitTool({
               name: use.name,
@@ -471,14 +537,20 @@ function readFrom(
             if (targetsKnowledge(arg)) emitBypass(arg);
           if (exit.value === 0 || exit.value === null)
             for (const bd of bdCommands(segments))
-              push(offset, ts, ids, { kind: 'bd_command', ...bd });
+              push(
+                offset,
+                ts,
+                ids,
+                { kind: 'bd_command', ...bd },
+                useEventId(),
+              );
           break;
         }
       }
     }
   }
 
-  if (lastIds && lastOffset !== null && lastTs)
+  if (lastIds && lastOffset !== null)
     push(lastOffset, lastTs, lastIds, { kind: 'session_end' });
 
   return { events, checkpoint: { offset: checkpointOffset }, reason: null };

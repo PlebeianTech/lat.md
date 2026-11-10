@@ -24,9 +24,9 @@ const KIND_GUIDANCE: Record<string, { means: string; action: string }> = {
   },
   'bypassed-file': {
     means:
-      'An agent read this file directly instead of reaching it through a lat section.',
+      'Agents read this file under lat.md/ directly instead of through lat.',
     action:
-      'Describe the file in a section that links to it, so a search leads there first.',
+      'Make its sections easy to reach through lat search, or split the file if it is too large to read through lat.',
   },
   'never-read-section': {
     means: 'No agent has read this section in the selected period.',
@@ -53,6 +53,14 @@ const GENERIC_GUIDANCE = {
   means: 'This kind of finding has no description in the dashboard yet.',
   action: 'Open the evidence events to see what happened.',
 };
+
+// @lat: [[usage-dashboard#Usage Dashboard#Findings]]
+function fromSections(finding: Finding): boolean {
+  return (
+    finding.kind === 'stale-hot-section' ||
+    finding.kind === 'never-read-section'
+  );
+}
 
 function formatTime(value: string | null): string | null {
   return value === null ? null : value.replace('T', ' ').slice(0, 16);
@@ -114,9 +122,6 @@ function EvidenceList({
       <h2>Evidence</h2>
       {raw.error && <p role="alert">{raw.error.message}</p>}
       {raw.loading && !raw.data && <p>Loading events…</p>}
-      {finding.evidence.length === 0 && (
-        <p>This finding has no events: nothing read the section.</p>
-      )}
       <ul>
         {finding.evidence.map((eventId) => {
           const record = byId.get(eventId);
@@ -165,6 +170,14 @@ function EvidenceList({
   );
 }
 
+function noEvidenceText(kind: string): string {
+  if (kind === 'never-read-section')
+    return 'This finding has no events: nothing read the section.';
+  if (kind === 'stale-hot-section')
+    return "This finding has no events of its own: its count is the section's reads.";
+  return 'This finding has no events.';
+}
+
 function FindingDetail({
   finding,
   search,
@@ -179,12 +192,23 @@ function FindingDetail({
         <Link to={`/_usage/findings${search}`}>All findings</Link>
       </p>
       <h1>{finding.subject}</h1>
-      <p>
-        {finding.kind}: {finding.count.toLocaleString('en-US')} events in{' '}
-        {finding.sessions.toLocaleString('en-US')} sessions, first seen{' '}
-        {formatTime(finding.first_seen) ?? 'unknown'}, last seen{' '}
-        {formatTime(finding.last_seen) ?? 'unknown'}.
-      </p>
+      {finding.kind === 'stale-hot-section' ? (
+        <p>
+          {finding.kind}: the section was read{' '}
+          {finding.count.toLocaleString('en-US')} times.
+        </p>
+      ) : finding.kind === 'never-read-section' ? (
+        <p>
+          {finding.kind}: no agent read this section in the selected period.
+        </p>
+      ) : (
+        <p>
+          {finding.kind}: {finding.count.toLocaleString('en-US')} events in{' '}
+          {finding.sessions.toLocaleString('en-US')} sessions, first seen{' '}
+          {formatTime(finding.first_seen) ?? 'unknown'}, last seen{' '}
+          {formatTime(finding.last_seen) ?? 'unknown'}.
+        </p>
+      )}
       <h2>What it means</h2>
       <p>{guidance.means}</p>
       <h2>What to do</h2>
@@ -205,7 +229,15 @@ function FindingDetail({
           </Link>
         </p>
       )}
-      <EvidenceList finding={finding} search={search} />
+      {finding.evidence.length > 0 ? (
+        // An empty id list means no filter to the server, so never send one.
+        <EvidenceList finding={finding} search={search} />
+      ) : (
+        <section>
+          <h2>Evidence</h2>
+          <p>{noEvidenceText(finding.kind)}</p>
+        </section>
+      )}
     </section>
   );
 }
@@ -254,18 +286,19 @@ function FindingsList({
           {
             key: 'sessions',
             header: 'Sessions',
-            value: (f) => f.sessions,
+            value: (f) => (fromSections(f) ? null : f.sessions),
+            unknownText: '—',
             numeric: true,
           },
           {
             key: 'first',
             header: 'First seen',
-            value: (f) => formatTime(f.first_seen),
+            value: (f) => (fromSections(f) ? '—' : formatTime(f.first_seen)),
           },
           {
             key: 'last',
             header: 'Last seen',
-            value: (f) => formatTime(f.last_seen),
+            value: (f) => (fromSections(f) ? '—' : formatTime(f.last_seen)),
           },
         ]}
         rows={shown}
@@ -273,7 +306,10 @@ function FindingsList({
         href={(f) => `/_usage/findings/${encodeURIComponent(f.id)}${search}`}
         trend={{
           header: 'Daily',
-          points: (f) => f.daily.map((d) => ({ day: d.day, value: d.count })),
+          points: (f) =>
+            fromSections(f)
+              ? []
+              : f.daily.map((d) => ({ day: d.day, value: d.count })),
         }}
         activeFilters={[
           ...Object.entries(filters).map(

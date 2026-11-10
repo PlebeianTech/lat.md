@@ -55,6 +55,8 @@ A shell call that ran `lat section` with an exact section id counts as a read wh
 
 An edited file that no section covers is no-coverage and is no miss. A file absent from the tree at the head is new-file. A file present there is undocumented. A tree that cannot be listed makes the file unclassified.
 
+An edit to a file under `lat.md/` is a knowledge edit and is not counted at all.
+
 ## The tree listing is relative to a subdirectory root
 
 When the project root is a subdirectory of the repository, the files are matched and listed relative to that root, and files outside it are ignored.
@@ -77,9 +79,11 @@ A session whose snapshot has no code-ref edges and no symbol-ref edges has no ex
 
 An event with a session id belongs to that session. Without one it belongs to the single session of the same agent and worktree whose window holds its time. Zero or several matches leave it out and count it as unjoinable.
 
-## The snapshot follows the latest head of the session
+## The snapshot follows the earliest head of the session
 
-The snapshot is the one at the latest git head of the lat commands of the session. A session without lat commands uses the latest head of the range.
+The snapshot is the one at the earliest git head of the lat commands of the session, the tree before the session's own commits. A session without lat commands uses the latest head of the range.
+
+A section or file the session created and committed is therefore not expected of it, and the file counts as new-file.
 
 ## Reach is reached over expected
 
@@ -104,3 +108,11 @@ The result has the reach per UTC day of the session start, the reach of the prev
 ## The result names its method
 
 The result has a method_version, a note that the reasons are inferred and a note that it measures existing documented code.
+
+## A transcript line is read only from a regular file
+
+A transcript path comes from a session index that a repository can plant. A symlink or a FIFO named `*.jsonl` gives no line, at once, and a regular file gives the line at the offset.
+
+## Prepare and compute run once per context
+
+A second prepare on the same context makes no snapshot call, and a second compute returns the first result object, so one summary measures once.

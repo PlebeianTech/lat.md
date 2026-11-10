@@ -356,11 +356,35 @@ describe('usage miss consequences', () => {
     const reopens = result.groups.reached_everything.reopened_issues;
     expect(result.reopen_limit.retention_days).toBe(7);
     expect(result.reopen_limit.note).toContain('7 days');
-    expect(result.windows.reopen_days).toBe(7);
+    expect(result.windows.reopen_days).toBe(3.5);
     expect(reopens.left_out_other).toEqual({ before_journal_retention: 2 });
     expect(reopens.left_out_window_not_complete).toBe(1);
     expect(reopens.sample).toBe(1);
     expect(reopens.count).toBe(0);
+  });
+
+  // @lat: [[usage-miss-consequences#Usage Miss Consequences#A reopen counts inside the window and the journal retention]]
+  it('has a non-zero sample when the last event is a little before now', () => {
+    const result = build({
+      sessions: [session('a', { issues: ['closed'] })],
+      spans: [span('a', 0, 1)],
+      snapshot: snapshot({
+        issues: [issue('closed', null)],
+        reopens: [
+          {
+            issueId: 'closed',
+            ts: iso(day(66)),
+            seq: 1,
+            closedTs: iso(day(64)),
+          },
+        ],
+      }),
+      lastEvent: day(69.5),
+      now: day(70),
+    });
+    const reopens = result.groups.reached_everything.reopened_issues;
+    expect(reopens.sample).toBe(1);
+    expect(reopens.count).toBe(1);
   });
 
   // @lat: [[usage-miss-consequences#Usage Miss Consequences#A reopen counts inside the window and the journal retention]]
@@ -632,7 +656,7 @@ describe('usage miss consequences through the contribution', () => {
   });
 
   // @lat: [[usage-miss-consequences#Usage Miss Consequences#The command is re-read through the source pointer and never stored]]
-  it('re-reads only non-zero shell calls and counts listed runners', async () => {
+  it('re-reads only failed or unknown-exit shell calls and counts listed runners', async () => {
     const call = (command: string) => ({
       type: 'assistant',
       message: { content: [{ type: 'tool_use', input: { command } }] },
@@ -657,13 +681,26 @@ describe('usage miss consequences through the contribution', () => {
   });
 
   // @lat: [[usage-miss-consequences#Usage Miss Consequences#Failed test runs count only listed runners with a non-zero exit]]
-  it('does not count a null exit code', async () => {
+  it('treats a session whose only test runs have a null exit code as unknown', async () => {
+    const command = (text: string) => ({
+      message: { content: [{ input: { command: text } }] },
+    });
     const { path, offsets } = transcript([
-      { message: { content: [{ input: { command: 'pnpm test' } }] } },
+      command('pnpm test'),
+      command('pnpm test'),
+      command('echo hi'),
     ]);
-    const result = await run([shellEvent('e1', 's1', path, offsets[0], null)]);
-    expect(result.groups.had_a_miss.failed_test_runs.total).toBe(0);
-    expect(result.groups.had_a_miss.failed_test_runs.unknown_sessions).toBe(0);
+    const result = await run([
+      shellEvent('e1', 's1', path, offsets[0], null),
+      shellEvent('e2', 's2', path, offsets[0], null),
+      shellEvent('e3', 's2', path, offsets[1], 1),
+      shellEvent('e4', 's3', path, offsets[2], null),
+    ]);
+    const failed = result.groups.had_a_miss.failed_test_runs;
+    // s1 is unknown; s2 has a known failure; s3's null exit is not a test run.
+    expect(failed.unknown_sessions).toBe(1);
+    expect(failed.sample).toBe(2);
+    expect(failed.total).toBe(1);
   });
 
   // @lat: [[usage-miss-consequences#Usage Miss Consequences#Test runner matching splits compound commands]]
@@ -790,6 +827,43 @@ describe('usage miss consequences through the contribution', () => {
     expect(sums.input).toEqual({ total: 10, known: 1, unknown: 1 });
     expect(sums.output).toEqual({ total: 3, known: 2, unknown: 0 });
     expect(sums.cache_read).toEqual({ total: null, known: 0, unknown: 2 });
+  });
+
+  // @lat: [[usage-miss-consequences#Usage Miss Consequences#Effort is tokens and duration per issue]]
+  it('sums tokens over the whole session when it crosses the range start', () => {
+    const tokenItem = (id: string, at: number, input: number) => ({
+      id,
+      ts: day(at),
+      day: '',
+      session_id: 's1',
+      agent: 'claude',
+      usage: null,
+      session: {
+        kind: 'token_usage',
+        usage: {
+          input,
+          output: null,
+          cache_read: null,
+          cache_write: null,
+          reasoning: null,
+        },
+      },
+    });
+    const before = tokenItem('t1', 1, 10);
+    const inside = tokenItem('t2', 3, 5);
+    // A range starting on day 2 keeps only the second item.
+    const ctx = {
+      ...context([], [before, inside]),
+      items: [inside],
+    } as AggregateContext;
+    expect(sessionTokensOf(ctx).get('s1')!.input).toEqual({
+      total: 15,
+      known: 2,
+      unknown: 0,
+    });
+    const span = spansOf(ctx).find((s) => s.session_id === 's1')!;
+    expect(span.start).toBe(day(1));
+    expect(span.end).toBe(day(3));
   });
 
   // @lat: [[usage-miss-consequences#Usage Miss Consequences#A session too recent for its window is left out and counted]]

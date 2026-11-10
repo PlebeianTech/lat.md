@@ -1,5 +1,10 @@
 import type { MouseEvent } from 'react';
-import { navigateTo, useUsageFilters, useUsageLocation } from './filters';
+import {
+  filtersToSearchParams,
+  navigateTo,
+  useUsageFilters,
+  useUsageLocation,
+} from './filters';
 import { matchRoute, USAGE_ROUTES } from './routes';
 
 const AGENTS = ['claude', 'codex', 'antigravity', 'pi', 'opencode'];
@@ -71,7 +76,12 @@ function FilterBar() {
 }
 
 export function UsageApp() {
-  const { pathname, search } = useUsageLocation();
+  const { pathname } = useUsageLocation();
+  const { filters } = useUsageFilters();
+  // Only the filters travel; a page's own parameters, such as Explore's
+  // event=, stay on that page.
+  const query = filtersToSearchParams(filters).toString();
+  const search = query ? `?${query}` : '';
   const match = matchRoute(pathname);
   const Page = match?.route.page;
 

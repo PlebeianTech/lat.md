@@ -13,6 +13,12 @@ Each test builds a temporary git repository whose commits carry controlled autho
 
 A section in the top 20 by reads whose code-ref file was last committed after the section's Markdown file yields a `stale-hot-section` finding. Its subject is the section id.
 
+## A path starting with @ does not hide a commit's time
+
+A commit that adds `@scope/a.ts` and the section's Markdown file together still gives the Markdown file its commit time.
+
+`git log` marks each commit's time line with a NUL byte, which no path can start with, so a newer referenced file still makes the section stale.
+
 ## A section that links a source file goes stale with it
 
 A section whose prose links a source file, such as `[[src/x.ts#fn]]`, counts that file as referenced. The `#symbol` suffix is removed and git is never given it, and a file linked twice is read once.

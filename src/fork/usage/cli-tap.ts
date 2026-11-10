@@ -96,7 +96,10 @@ function commandName(command: Command): string {
   const names: string[] = [];
   for (let c: Command | null = command; c?.parent; c = c.parent)
     names.unshift(c.name());
-  return names.join(' ');
+  const name = names.join(' ');
+  // `lat hook <agent> <event>`: keep the event, which says which hook ran.
+  const event = name === 'hook' ? command.args[1] : undefined;
+  return event ? `hook ${event}` : name;
 }
 
 interface GitState {
@@ -112,7 +115,8 @@ function readTrimmed(path: string): string | null {
   }
 }
 
-function findGitEntry(from: string): string | null {
+/** The nearest directory at or above `from` that holds a `.git` entry. */
+export function findGitEntry(from: string): string | null {
   for (let dir = from; ; dir = dirname(dir)) {
     if (existsSync(join(dir, '.git'))) return dir;
     if (dirname(dir) === dir) return null;
@@ -247,6 +251,8 @@ export function installCliTap(
       process.once('exit', (exitCode) => {
         try {
           const captured = capture?.stop() ?? null;
+          // `lat usage disable` may have run meanwhile; writing would undo it.
+          if (!usageEnabled(root)) return;
           writeUsageEvent(
             root,
             buildEvent(program, actionCommand, root, start, exitCode, captured),

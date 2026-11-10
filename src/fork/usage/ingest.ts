@@ -4,23 +4,19 @@ import { openRegularFile, realUsageDirectory } from './enabled.js';
 import type { UnknownReason, UsageEvent } from './schema.js';
 import type { SessionSource } from './sources/types.js';
 import { addSessionEvent, addUsageEvent, type UsageState } from './state.js';
+import { plausibleTs, validUsageEvent } from './validate.js';
 
 const LOG_FILE = /^events-\d{4}-\d{2}\.jsonl$/;
 
-/** A stored line is trusted only for the fields aggregation reads. */
+/** A stored line is trusted only when it is a valid usage event. */
 function parseUsageLine(line: string): UsageEvent | null {
+  let event;
   try {
-    const event = JSON.parse(line);
-    return typeof event?.event_id === 'string' &&
-      typeof event.command === 'string' &&
-      typeof event.ts === 'string' &&
-      !Number.isNaN(Date.parse(event.ts)) &&
-      Array.isArray(event.result_ids)
-      ? event
-      : null;
+    event = JSON.parse(line);
   } catch {
     return null;
   }
+  return validUsageEvent(event) ? event : null;
 }
 
 /**
@@ -89,8 +85,11 @@ export async function readSessions(
       )
         changed = true;
       state.sources[path] = result.checkpoint;
-      for (const event of result.events)
+      for (const event of result.events) {
+        // An unreadable or absurd ts would break every sort and day bucket.
+        if (!plausibleTs(event.ts)) continue;
         if (addSessionEvent(state, source.agent, event)) changed = true;
+      }
     }
     if ((state.reasons[source.agent] ?? null) !== reason) changed = true;
     state.reasons[source.agent] = reason;

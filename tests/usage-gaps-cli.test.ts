@@ -357,3 +357,48 @@ describe('lat usage gaps search-miss line', () => {
     );
   });
 });
+
+// @lat: [[usage-gaps-cli#Usage Gaps CLI#Text output strips control characters]]
+describe('lat usage gaps terminal safety', () => {
+  it('strips escape sequences from the subject and section ids', () => {
+    const line = gapLine({
+      kind: 'bypass-read',
+      id: 'bypass-read:x',
+      subject: 'lat.md/\x1b]0;pwned\x07a.md',
+      count: 1,
+      sessions: 1,
+      first_seen: null,
+      last_seen: null,
+      daily: [],
+      evidence: [],
+      suggestion: { section_id: 'a#\x9b2J', title: 'T\x7f', similarity: 1 },
+    });
+    expect(line).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+    expect(line).toContain('lat.md/ ]0;pwned a.md');
+  });
+
+  it('strips escape sequences from a detector error message', async () => {
+    seed();
+    const throwing: Contribution = {
+      key: 'knowledge',
+      compute: () => ({
+        get never_read_sections(): never {
+          throw new Error('boom\x1b]0;pwned\x07');
+        },
+      }),
+    };
+    output = '';
+    const program = new Command().option('--dir <path>').exitOverride();
+    registerUsageCommand(program, {
+      sources: [fakeSource],
+      bd: { refresh: async () => snapshot },
+      contributions: [throwing],
+    });
+    await program.parseAsync(['--dir', root, 'usage', 'gaps'], {
+      from: 'user',
+    });
+    const line = output.split('\n').find((l) => l.startsWith('Detector'))!;
+    expect(line).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+    expect(line).toContain('failed: boom ]0;pwned');
+  });
+});

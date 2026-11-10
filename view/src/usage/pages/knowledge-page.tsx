@@ -199,7 +199,7 @@ function Reach({
         points={row.daily.map((d) => ({ day: d.day, value: d.reach }))}
       />
       <p>
-        Reached in {count(row.reached)} of {count(row.expected)} expected reads.
+        Reached in {count(row.reached)} of {count(row.expected)} times expected.
       </p>
       {row.renamed_from !== null && (
         <p style={WRAP}>

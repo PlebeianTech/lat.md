@@ -1,5 +1,6 @@
 import { execFile, type ExecFileOptions } from 'node:child_process';
-import { readdirSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -13,8 +14,9 @@ const CALL_TIMEOUT_MS = 15_000;
 const MAX_OUTPUT_BYTES = 128 * 1024 * 1024;
 
 /**
- * Async execFile with stdin detached, as src/knowledge/bd.ts does: a bd that
- * reads stdin would otherwise hang or swallow input meant for the caller.
+ * Async execFile with stdin closed at once: a bd that reads stdin sees end of
+ * input instead of waiting on it. execFile ignores a `stdio` option and always
+ * opens stdin as a pipe, so the runner ends that pipe itself.
  */
 export function createBdRunner(env: NodeJS.ProcessEnv = process.env): BdRunner {
   const beadsDir = env.BEADS_DIR;
@@ -25,15 +27,15 @@ export function createBdRunner(env: NodeJS.ProcessEnv = process.env): BdRunner {
         return;
       }
       const options = {
-        stdio: ['ignore', 'pipe', 'ignore'],
         timeout: CALL_TIMEOUT_MS,
         maxBuffer: MAX_OUTPUT_BYTES,
         encoding: 'utf-8',
         env: { ...env, BEADS_DIR: beadsDir },
       } as ExecFileOptions;
-      execFile('bd', args, options, (error, stdout) => {
+      const child = execFile('bd', args, options, (error, stdout) => {
         resolvePromise(error ? null : String(stdout));
       });
+      child.stdin?.end();
     });
 }
 
@@ -216,8 +218,10 @@ export function findReopens(
 }
 
 /**
- * Cheap change probe: the modification time and size of each embedded Dolt
- * database's noms manifest, which Dolt rewrites on every commit. Unchanged
+ * Cheap change probe: a hash of each embedded Dolt database's noms manifest,
+ * which Dolt changes on every commit. Content, not mtime, because every bd
+ * command, read-only ones included, rewrites the manifest with the same bytes.
+ * Entries with no manifest, such as the `.lock` file, are skipped. Unchanged
  * means the database is unchanged, so the roughly 220 ms `bd events tail` is
  * skipped. An unreadable store gives '', which the watcher treats as changed.
  */
@@ -225,15 +229,14 @@ export function beadsDirFingerprint(beadsDir: string | undefined): string {
   if (!beadsDir) return '';
   try {
     const root = join(beadsDir, 'embeddeddolt');
-    return readdirSync(root)
-      .sort()
-      .map((database) => {
-        const manifest = statSync(
-          join(root, database, '.dolt', 'noms', 'manifest'),
-        );
-        return `${database}:${manifest.mtimeMs}:${manifest.size}`;
-      })
-      .join(',');
+    const parts: string[] = [];
+    for (const database of readdirSync(root).sort()) {
+      const manifest = join(root, database, '.dolt', 'noms', 'manifest');
+      if (!existsSync(manifest)) continue;
+      const hash = createHash('sha256').update(readFileSync(manifest));
+      parts.push(`${database}:${hash.digest('hex')}`);
+    }
+    return parts.join(',');
   } catch {
     return '';
   }

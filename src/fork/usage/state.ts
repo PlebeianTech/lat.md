@@ -14,6 +14,7 @@ import {
   realUsageDirectory,
 } from './enabled.js';
 import type { Checkpoint } from './sources/types.js';
+import { plausibleTs, validUsageEvent } from './validate.js';
 
 export const USAGE_STATE_VERSION = 2;
 
@@ -77,6 +78,12 @@ export interface UsageState {
 /** Readers re-emit these on every resumed read, with new event ids. */
 const LATEST_WINS = new Set(['session_end', 'model', 'session_name']);
 
+/**
+ * Readers re-emit these with the same event id once they see more of the
+ * event, such as a message's final token count, and give them a later ts.
+ */
+const REVISED_BY_ID = new Set(['token_usage']);
+
 export function emptyState(): UsageState {
   return {
     version: USAGE_STATE_VERSION,
@@ -92,9 +99,33 @@ export function statePath(root: string): string {
   return join(root, '.lat', 'usage', 'state.json');
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function validStoredSession(entry: unknown): boolean {
+  return (
+    isPlainObject(entry) &&
+    typeof entry.agent === 'string' &&
+    isPlainObject(entry.event) &&
+    plausibleTs(entry.event.ts)
+  );
+}
+
+/** Keeps only the entries that pass `valid`. */
+function filterValues<T>(
+  record: Record<string, unknown>,
+  valid: (value: unknown) => boolean,
+): Record<string, T> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, value]) => valid(value)),
+  ) as Record<string, T>;
+}
+
 /**
- * A missing, unreadable or foreign state file starts from nothing, and so does
- * one that is not a regular file inside a real `.lat/usage` directory.
+ * A missing, unreadable, foreign or malformed state file starts from nothing,
+ * and so does one that is not a regular file inside a real `.lat/usage`
+ * directory. Stored events pass the same checks ingest applies to new ones.
  */
 // @lat: [[usage-analytics#Usage Analytics#Opt-in and the usage directory]]
 export function loadState(root: string): UsageState {
@@ -102,7 +133,23 @@ export function loadState(root: string): UsageState {
     const dir = realUsageDirectory(root);
     if (dir === null) return emptyState();
     const state = JSON.parse(readRegularFile(join(dir, 'state.json')));
-    return state?.version === USAGE_STATE_VERSION ? state : emptyState();
+    if (
+      state?.version !== USAGE_STATE_VERSION ||
+      ![
+        state.usage,
+        state.sessions,
+        state.logs,
+        state.sources,
+        state.reasons,
+      ].every(isPlainObject)
+    )
+      return emptyState();
+    state.usage = filterValues<UsageEvent>(state.usage, validUsageEvent);
+    state.sessions = filterValues<StoredSessionEvent>(
+      state.sessions,
+      validStoredSession,
+    );
+    return state;
   } catch {
     return emptyState();
   }
@@ -161,7 +208,10 @@ export function addSessionEvent(
   const current = state.sessions[key];
   if (
     current &&
-    !(LATEST_WINS.has(event.kind) && isNewer(event, current.event))
+    !(
+      (LATEST_WINS.has(event.kind) || REVISED_BY_ID.has(event.kind)) &&
+      isNewer(event, current.event)
+    )
   )
     return false;
   state.sessions[key] = { agent, event: slim(event) };

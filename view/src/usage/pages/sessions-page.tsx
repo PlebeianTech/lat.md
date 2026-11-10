@@ -32,16 +32,27 @@ function formatDuration(ms: number | string): string {
     : `${hours}h ${minutes % 60}m`;
 }
 
-/** Input plus output tokens of the known messages; null when none is known. */
+/**
+ * Input plus output tokens of the known messages; null when none is known. A
+ * session with no token usage message at all knows nothing, so it is null
+ * too, never 0.
+ */
 function tokensUsed(session: SessionRow): number | null {
-  const { input, output } = session.totals.tokens;
+  const { messages, input, output } = session.totals.tokens;
+  if (messages === 0) return null;
   if (input.total === null && output.total === null) return null;
   return (input.total ?? 0) + (output.total ?? 0);
 }
 
-/** Messages whose input or output count is unknown. */
-function unknownTokenMessages(session: SessionRow): number {
-  const { input, output } = session.totals.tokens;
+/**
+ * Unknown input counts plus unknown output counts. A message with both
+ * unknown counts twice. This is not a message count: the summary has no
+ * per-message figure, and neither the sum nor the larger of the two equals
+ * the number of messages with an unknown count.
+ */
+function unknownTokenCounts(session: SessionRow): number | null {
+  const { messages, input, output } = session.totals.tokens;
+  if (messages === 0) return null;
   return input.unknown + output.unknown;
 }
 
@@ -49,10 +60,10 @@ function unknownTokenMessages(session: SessionRow): number {
 function describeTokens(session: SessionRow): string {
   const known = tokensUsed(session);
   if (known === null) return 'unknown';
-  const unknown = unknownTokenMessages(session);
+  const unknown = unknownTokenCounts(session) ?? 0;
   const total = known.toLocaleString('en-US');
   return unknown > 0
-    ? `${total} (+${unknown.toLocaleString('en-US')} unknown)`
+    ? `${total} (+${unknown.toLocaleString('en-US')} unknown counts)`
     : total;
 }
 
@@ -139,8 +150,8 @@ function SessionsList({
         },
         {
           key: 'unknown-tokens',
-          header: 'Unknown msgs',
-          value: unknownTokenMessages,
+          header: 'Unknown counts',
+          value: unknownTokenCounts,
           format: (v) =>
             Number(v) > 0
               ? `+${Number(v).toLocaleString('en-US')} unknown`
@@ -180,7 +191,8 @@ function placeEvent(
 ): { lane: LaneName; label: string } | null {
   if (record.type === 'usage') {
     return record.event.surface === 'hook'
-      ? { lane: 'Injected context', label: `hook ${record.event.command}` }
+      ? // The tap records a hook's command as `hook <event>` already.
+        { lane: 'Injected context', label: record.event.command }
       : { lane: 'Lat commands', label: `lat ${record.event.command}` };
   }
   const { event } = record;
@@ -222,16 +234,21 @@ function eventFields(record: RawRecord): [string, string][] {
   ];
   if (record.type === 'usage') {
     const { event } = record;
+    // "unknown" only when lat recorded a reason; a null with no reason, such
+    // as the error class of a successful command, has no value to show.
+    const known = (
+      field: 'result_count' | 'section_id' | 'error_class' | 'injected_bytes',
+    ) => event[field] ?? (event.unknown_reasons?.[field] ? 'unknown' : '—');
     fields.push(
       ['type', `usage (${event.surface})`],
       ['command', event.command],
       ['caller', event.caller],
       ['exit code', event.exit_code],
       ['duration ms', event.duration_ms],
-      ['result count', event.result_count],
-      ['section', event.section_id],
-      ['error class', event.error_class],
-      ['injected bytes', event.injected_bytes],
+      ['result count', known('result_count')],
+      ['section', known('section_id')],
+      ['error class', known('error_class')],
+      ['injected bytes', known('injected_bytes')],
     );
   } else {
     const { event } = record;
@@ -346,11 +363,14 @@ function SessionEvents({
 function SessionDetail({
   id,
   session,
+  loaded,
   refresh,
   search,
 }: {
   id: string;
   session: SessionRow | undefined;
+  /** True once the summary has arrived, so a missing session really is missing. */
+  loaded: boolean;
   refresh: unknown;
   search: string;
 }) {
@@ -407,7 +427,9 @@ function SessionDetail({
           )}
         </>
       ) : (
-        <p>This session is not in the summary under the current filters.</p>
+        loaded && (
+          <p>This session is not in the summary under the current filters.</p>
+        )
       )}
       {/* Keyed by id so another session's events never show under this heading. */}
       <SessionEvents key={id} id={id} refresh={refresh} />
@@ -426,6 +448,7 @@ export function SessionsPage({ id }: UsagePageProps) {
         <SessionDetail
           id={id}
           session={data?.sessions.find((s) => s.key === id)}
+          loaded={data !== undefined}
           refresh={data}
           search={search}
         />

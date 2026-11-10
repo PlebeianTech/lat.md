@@ -34,6 +34,14 @@ function perSession(
   return value(entry.row);
 }
 
+/** A share of searches or reads; null for an agent with no row or an unknown share. */
+function ratio(
+  entry: Entry,
+  value: (row: AgentRow) => number | null,
+): number | null {
+  return entry.row ? value(entry.row) : null;
+}
+
 function percent(share: number | null): number | null {
   return share === null ? null : Math.round(share * 100);
 }
@@ -109,16 +117,14 @@ function Charts({
       />
       <BarList
         label="Search success (%)"
-        items={bars(
-          entries,
-          signal((row) => percent(row.signals.search_success)),
+        items={bars(entries, (entry) =>
+          ratio(entry, (row) => percent(row.signals.search_success)),
         )}
       />
       <BarList
         label="Bypass rate (%)"
-        items={bars(
-          entries,
-          signal((row) => percent(row.signals.bypass_rate)),
+        items={bars(entries, (entry) =>
+          ratio(entry, (row) => percent(row.signals.bypass_rate)),
         )}
       />
       <BarList
@@ -169,21 +175,21 @@ function AgentsTable({
         {
           key: 'success',
           header: 'Search success',
-          value: (e) => perSession(e, (r) => percent(r.signals.search_success)),
+          value: (e) => ratio(e, (r) => percent(r.signals.search_success)),
           format: (v) => describePercent(Number(v)),
           numeric: true,
         },
         {
           key: 'bypass',
           header: 'Bypass rate',
-          value: (e) => perSession(e, (r) => percent(r.signals.bypass_rate)),
+          value: (e) => ratio(e, (r) => percent(r.signals.bypass_rate)),
           format: (v) => describePercent(Number(v)),
           numeric: true,
         },
         {
           key: 'saved',
-          header: `Net tokens saved (${savingsLabel(summary)})`,
-          value: (e) => perSession(e, (r) => r.signals.net_tokens_saved),
+          header: `Net tokens saved per session (${savingsLabel(summary)})`,
+          value: savedPerSession,
           numeric: true,
         },
       ]}
@@ -225,7 +231,11 @@ function ReasonList({ entries }: { entries: Entry[] }) {
     const lines: string[] = [];
     if (entry.row?.reason)
       lines.push(`${entry.key}: no data (${entry.row.reason})`);
-    if (sessionsOf(entry) > 0 && savedText(entry).startsWith('unknown'))
+    const savedReason = entry.row?.signals.net_tokens_saved_reason;
+    if (
+      (sessionsOf(entry) > 0 || savedReason) &&
+      savedText(entry).startsWith('unknown')
+    )
       lines.push(`${entry.key}: net tokens saved ${savedText(entry)}`);
     return lines;
   });

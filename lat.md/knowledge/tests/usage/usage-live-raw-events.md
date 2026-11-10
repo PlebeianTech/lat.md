@@ -19,6 +19,16 @@ Usage events and session events both come back, each with its attributed bd issu
 
 Records are ordered newest first, ties broken by id. `next_cursor` continues after the last record: following it across pages returns every record once, with no duplicate and no gap, and is null on the last page.
 
+## A session event without a readable time is dropped
+
+A session event whose `ts` `Date.parse` cannot read, such as the empty string a reader emits when the store has no time, is left out of the index.
+
+Ingest drops it before it enters the state the index reads. The other events still sort newest first and page to the end with no error.
+
+## Turning usage off empties the index
+
+When `.lat/usage/` is renamed away while the server runs, the next request lists no records. When the directory comes back, the same records are listed again.
+
 ## The page is capped at 200 records
 
 The default and the maximum `limit` are 200. A larger limit is clamped to 200. A limit that is not a positive integer is rejected.

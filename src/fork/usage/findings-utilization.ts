@@ -8,7 +8,11 @@ import {
   type Finding,
   type FindingDetector,
 } from './findings.js';
-import type { MissedKnowledge } from './missed-knowledge.js';
+import {
+  relativeToRoot,
+  sourceFileOf,
+  type MissedKnowledge,
+} from './missed-knowledge.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -29,24 +33,11 @@ function missedKnowledgeOf(
   };
 }
 
-/**
- * Whether a raw edit path names the project-root-relative `file`. Mirrors
- * relativeToRoot in missed-knowledge.ts, which strips a leading `./` and then
- * the git prefix of the project root; that function is private and the
- * prefix is not part of the analysis output.
- */
-function namesFile(
-  rawPath: string | null,
-  file: string,
+/** Time of each session's first edit under the project root, as the analysis takes it. */
+function firstEditTimes(
+  records: RawRecord[],
   prefix: string,
-): boolean {
-  if (rawPath === null || rawPath.startsWith('/')) return false;
-  const clean = rawPath.replace(/^\.\//, '');
-  return clean.startsWith(prefix) && clean.slice(prefix.length) === file;
-}
-
-/** Time of each session's first edit under the worktree, as the analysis takes it. */
-function firstEditTimes(records: RawRecord[]): Map<string, number> {
+): Map<string, number> {
   const first = new Map<string, number>();
   for (const record of records) {
     if (
@@ -54,8 +45,7 @@ function firstEditTimes(records: RawRecord[]): Map<string, number> {
       record.event.kind !== 'tool_call' ||
       record.event.tool.action !== 'edit' ||
       record.session_id === null ||
-      record.event.tool.path === null ||
-      record.event.tool.path.startsWith('/')
+      sourceFileOf(record.event.tool.path, prefix) === null
     )
       continue;
     const ts = Date.parse(record.ts);
@@ -84,7 +74,7 @@ function uncoveredHotFiles(
             record.type === 'session' &&
             record.event.kind === 'tool_call' &&
             record.event.tool.action === 'edit' &&
-            namesFile(record.event.tool.path, file.path, prefix),
+            relativeToRoot(record.event.tool.path, prefix) === file.path,
         ),
         days,
       ),
@@ -95,8 +85,9 @@ function searchMisses(
   analysis: Pick<MissedKnowledge, 'records'>,
   records: RawRecord[],
   days: string[],
+  prefix: string,
 ): Finding[] {
-  const firstEdit = firstEditTimes(records);
+  const firstEdit = firstEditTimes(records, prefix);
   const missedSessions = new Map<string, Set<string>>();
   for (const outcome of analysis.records) {
     if (outcome.outcome !== 'searched-not-found') continue;
@@ -161,7 +152,7 @@ export function createUtilizationDetector(
       const analysis = missedKnowledgeOf(summary.extensions.missed_knowledge);
       return [
         ...uncoveredHotFiles(analysis, records, summary.days, prefix),
-        ...searchMisses(analysis, records, summary.days),
+        ...searchMisses(analysis, records, summary.days, prefix),
       ];
     },
   };

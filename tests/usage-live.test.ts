@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request, type ClientRequest } from 'node:http';
@@ -23,6 +29,7 @@ import {
   type UsageEvent,
 } from '../src/fork/usage/schema.js';
 import type { SessionSource } from '../src/fork/usage/sources/types.js';
+import { removeUsageDashboard } from '../src/fork/usage/static-export.js';
 import { writeUsageEvent } from '../src/fork/usage/writer.js';
 
 registerUsageRoute('/api/usage/echo', ({ root, filters, aggregator }) => ({
@@ -197,6 +204,7 @@ describe('usage live server', () => {
 
   it('pushes when a session store changes', async () => {
     const transcript = join(root, 'sessions', 'one.jsonl');
+    mkdirSync(join(root, '.lat', 'usage'), { recursive: true });
     mkdirSync(join(root, 'sessions'));
     writeFileSync(transcript, 'a\n');
     const source: SessionSource = {
@@ -220,6 +228,22 @@ describe('usage live server', () => {
     await stream.until('event: ready');
     writeFileSync(transcript, 'a\nb\n');
     await stream.until('event: usage-change');
+  });
+
+  // @lat: [[usage-live#Usage Live#Usage off reads no session store]]
+  it('discovers no session store while usage is off', async () => {
+    const discover = vi.fn(async () => []);
+    configureUsageLive({
+      sources: [{ agent: 'claude', discover, read: vi.fn() }],
+      bd: { refresh: async () => null },
+      contributions: [],
+      pollMs: 20,
+      heartbeatMs: 20,
+    });
+    const stream = openStream();
+    await stream.until('event: ready');
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(discover).not.toHaveBeenCalled();
   });
 
   it('pushes when the bd database changes', async () => {
@@ -268,6 +292,34 @@ describe('usage live server', () => {
     failing = false;
     writeUsageEvent(root, usage());
     await vi.waitFor(() => expect(stream.count('usage-change')).toBe(2));
+  });
+
+  // @lat: [[usage-live#Usage Live#A project below the repository root sees head moves]]
+  it('forgets snapshots when HEAD moves in a parent repository', async () => {
+    const project = join(root, 'proj');
+    const reflog = join(root, '.git', 'logs');
+    mkdirSync(join(project, 'lat.md'), { recursive: true });
+    mkdirSync(reflog, { recursive: true });
+    writeFileSync(join(project, 'lat.md', 'lat.md'), '# Project\n');
+    writeFileSync(join(reflog, 'HEAD'), 'a');
+    const nested = await startViewServer(
+      {
+        projectRoot: project,
+        latDir: join(project, 'lat.md'),
+        mode: 'cli',
+        styler: plainStyler,
+      },
+      { port: 0, watch: false, git: false, clientDir: join(root, 'client') },
+    );
+    try {
+      expect((await fetch(nested.url + 'api/usage')).status).toBe(200);
+      writeFileSync(join(reflog, 'HEAD'), 'ab');
+      await checkUsageLive(project);
+      expect(forgotten).toHaveBeenCalledTimes(1);
+    } finally {
+      stopUsageLive(project);
+      await nested.close();
+    }
   });
 
   // @lat: [[usage-live#Usage Live#The dashboard page is served at any depth]]
@@ -352,5 +404,25 @@ describe('usage live server', () => {
     writeUsageEvent(root, usage());
     await stays.until('event: usage-change');
     expect(gone.count('usage-change')).toBe(0);
+  });
+});
+
+describe('removeUsageDashboard', () => {
+  // @lat: [[usage-live#Usage Live#A static export leaves the dashboard page out]]
+  it('deletes usage.html from a static payload and keeps the rest', async () => {
+    const payload = mkdtempSync(join(tmpdir(), 'lat-usage-static-'));
+    try {
+      mkdirSync(join(payload, 'assets'));
+      writeFileSync(join(payload, 'index.html'), '<html></html>');
+      writeFileSync(join(payload, 'usage.html'), '<html></html>');
+      writeFileSync(join(payload, 'assets', 'app.js'), '');
+      await removeUsageDashboard(payload);
+      expect(existsSync(join(payload, 'usage.html'))).toBe(false);
+      expect(existsSync(join(payload, 'index.html'))).toBe(true);
+      expect(existsSync(join(payload, 'assets', 'app.js'))).toBe(true);
+      await expect(removeUsageDashboard(payload)).resolves.toBeUndefined();
+    } finally {
+      rmSync(payload, { recursive: true, force: true });
+    }
   });
 });

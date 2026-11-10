@@ -1,4 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import {
+  appendFileSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -22,6 +29,7 @@ import type {
   SessionAgent,
   SessionSource,
 } from '../src/fork/usage/sources/types.js';
+import { addSessionEvent, emptyState } from '../src/fork/usage/state.js';
 import { writeUsageEvent } from '../src/fork/usage/writer.js';
 
 const T0 = Date.parse('2026-11-08T10:00:00Z');
@@ -440,6 +448,122 @@ describe('usage aggregate', () => {
     );
   });
 
+  // @lat: [[usage-aggregate#Usage Aggregate#A session event with an unreadable time is dropped]]
+  it('drops a session event whose ts is not a date, also after a restart', async () => {
+    const root = tempRoot();
+    const bad = { ...tokens('C1', 1, { input: 5 }), ts: 'not-a-date' };
+    const first = await setup({
+      root,
+      claudeEvents: [...scenarioClaude(), bad],
+    });
+    const summary = await first.aggregator.summary();
+    const restarted = await createAggregator({
+      root,
+      sources: [fakeSource('claude', [])],
+      bd: bdSnapshot(),
+      contributions: [],
+      now: () => Date.parse('2026-11-10T00:00:00Z'),
+    });
+    await restarted.refresh();
+    expect((await restarted.summary()).totals).toEqual(summary.totals);
+    expect(
+      readFileSync(join(root, '.lat', 'usage', 'state.json'), 'utf-8'),
+    ).not.toContain(bad.event_id);
+  });
+
+  // @lat: [[usage-aggregate#Usage Aggregate#An event dated out of range is dropped]]
+  it('drops usage lines and session events dated before 2000 or far in the future', async () => {
+    const future = '3000-01-01T00:00:00.000Z';
+    const ancient = '0001-01-01T00:00:00.000Z';
+    const { root, aggregator } = await setup({
+      claudeEvents: [
+        ...scenarioClaude(),
+        {
+          ...tokens('C1', 1, { input: 5 }),
+          event_id: 'far-session',
+          ts: future,
+        },
+        {
+          ...tokens('C1', 1, { input: 5 }),
+          event_id: 'old-session',
+          ts: ancient,
+        },
+      ],
+    });
+    const before = await aggregator.summary();
+    appendFileSync(
+      join(root, '.lat', 'usage', 'events-2026-11.jsonl'),
+      [
+        usage({ event_id: 'far-usage', ts: future }),
+        usage({ event_id: 'old-usage', ts: ancient }),
+      ]
+        .map((event) => JSON.stringify(event) + '\n')
+        .join(''),
+    );
+    await aggregator.refresh();
+    const after = await aggregator.summary();
+    expect(after.totals).toEqual(before.totals);
+    expect(after.days.length).toBeLessThan(10);
+    const state = readFileSync(
+      join(root, '.lat', 'usage', 'state.json'),
+      'utf-8',
+    );
+    expect(state).not.toMatch(/far-|old-/);
+  });
+
+  // @lat: [[usage-aggregate#Usage Aggregate#A usage line of the wrong shape is dropped]]
+  it('drops usage lines with a wrong schema version or field type', async () => {
+    const { root, aggregator } = await setup();
+    const before = await aggregator.summary();
+    const { section_id: _, ...noSectionId } = usage({
+      event_id: 'bad-missing',
+    });
+    const bad: object[] = [
+      usage({ event_id: 'bad-version', schema_version: 2 as 1 }),
+      { ...usage({ event_id: 'bad-query' }), query: 5 },
+      { ...usage({ event_id: 'bad-session' }), session_id: { a: 1 } },
+      {
+        ...usage({ event_id: 'bad-section', command: 'section' }),
+        section_id: 7,
+      },
+      { ...usage({ event_id: 'bad-results' }), result_ids: [1, null] },
+      { ...usage({ event_id: 'bad-agent' }), agent: 3 },
+      { ...usage({ event_id: 'bad-reasons' }), unknown_reasons: null },
+      { ...usage({ event_id: 'bad-exit' }), exit_code: 'x' },
+      { ...noSectionId, command: 'section' },
+    ];
+    const good = usage({ event_id: 'good', ts: at(1) });
+    appendFileSync(
+      join(root, '.lat', 'usage', 'events-2026-11.jsonl'),
+      [...bad, good].map((event) => JSON.stringify(event) + '\n').join(''),
+    );
+    await aggregator.refresh();
+    const after = await aggregator.summary();
+    expect(after.totals.commands).toBe(before.totals.commands + 1);
+    const state = readFileSync(
+      join(root, '.lat', 'usage', 'state.json'),
+      'utf-8',
+    );
+    expect(state).toContain('"good"');
+    expect(state).not.toContain('bad-');
+  });
+
+  // @lat: [[usage-aggregate#Usage Aggregate#Turning usage off empties the summary]]
+  it('serves an empty summary after usage is disabled and resumes on enable', async () => {
+    const { root, aggregator } = await setup();
+    const before = await aggregator.summary();
+    expect(before.totals.commands).toBeGreaterThan(0);
+    const dir = join(root, '.lat', 'usage');
+    renameSync(dir, `${dir}.disabled`);
+    await aggregator.refresh();
+    const off = await aggregator.summary();
+    expect(off.totals.commands).toBe(0);
+    expect(off.commands).toEqual([]);
+    renameSync(`${dir}.disabled`, dir);
+    await aggregator.refresh();
+    expect(await aggregator.summary()).toEqual(before);
+  });
+
   it('reads a log that shrank again without double counting', async () => {
     const root = tempRoot();
     const { aggregator } = await setup({ root });
@@ -460,6 +584,22 @@ describe('usage aggregate', () => {
     expect(a.start).toBe(at(0));
     expect(a.end).toBe(at(25));
     expect(a.duration_ms).toBe(25 * 60_000);
+  });
+
+  // @lat: [[usage-aggregate#Usage Aggregate#Latest wins for repeated session events]]
+  it('replaces a token usage re-emitted with the same id and a later ts', () => {
+    const state = emptyState();
+    const partial = tokens('A', 1, { output: 5 });
+    const final = {
+      ...tokens('A', 2, { output: 253 }),
+      event_id: partial.event_id,
+    };
+    expect(addSessionEvent(state, 'claude', partial)).toBe(true);
+    expect(addSessionEvent(state, 'claude', final)).toBe(true);
+    expect(addSessionEvent(state, 'claude', partial)).toBe(false);
+    const kept = Object.values(state.sessions).map((s) => s.event);
+    expect(kept).toHaveLength(1);
+    expect(kept[0].kind === 'token_usage' && kept[0].usage.output).toBe(253);
   });
 
   // @lat: [[usage-aggregate#Usage Aggregate#All five agents are listed]]

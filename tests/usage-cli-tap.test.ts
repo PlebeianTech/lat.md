@@ -9,6 +9,7 @@ import {
   writeFileSync,
   readFileSync,
   readdirSync,
+  renameSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -32,6 +33,7 @@ const fixture = join(import.meta.dirname, 'cases', 'basic-project');
 const AGENT_VARIABLES = [
   'CLAUDECODE',
   'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_CODE_CHILD_SESSION',
   'CODEX_THREAD_ID',
   'ANTIGRAVITY_CONVERSATION_ID',
   'PI_CODING_AGENT',
@@ -125,7 +127,7 @@ describe('CLI tap', () => {
       'section',
       'expand',
       'refs',
-      'hook',
+      'hook Stop',
     ]);
     for (const event of events) {
       expect(event.schema_version).toBe(USAGE_SCHEMA_VERSION);
@@ -134,7 +136,7 @@ describe('CLI tap', () => {
       expect(event.repo_root).toBe(root);
       expect(typeof event.exit_code).toBe('number');
     }
-    const hook = events.find((e) => e.command === 'hook')!;
+    const hook = events.find((e) => e.command === 'hook Stop')!;
     expect(hook.surface).toBe('hook');
     expect(hook.caller).toBe('hook-injected');
     expect(events.find((e) => e.command === 'expand')!.query).toBe(
@@ -187,6 +189,24 @@ describe('CLI tap', () => {
     expect(event.caller).toBe('agent');
     expect(event.agent).toBe('claude');
     expect(event.session_id).toBe('session-42');
+    expect(event.parent_session_id).toBeNull();
+  });
+
+  // @lat: [[usage-tap#Usage Tap#Agent detection]]
+  it('keeps the Claude session id when CLAUDE_CODE_CHILD_SESSION is set', () => {
+    // Claude Code sets CLAUDE_CODE_CHILD_SESSION=1 on every process it spawns.
+    const root = makeProject();
+    runLat(root, ['section', 'nonexistent#x'], {
+      LAT_USAGE: '1',
+      CLAUDECODE: '1',
+      CLAUDE_CODE_SESSION_ID: 'session-42',
+      CLAUDE_CODE_CHILD_SESSION: '1',
+    });
+    const [event] = readEvents(root);
+    expect(event.session_id).toBe('session-42');
+    expect(event.parent_session_id).toBeNull();
+    expect(event.unknown_reasons.session_id).toBeUndefined();
+    expect(event.unknown_reasons.parent_session_id).toBe('not_captured');
   });
 
   // @lat: [[usage-tap#Usage Tap#A read-only usage directory changes nothing]]
@@ -277,7 +297,10 @@ describe('detectAgent', () => {
   it('reads the agent and session id each agent sets', () => {
     expect(
       detectAgent({ CLAUDECODE: '1', CLAUDE_CODE_SESSION_ID: 's1' }),
-    ).toEqual({ agent: { value: 'claude' }, sessionId: { value: 's1' } });
+    ).toEqual({
+      agent: { value: 'claude' },
+      sessionId: { value: 's1' },
+    });
     expect(detectAgent({ CODEX_THREAD_ID: 't1' })).toEqual({
       agent: { value: 'codex' },
       sessionId: { value: 't1' },
@@ -298,6 +321,16 @@ describe('detectAgent', () => {
       agent: { value: 'opencode' },
       sessionId: unknown,
     });
+  });
+
+  it('ignores CLAUDE_CODE_CHILD_SESSION, which Claude Code sets everywhere', () => {
+    expect(
+      detectAgent({
+        CLAUDECODE: '1',
+        CLAUDE_CODE_SESSION_ID: 'p1',
+        CLAUDE_CODE_CHILD_SESSION: '1',
+      }),
+    ).toEqual({ agent: { value: 'claude' }, sessionId: { value: 'p1' } });
   });
 });
 
@@ -327,6 +360,42 @@ describe('without a project root', () => {
     roots.push(bare);
     runLat(bare, ['check'], { LAT_USAGE: '1' });
     expect(existsSync(join(bare, '.lat'))).toBe(false);
+  });
+});
+
+// @lat: [[usage-tap#Usage Tap#A disable during a command is kept]]
+describe('disable while a command runs', () => {
+  it('writes no event and leaves .lat/usage absent', async () => {
+    const root = makeProject();
+    mkdirSync(join(root, '.lat', 'usage'), { recursive: true });
+    const listeners: Array<(code: number) => void> = [];
+    const once = vi.spyOn(process, 'once').mockImplementation(((
+      event: string,
+      listener: (code: number) => void,
+    ) => {
+      if (event === 'exit') listeners.push(listener);
+      return process;
+    }) as never);
+    vi.stubEnv('LAT_USAGE', '0');
+    try {
+      const program = new Command().name('lat').option('--dir <path>');
+      registerForkCli(program);
+      program.command('probe').action(() => {
+        // Another process runs `lat usage disable` meanwhile.
+        renameSync(
+          join(root, '.lat', 'usage'),
+          join(root, '.lat', 'usage.disabled'),
+        );
+      });
+      await program.parseAsync(['--dir', root, 'probe'], { from: 'user' });
+      expect(listeners).toHaveLength(1);
+      listeners[0](0);
+    } finally {
+      once.mockRestore();
+      vi.unstubAllEnvs();
+    }
+    expect(existsSync(join(root, '.lat', 'usage'))).toBe(false);
+    expect(readdirSync(join(root, '.lat', 'usage.disabled'))).toEqual([]);
   });
 });
 

@@ -51,7 +51,7 @@ src/cli/search.ts	Knowledge federation has to join the result set where upstream
 src/cli/ui-build-server.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/cli/ui-build.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/cli/ui.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
-src/mcp/server.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
+src/mcp/server.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core. Also carries one import and one `registerForkMcp(server)` line that registers the fork's usage tap on the MCP server; the tap lives in src/fork/usage/.
 src/search/chunks.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/search/embedder.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/search/index.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
@@ -74,9 +74,9 @@ src/view/search.ts	Imports @plebeiantech/lat.md-core package instead of unpublis
 src/view/server-build.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/view/server-deployment.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/view/server-index-worker.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
-src/view/server.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
+src/view/server.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core. Also carries one import and one `handleUsage` line that serves the fork's usage dashboard routes; the handler lives in src/fork/usage/.
 src/view/source-target.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
-src/view/static-build.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
+src/view/static-build.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core. Also carries one import and one `removeUsageDashboard` line that drops the fork's usage dashboard page from a static export; the function lives in src/fork/usage/.
 src/view/store.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/view/table-of-contents.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/view/vercel-server-build.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.

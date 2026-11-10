@@ -31,6 +31,18 @@ const SCROLL = { overflowX: 'auto', maxWidth: '100%' } as const;
 
 type Selection = Partial<Record<FacetField, string[]>>;
 type FieldValue = string | number | null;
+/** A facet counted here also splits the nulls lat recorded a reason for. */
+type Facet = RawFacet & { unknown?: number };
+
+// A null section or error class is unknown only with a recorded reason. Without
+// one there is no value: a lat search names no section, a success no error.
+const REASONED: readonly FacetField[] = ['section_id', 'error_class'];
+const missingLabel = (field: FacetField) =>
+  REASONED.includes(field) ? 'none' : 'unknown';
+
+function hasReason(record: RawRecord, field: 'section_id' | 'error_class') {
+  return record.type === 'usage' && !!record.event.unknown_reasons?.[field];
+}
 
 // undefined: the record kind has no such field
 function fieldValue(
@@ -56,14 +68,21 @@ function matchesSelection(
   return true;
 }
 
-function countValues(records: RawRecord[], field: FacetField): RawFacet {
+function countValues(records: RawRecord[], field: FacetField): Facet {
   const counts = new Map<string | number, number>();
   let missing = 0;
+  let unknown = 0;
   for (const record of records) {
     const value = fieldValue(record, field);
     if (value === undefined) continue;
-    if (value === null) missing++;
-    else counts.set(value, (counts.get(value) ?? 0) + 1);
+    if (value === null) {
+      if (
+        (field === 'section_id' || field === 'error_class') &&
+        hasReason(record, field)
+      )
+        unknown++;
+      else missing++;
+    } else counts.set(value, (counts.get(value) ?? 0) + 1);
   }
   const values = [...counts]
     .map(([value, count]) => ({ value, count }))
@@ -71,7 +90,7 @@ function countValues(records: RawRecord[], field: FacetField): RawFacet {
       (a, b) =>
         b.count - a.count || String(a.value).localeCompare(String(b.value)),
     );
-  return { field, values: values.slice(0, MAX_FACET_VALUES), missing };
+  return { field, values: values.slice(0, MAX_FACET_VALUES), missing, unknown };
 }
 
 function newestFirst(a: RawRecord, b: RawRecord): number {
@@ -176,7 +195,11 @@ function EventTable({
                       {sectionId}
                     </Link>
                   ) : record.type === 'usage' ? (
-                    'unknown'
+                    hasReason(record, 'section_id') ? (
+                      'unknown'
+                    ) : (
+                      '—'
+                    )
                   ) : (
                     (path ?? 'n/a')
                   )}
@@ -186,7 +209,8 @@ function EventTable({
                 </td>
                 <td>
                   {record.type === 'usage'
-                    ? display(record.event.error_class)
+                    ? (record.event.error_class ??
+                      (hasReason(record, 'error_class') ? 'unknown' : '—'))
                     : 'n/a'}
                 </td>
               </tr>
@@ -206,9 +230,11 @@ function GroupTable({
   field: FacetField;
 }) {
   const facet = countValues(records, field);
+  const unknown = facet.unknown ?? 0;
   const lacking =
     records.length -
     facet.missing -
+    unknown -
     records.filter((record) => fieldValue(record, field) != null).length;
   return (
     <div style={SCROLL}>
@@ -231,8 +257,14 @@ function GroupTable({
           ))}
           {facet.missing > 0 && (
             <tr>
-              <td>unknown</td>
+              <td>{missingLabel(field)}</td>
               <td>{facet.missing}</td>
+            </tr>
+          )}
+          {unknown > 0 && (
+            <tr>
+              <td>unknown</td>
+              <td>{unknown}</td>
             </tr>
           )}
           {lacking > 0 && (
@@ -252,7 +284,7 @@ function FacetGroup({
   selected,
   onToggle,
 }: {
-  facet: RawFacet;
+  facet: Facet;
   selected: string[];
   onToggle: (field: FacetField, value: string) => void;
 }) {
@@ -272,7 +304,12 @@ function FacetGroup({
           {String(value)} ({count})
         </label>
       ))}
-      {facet.missing > 0 && <div>unknown ({facet.missing})</div>}
+      {facet.missing > 0 && (
+        <div>
+          {missingLabel(field)} ({facet.missing})
+        </div>
+      )}
+      {(facet.unknown ?? 0) > 0 && <div>unknown ({facet.unknown})</div>}
     </fieldset>
   );
 }

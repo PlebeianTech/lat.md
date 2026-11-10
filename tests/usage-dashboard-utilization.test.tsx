@@ -146,7 +146,7 @@ const scorecard: SectionScorecard = {
 const counter = (median: number | null): CounterEffort => ({
   median,
   sample: 3,
-  issues_with_unknown: 0,
+  issues_with_unknown: median === null ? 0 : 1,
   unknown_issues: 2,
   reason: median === null ? 'no issue has known tokens' : null,
 });
@@ -158,7 +158,11 @@ const rate = (count: number, sample: number) => ({
   left_out_window_not_complete: 1,
   left_out_other: {},
 });
-const group = (sessions: number, median: number | null): GroupResult => ({
+const group = (
+  sessions: number,
+  median: number | null,
+  durationMs: number | null = null,
+): GroupResult => ({
   sessions,
   issues: sessions,
   rework: rate(1, sessions),
@@ -176,10 +180,10 @@ const group = (sessions: number, median: number | null): GroupResult => ({
   effort: {
     issues: sessions,
     tokens: { input: counter(median) } as never,
-    duration_ms_median: null,
-    duration_sample: 0,
-    duration_unknown: sessions,
-    duration_reason: 'no durations',
+    duration_ms_median: durationMs,
+    duration_sample: durationMs === null ? 0 : 4,
+    duration_unknown: 1,
+    duration_reason: durationMs === null ? 'no_eligible_sample' : null,
   },
 });
 
@@ -189,7 +193,7 @@ const consequences = {
   windows: { rework_days: 3, follow_up_bug_days: 14, reopen_days: 14 },
   reopen_limit: { retention_days: 7, note: 'retention note' },
   groups: {
-    reached_everything: group(11, 100),
+    reached_everything: group(11, 100, 754_000),
     had_a_miss: group(22, null),
   },
   sessions_without_expected_sections: 0,
@@ -298,6 +302,28 @@ describe('usage dashboard utilization page', () => {
     expect(text()).not.toContain('empty-search');
   });
 
+  // @lat: [[usage-dashboard-utilization#Usage Dashboard Utilization#Findings link to their detail]]
+  it('ranks a list by sessions before count', async () => {
+    findingsResult = {
+      findings: [
+        finding({ id: 'uncovered-hot-file:many', subject: 'many', count: 50 }),
+        finding({
+          id: 'uncovered-hot-file:wide',
+          subject: 'wide',
+          count: 2,
+          sessions: 9,
+        }),
+      ],
+      errors: [],
+    };
+    await show();
+    const items = [
+      ...container.querySelectorAll('[aria-label="Top undocumented files"] li'),
+    ].map((li) => li.textContent);
+    expect(items[0]).toContain('wide');
+    expect(items[1]).toContain('many');
+  });
+
   it('says when a detector failed', async () => {
     findingsResult = {
       findings: [],
@@ -364,14 +390,23 @@ describe('usage dashboard utilization page', () => {
     expect(block.textContent).toContain('method version 3');
     expect(block.textContent).toContain('unknown (no issue has known tokens)');
     expect(block.textContent).toContain(
-      'unknown (no session or issue is old enough to judge) (n=0; left out: 1 window not complete, 4 issue never closed)',
+      'unknown (no eligible session or issue in the sample) (n=0; left out: 1 window not complete, 4 issue never closed)',
     );
     expect(block.textContent).toContain(
       '9% (1 of 11; left out: 1 window not complete)',
     );
     expect(block.textContent).toContain('2 sessions unknown');
     expect(block.textContent).toContain('retention note');
-    expect(block.textContent).toContain('+2 unknown');
+    expect(block.textContent).toContain(
+      '100 (n=3) +2 unknown; 1 partly unknown',
+    );
+    const durations = [...block.querySelectorAll('tr')]
+      .find((tr) => tr.textContent!.startsWith('Median duration per issue'))!
+      .querySelectorAll('td');
+    expect(durations[0].textContent).toBe('12m 34s (n=4) +1 unknown');
+    expect(durations[1].textContent).toBe(
+      'unknown (no eligible session or issue in the sample) (n=0) +1 unknown',
+    );
   });
 
   // @lat: [[usage-dashboard-utilization#Usage Dashboard Utilization#Missing data shows unknown]]

@@ -43,7 +43,11 @@ import {
 } from '../src/fork/usage/graph-snapshot.js';
 import { configureUsageLive, stopUsageLive } from '../src/fork/usage/live.js';
 import { registerUsageTool } from '../src/fork/usage/mcp-usage-tool.js';
-import type { SessionEvent } from '../src/fork/usage/schema.js';
+import {
+  USAGE_SCHEMA_VERSION,
+  type SessionEvent,
+  type UsageEvent,
+} from '../src/fork/usage/schema.js';
 import { readLog } from '../src/fork/usage/ingest.js';
 import {
   saveState,
@@ -379,11 +383,31 @@ describe('the usage directory is always ignored by git', () => {
 
 describe('readers never follow a planted symlink', () => {
   const event = JSON.stringify({
+    schema_version: USAGE_SCHEMA_VERSION,
     event_id: 'e1',
-    command: 'search',
     ts: '2026-11-08T10:00:00Z',
+    duration_ms: 1,
+    command: 'search',
+    surface: 'cli',
+    caller: 'agent',
+    agent: null,
+    lat_version: '0.0.0',
+    session_id: null,
+    parent_session_id: null,
+    repo_root: '/repo',
+    git_head: null,
+    worktree: null,
+    query: null,
     result_ids: [],
-  });
+    result_count: null,
+    section_id: null,
+    injected_bytes: null,
+    found: null,
+    bytes_out: null,
+    exit_code: 0,
+    error_class: null,
+    unknown_reasons: {},
+  } satisfies UsageEvent);
 
   // @lat: [[usage-opt-in#Usage Opt-in#A symlinked .lat is not opted in]]
   it('a symlinked .lat or .lat/usage does not opt the project in', () => {
@@ -411,6 +435,35 @@ describe('readers never follow a planted symlink', () => {
     rmSync(join(usageDir(root), 'state.json'));
     symlinkSync('/dev/zero', join(usageDir(root), 'state.json'));
     expect(loadState(root)).toEqual(emptyState());
+  });
+
+  // @lat: [[usage-opt-in#Usage Opt-in#Loading state drops malformed content]]
+  it('loading state drops a malformed state.json and implausible stored events', async () => {
+    mkdirSync(usageDir(root), { recursive: true });
+    const path = join(usageDir(root), 'state.json');
+    writeFileSync(path, JSON.stringify({ version: USAGE_STATE_VERSION }));
+    expect(loadState(root)).toEqual(emptyState());
+    const aggregator = await createAggregator({
+      root,
+      bd: { refresh: async () => null },
+    });
+    await expect(aggregator.refresh()).resolves.toBeUndefined();
+
+    const good = JSON.parse(event) as UsageEvent;
+    const future = { ...good, event_id: 'e2', ts: '3000-01-01T00:00:00Z' };
+    const kept = { agent: 'claude', event: tokens('t1') };
+    const stale = { agent: 'claude', event: { ...tokens('t2'), ts: 'never' } };
+    writeFileSync(
+      path,
+      JSON.stringify({
+        ...emptyState(),
+        usage: { e1: good, e2: future },
+        sessions: { t1: kept, t2: stale },
+      }),
+    );
+    const state = loadState(root);
+    expect(Object.keys(state.usage)).toEqual(['e1']);
+    expect(Object.keys(state.sessions)).toEqual(['t1']);
   });
 
   // @lat: [[usage-opt-in#Usage Opt-in#The event log reads only regular files]]

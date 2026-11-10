@@ -297,12 +297,19 @@ function followUpBugsOf(
   return windowedRate(eligible, incomplete, other);
 }
 
+// An issue must close inside the retention and its window must end by the last
+// event. A window as long as the retention leaves no such close time, so the
+// window is half the retention.
+function reopenWindowDays(retentionDays: number): number {
+  return Math.min(BUG_AND_REOPEN_WINDOW_DAYS, retentionDays / 2);
+}
+
 function reopensOf(
   group: IssueView[],
   input: MissConsequencesInput,
 ): WindowedRate {
   const retentionDays = input.reopenRetentionDays ?? REOPEN_RETENTION_DAYS;
-  const windowMs = Math.min(BUG_AND_REOPEN_WINDOW_DAYS, retentionDays) * DAY_MS;
+  const windowMs = reopenWindowDays(retentionDays) * DAY_MS;
   const facts = new Map(input.snapshot?.issues.map((i) => [i.id, i]));
   const reopensBy = new Map<string, ReopenEvent[]>();
   for (const reopen of input.snapshot?.reopens ?? [])
@@ -460,11 +467,11 @@ export function buildMissConsequences(
     windows: {
       rework_days: REWORK_WINDOW_DAYS,
       follow_up_bug_days: BUG_AND_REOPEN_WINDOW_DAYS,
-      reopen_days: Math.min(BUG_AND_REOPEN_WINDOW_DAYS, retention),
+      reopen_days: reopenWindowDays(retention),
     },
     reopen_limit: {
       retention_days: retention,
-      note: `Reopens come from the bd events journal, which keeps ${retention} days and records only this clone. The reopen window is limited to the retention, and issues closed before it are left out.`,
+      note: `Reopens come from the bd events journal, which keeps ${retention} days and records only this clone. The reopen window is limited to half the retention, and issues closed before the retention are left out.`,
     },
     groups,
     sessions_without_expected_sections: input.sessions.length - grouped.length,
@@ -500,13 +507,17 @@ type ShellEvent = AggregateContext['sessionEvents'][number] & {
   kind: 'tool_call';
 };
 
+const exitOf = (event: ShellEvent) =>
+  event.tool.shell?.exit_code?.value ?? null;
+
+/** Shell calls that failed or whose exit code is unknown. */
 function nonZeroShellCalls(context: AggregateContext): ShellEvent[] {
-  return context.sessionEvents.filter((event): event is ShellEvent => {
-    if (event.kind !== 'tool_call' || event.tool.action !== 'shell')
-      return false;
-    const exit = event.tool.shell?.exit_code?.value;
-    return exit !== null && exit !== undefined && exit !== 0;
-  });
+  return context.sessionEvents.filter(
+    (event): event is ShellEvent =>
+      event.kind === 'tool_call' &&
+      event.tool.action === 'shell' &&
+      exitOf(event as ShellEvent) !== 0,
+  );
 }
 
 const verdictKey = (context: AggregateContext, eventId: string) =>
@@ -519,14 +530,21 @@ function failedTestRunsBySession(
   const failed = new Map<string, number | null>(
     sessionIds.map((id) => [id, 0]),
   );
+  const unknownExit = new Set<string>();
   for (const event of nonZeroShellCalls(context)) {
     if (!failed.has(event.session_id)) continue;
     const verdict = verdicts.get(verdictKey(context, event.event_id));
+    if (exitOf(event) === null) {
+      if (verdict) unknownExit.add(event.session_id);
+      continue;
+    }
     const current = failed.get(event.session_id);
     if (verdict === undefined) failed.set(event.session_id, null);
     else if (current !== null && verdict)
       failed.set(event.session_id, (current ?? 0) + 1);
   }
+  // A test run with an unknown exit code may have failed, so zero is unknown.
+  for (const id of unknownExit) if (failed.get(id) === 0) failed.set(id, null);
   return failed;
 }
 
@@ -562,7 +580,8 @@ export function sessionTokensOf(
   context: AggregateContext,
 ): Map<string, Record<TokenCounter, CountedSum>> {
   const sums = new Map<string, Record<TokenCounter, Sum>>();
-  for (const item of context.items) {
+  // The whole session, like its duration in spansOf, not the filtered range.
+  for (const item of context.allItems) {
     if (item.session?.kind !== 'token_usage' || !item.session_id) continue;
     let own = sums.get(item.session_id);
     if (!own) {

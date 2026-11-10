@@ -395,6 +395,13 @@ async function readFrom(
           bytes,
           shell: { command: script, exit_code: exit },
         });
+        // A failed or declined command with no exit code never ran, so it
+        // read, wrote and closed nothing.
+        if (
+          exit.value === null &&
+          (item.status === 'failed' || item.status === 'declined')
+        )
+          continue;
         for (const parsedCommand of item.parsed_cmd ?? []) {
           if (
             parsedCommand?.type === 'read' &&

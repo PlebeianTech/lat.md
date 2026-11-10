@@ -39,11 +39,21 @@ A `usage-error` event sets `error` to the server message and keeps `data`. The n
 
 ## Components share one stream
 
-Any number of hook instances open a single event stream. It closes when the last one unmounts.
+Any number of hook instances open a single event stream. It closes a microtask after the last one unmounts.
+
+## A page change keeps the stream
+
+Moving between dashboard pages keeps the one open stream, so the server keeps its live caches. A page change unmounts every hook and subscribes the next page's hooks in the same commit, before the deferred close runs.
 
 ## Hidden tabs close the stream
 
 When the tab becomes hidden the stream closes. When it becomes visible again the hook opens one new stream and refetches once, on that stream's first `open`.
+
+## A page opened hidden refetches when shown
+
+A dashboard opened in a hidden tab fetches once and opens no stream. When the tab becomes visible, the first `open` of the new stream refetches once.
+
+The server never sends the changes made while the tab is hidden. A page opened in a visible tab does not refetch on its first `open`.
 
 ## A browser reconnect refetches
 

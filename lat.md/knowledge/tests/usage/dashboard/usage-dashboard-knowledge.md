@@ -27,9 +27,11 @@ The detail view of a section shows its reads per day, the queries that led to a 
 
 It shows section ids, query strings and issue ids only, never section bodies.
 
-## The section detail shows the reach series with a marker at each content change
+## The section detail shows the reach series and lists content changes
 
-The detail view shows the section's reach per day from the section scorecard, and lists one marker for each git head where the section's content changed.
+The detail view shows the section's reach per day from the section scorecard, and lists one entry for each git head where the section's content changed.
+
+It says "Reached in X of Y times expected", because the scorecard's `expected` counts session-by-section expectations, not reads.
 
 A section renamed from another id shows the old id.
 

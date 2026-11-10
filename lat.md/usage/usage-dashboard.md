@@ -22,6 +22,8 @@ Run `lat ui`, then open `/_usage` on the server it prints, for example `http://l
 
 The leading underscore keeps the dashboard apart from documents: a document at `lat.md/usage.md` or under `lat.md/usage/` keeps its own page at `/usage/...`.
 
+The dashboard needs the `lat ui` server. A static site from `lat ui build` has no usage data to read, so the build leaves `usage.html` out.
+
 The left navigation lists nine pages. A filter bar above them sets a date range and narrows the data to one agent, session or bd issue. The filters live in the address, so a copied link keeps them, and every link between pages carries them.
 
 A value lat could not learn reads "unknown" with its reason. The dashboard never shows it as zero.
@@ -46,11 +48,11 @@ Each page answers one question.
 - **Findings** lists every finding with its count, sessions, first and last seen, and a daily sparkline. A kind filter narrows the list. A finding opens a detail view that lists the evidence events with links to Explore, the session and the bd issues involved, and the closest section when one exists. The detail view describes every kind in the table under [Findings](#findings). A `search-miss` detail also links its expected section to the Knowledge page.
 - **Sessions** lists sessions, with subagents nested under their parent. A session opens a timeline of its lat commands, bypass reads, bd claims and closes, and injected hook context.
 - **Issues** shows bd issues as a tree with own and rolled-up totals. Issues share events, so rows overlap and the table has no grand total. A row above the tree reports activity that matches no issue.
-- **Knowledge** ranks the 20 most-read sections, counts the never-read ones, and draws a map of documents sized by bytes and shaded by reads. A pale large block is content that costs upkeep and is rarely read. A section opens a view of its reads over time, the queries that led to reads, the issues that read it, and its reach with a marker at each git head where its content changed.
+- **Knowledge** ranks the 20 most-read sections, counts the never-read ones, and draws a map of documents sized by bytes and shaded by reads. A pale large block is content that costs upkeep and is rarely read. A section opens a view of its reads over time, the queries that led to reads, the issues that read it, its reach over time, and a list of the git heads where its content changed.
 - **Queries** lists normalized search queries with result counts, empty-result share, followed share and reformulations. A query opens a view of the sections it returned and the ranks at which agents opened them.
 - **Agents** compares agents on per-session figures, so an agent with many sessions does not win on volume. An agent with no sessions in range shows a row marked "no sessions in range".
 - **Utilization** is described in [Utilization and missed knowledge](#utilization-and-missed-knowledge).
-- **Explore** lists raw events with facet filters, a group-by control, paging and a JSON-lines export. It shows ids, counts, paths and section ids only.
+- **Explore** lists raw events with facet filters, a group-by control, paging and a JSON-lines export. The table shows each event's time, type, agent, session, lat command name or event kind, section id or file path, exit code and error class, and never the full command text. The export holds the full event records, including search query text and absolute paths such as the repository root and worktree.
 
 ## Health signals
 
@@ -86,6 +88,8 @@ A finding is a problem lat found in the usage data. The detail view of each says
 | `uncovered-hot-file` | Agents edited a file with no documentation in at least three sessions.                        | Write a section for it, and reference the file from the section.                                                |
 | `search-miss`        | Agents searched, did not find a section they went on to need, and edited the code without it. | Reword the expected section so the query finds it.                                                              |
 
+`never-read-section` and `stale-hot-section` findings come from the knowledge index, not from events. They have no sessions, first or last seen date or daily counts, so the Findings list shows "—" in those columns and no sparkline.
+
 The stale-section detector reads git history. In a project that is not a git repository it fails, and the Findings page lists `stale-hot-section` as a failed detector. That is expected there.
 
 ## Utilization and missed knowledge
@@ -103,7 +107,7 @@ For each session lat finds the documented sections that cover the files the agen
 
 Knowledge reach is the share of expected sections that were `reached`. The page shows it per issue type, including an `untyped` bucket for issues with no type and an `unknown` bucket for sessions that worked on no bd issue. A bucket whose reach cannot be computed reads "unknown" with its reason.
 
-These outcomes are inferred, not intended. lat sees what the agent did and not what it meant, so an agent that knew the code and skipped the section looks the same as one that missed it. Expected sections exist only for files that already carried references, so reach measures changes to existing, documented code. New files and undocumented files are counted apart.
+These outcomes are inferred, not intended. lat sees what the agent did and not what it meant, so an agent that knew the code and skipped the section looks the same as one that missed it. Expected sections exist only for files that already carried references at the session's first git head, before its own commits, so reach measures changes to existing, documented code. New files and undocumented files are counted apart. Edits to files under `lat.md/` are knowledge edits, not source edits, and are not counted.
 
 The page has six blocks:
 
@@ -120,7 +124,7 @@ The comparison covers rework, failed test runs, follow-up bugs, reopened issues 
 
 Some sessions cannot enter a measure, because the follow-up window has not passed yet or the data is missing. lat counts them as left out and states why, so a small sample is visible. It does not treat them as having no effect.
 
-Reopens come from the bd events journal, which keeps seven days and records only this clone. The reopen window is limited to that retention, and issues closed before it are left out.
+Reopens come from the bd events journal, which keeps seven days and records only this clone. The reopen window is half that retention, 3.5 days by default, and issues closed before the retention are left out.
 
 The comparison is labelled "correlation, not cause". Sessions with a miss may also be the harder ones, so a gap between the groups does not show that the miss caused it.
 

@@ -18,7 +18,11 @@ import {
 } from './enabled.js';
 import { USAGE_SCHEMA_VERSION } from './schema.js';
 import type { SavingsEstimate } from './savings.js';
-import { printNotEnabled, registerUsageGapsCommand } from './usage-gaps-cli.js';
+import {
+  printNotEnabled,
+  registerUsageGapsCommand,
+  terminalSafe,
+} from './usage-gaps-cli.js';
 
 const ISSUE_LINES = 10;
 
@@ -199,7 +203,7 @@ export function renderUsageSummary(summary: UsageSummary): string {
     lines.push('Issues (rows overlap; not additive):');
     for (const row of summary.issues.slice(0, ISSUE_LINES)) {
       lines.push(
-        `  ${row.key}  commands ${row.totals.commands}, rolled up ${row.rolled_up.totals.commands}`,
+        `  ${terminalSafe(row.key)}  commands ${row.totals.commands}, rolled up ${row.rolled_up.totals.commands}`,
       );
     }
     const hidden = summary.issues.length - ISSUE_LINES;

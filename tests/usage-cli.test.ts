@@ -407,3 +407,17 @@ describe('lat usage issue lines', () => {
     expect(text).not.toMatch(/Issues total/i);
   });
 });
+
+// @lat: [[usage-cli#Usage CLI#Issue rows are not summed]]
+describe('lat usage issue lines terminal safety', () => {
+  it('strips control characters from an issue key', async () => {
+    seed();
+    const summary = await runJson();
+    summary.issues[0].key = 'lat-1\x1b]0;pwned\x07';
+    const { renderUsageSummary } =
+      await import('../src/fork/usage/usage-cli.js');
+    const text = renderUsageSummary(summary);
+    expect(text).not.toMatch(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/);
+    expect(text).toContain('lat-1 ]0;pwned');
+  });
+});

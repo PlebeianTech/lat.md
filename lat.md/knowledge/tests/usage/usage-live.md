@@ -25,15 +25,27 @@ After an event is appended to the log, the event stream sends exactly one `usage
 
 The stream opens with a `ready` event that carries a server-lifetime id, and sends heartbeat comments.
 
+## Usage off reads no session store
+
+On a project where usage is not enabled, the live server calls `discover` on no session source and watches no transcript directory, as [[usage-analytics#Usage Analytics#Opt-in and the usage directory]] requires.
+
 ## A failing refresh is pushed once
 
 When a refresh throws, the stream sends one `usage-error` event with `{ instanceId, message }`, so a client can show stale data.
 
 The signature and git head still advance: later polls neither retry the failure nor forget graph snapshots again. A head change forgets snapshots exactly once. The next successful change sends `usage-change`, which clears the error.
 
+## A project below the repository root sees head moves
+
+When the project root is a subdirectory of the git repository, the head is read from the nearest `.git` above it. A change to that repository's `logs/HEAD` makes the next check run `forgetSnapshots()` once.
+
 ## The dashboard page is served at any depth
 
 `/_usage` and `/_usage/sessions/x` answer with `usage.html` from the client directory, its asset URLs rewritten to the root, so the page loads from any depth. A missing page answers 404.
+
+## A static export leaves the dashboard page out
+
+`removeUsageDashboard` deletes `usage.html` from a static payload and keeps every other file. It does nothing when the page is not there.
 
 ## Documents named usage stay reachable
 

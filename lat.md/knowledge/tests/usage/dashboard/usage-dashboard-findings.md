@@ -15,6 +15,10 @@ Each finding, whatever its kind, is one row with subject, kind, count, sessions,
 
 A kind the page does not know still renders with those columns. A missing first or last seen reads "unknown".
 
+## Section findings show no invented measures
+
+A `stale-hot-section` or `never-read-section` row has no events behind it. Its sessions, first seen and last seen cells show "—", not 0 or "unknown", and it has no sparkline of zero counts.
+
 ## The kind filter narrows the list
 
 Choosing a kind above the table leaves only the findings of that kind, and choosing all kinds shows them again.
@@ -38,6 +42,12 @@ A `search-miss` detail shows its `expected_section_id` as a link to that section
 ## The detail view lists the evidence events
 
 The detail view requests the evidence event ids from the raw events endpoint and lists each event with its id and time, a link to Explore, and links to the session and the bd issues it came from. It shows ids only, never transcript text.
+
+## A finding without events fetches none
+
+A finding with no evidence events requests nothing from the raw events endpoint, because an empty id list there means no filter.
+
+A `never-read-section` finding says no agent read the section in the selected period, with no event or session counts. A `stale-hot-section` finding says how many times the section was read and that its count is those reads.
 
 ## An unknown finding id says it no longer applies
 

@@ -7,6 +7,8 @@ import {
   fetchAllUsageEvents,
   useUsageData,
 } from '../view/src/usage/use-usage-data';
+import { navigateTo } from '../view/src/usage/filters';
+import { UsageApp } from '../view/src/usage/usage-app';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -259,6 +261,16 @@ describe('usage dashboard data hook', () => {
     expect(openStreams()).toHaveLength(0);
   });
 
+  // @lat: [[usage-dashboard-data-hook#Usage Dashboard Data Hook#A page change keeps the stream]]
+  it('keeps one stream across page navigation', async () => {
+    await render(createElement(UsageApp));
+    expect(openStreams()).toHaveLength(1);
+    await act(async () => navigateTo('/_usage/findings'));
+    await act(async () => navigateTo('/_usage/sessions'));
+    expect(FakeEventSource.instances).toHaveLength(1);
+    expect(openStreams()).toHaveLength(1);
+  });
+
   // @lat: [[usage-dashboard-data-hook#Usage Dashboard Data Hook#Hidden tabs close the stream]]
   it('closes the stream while hidden and reconnects once, refetching', async () => {
     await render(probe());
@@ -273,6 +285,18 @@ describe('usage dashboard data hook', () => {
     expect(requests).toHaveLength(2);
     await setVisibility('visible');
     expect(FakeEventSource.instances).toHaveLength(2);
+    expect(requests).toHaveLength(2);
+  });
+
+  // @lat: [[usage-dashboard-data-hook#Usage Dashboard Data Hook#A page opened hidden refetches when shown]]
+  it('refetches on the first open after a page opened in a hidden tab', async () => {
+    visibility = 'hidden';
+    await render(probe());
+    await respond(last(), { n: 1 });
+    expect(FakeEventSource.instances).toHaveLength(0);
+    await setVisibility('visible');
+    expect(openStreams()).toHaveLength(1);
+    await emit('open');
     expect(requests).toHaveLength(2);
   });
 

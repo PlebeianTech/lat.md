@@ -1,3 +1,6 @@
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import type { SessionEvent } from '../src/fork/usage/schema.js';
 import {
@@ -217,6 +220,55 @@ describe('usage bd attribution', () => {
         latCommand.event_id,
       )?.method,
     ).toBe('unattributed');
+  });
+
+  // @lat: [[usage-bd-attribution#Usage bd Attribution#A parent session event takes the claim of one subagent]]
+  it('credits a lat command logged under the parent to the claiming subagent', () => {
+    // The CLI tap records a subagent's lat command under the parent's id.
+    const commands = [
+      bdCommand('agent-a', 10, 'claim', 'p-1', 'S'),
+      bdCommand('agent-a', 60, 'close', 'p-1', 'S'),
+    ];
+    const latSearch = activity('S', 30);
+    const tokens = activity('agent-a', 30, 'S');
+    const after = activity('S', 70);
+    const { attributions } = attribute([latSearch, tokens, after], commands, [
+      issue('p-1'),
+    ]);
+    expect(attributions.get(latSearch.event_id)).toEqual({
+      issue_ids: ['p-1'],
+      method: 'claim',
+      shared: false,
+    });
+    expect(attributions.get(tokens.event_id)?.issue_ids).toEqual(['p-1']);
+    expect(attributions.get(after.event_id)?.method).toBe('unattributed');
+  });
+
+  // @lat: [[usage-bd-attribution#Usage bd Attribution#A parent session event takes the claim of one subagent]]
+  it('leaves a parent event unattributed when two subagents claim different issues', () => {
+    const commands = [
+      bdCommand('agent-a', 10, 'claim', 'p-1', 'S'),
+      bdCommand('agent-b', 10, 'claim', 'p-2', 'S'),
+    ];
+    const latSearch = activity('S', 30);
+    const { attributions } = attribute([latSearch], commands, [
+      issue('p-1'),
+      issue('p-2'),
+    ]);
+    expect(attributions.get(latSearch.event_id)?.method).toBe('unattributed');
+  });
+
+  it('keeps the parent claim over a subagent claim for a parent event', () => {
+    const commands = [
+      bdCommand('S', 0, 'claim', 'x'),
+      bdCommand('agent-a', 10, 'claim', 'y', 'S'),
+    ];
+    const latSearch = activity('S', 30);
+    const { attributions } = attribute([latSearch], commands, [
+      issue('x'),
+      issue('y'),
+    ]);
+    expect(attributions.get(latSearch.event_id)?.issue_ids).toEqual(['x']);
   });
 
   // @lat: [[usage-bd-attribution#Usage bd Attribution#Timestamp fallback]]
@@ -468,6 +520,23 @@ describe('usage bd attribution', () => {
       PATH: '/nonexistent',
     });
     expect(await missingBinary(['list'])).toBeNull();
+  });
+
+  // @lat: [[usage-bd-attribution#Usage bd Attribution#bd unavailable]]
+  it('gives bd end of input on stdin instead of an open pipe', async () => {
+    const bin = mkdtempSync(join(tmpdir(), 'usage-bd-bin-'));
+    try {
+      // A bd that reads stdin to the end, then answers.
+      writeFileSync(join(bin, 'bd'), '#!/bin/sh\ncat >/dev/null\necho done\n');
+      chmodSync(join(bin, 'bd'), 0o755);
+      const run = createBdRunner({
+        BEADS_DIR: bin,
+        PATH: `${bin}:/bin:/usr/bin`,
+      });
+      expect(await run(['list'])).toBe('done\n');
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
   });
 
   // @lat: [[usage-bd-attribution#Usage bd Attribution#Discovered-from links]]

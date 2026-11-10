@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import { resolveContext } from '@plebeiantech/lat.md-core/cli/context';
+import { cleanUntrusted } from '@plebeiantech/lat.md-core/untrusted';
 import { createAggregator, type AggregatorOptions } from './aggregate.js';
 import { parseUsageFilters } from './filters.js';
 import { NOT_ENABLED_MESSAGE, usageEnabled } from './enabled.js';
@@ -16,12 +17,22 @@ type GapsOptions = {
   json?: boolean;
 };
 
+/**
+ * Strip control characters from transcript and repository text before it
+ * reaches the terminal, so an escape sequence in a file name or query is
+ * shown as text and never run.
+ */
+export function terminalSafe(text: string): string {
+  return cleanUntrusted(text, Infinity);
+}
+
 export function gapLine(finding: Finding): string {
-  let line = `${finding.kind}  ${finding.subject}  count ${finding.count}, sessions ${finding.sessions}`;
+  let line = `${finding.kind}  ${terminalSafe(finding.subject)}  count ${finding.count}, sessions ${finding.sessions}`;
   const { suggestion, expected_section_id } = finding;
   if (suggestion)
-    line += `  closest: ${suggestion.title} (${suggestion.section_id})`;
-  if (expected_section_id) line += `  expected: ${expected_section_id}`;
+    line += `  closest: ${terminalSafe(suggestion.title)} (${terminalSafe(suggestion.section_id)})`;
+  if (expected_section_id)
+    line += `  expected: ${terminalSafe(expected_section_id)}`;
   return line;
 }
 
@@ -61,7 +72,8 @@ async function showGaps(
     return;
   }
   const lines = result.errors.map(
-    (error) => `Detector ${error.detector} failed: ${error.message}`,
+    (error) =>
+      `Detector ${error.detector} failed: ${terminalSafe(error.message)}`,
   );
   lines.push(...result.findings.slice(0, GAP_LINES).map(gapLine));
   const hidden = result.findings.length - GAP_LINES;

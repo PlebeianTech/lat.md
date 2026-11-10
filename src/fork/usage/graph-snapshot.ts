@@ -230,7 +230,10 @@ export async function snapshotGraphAtHead(
 }
 
 async function git(cwd: string, ...args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync('git', args, { cwd });
+  const { stdout } = await execFileAsync('git', args, {
+    cwd,
+    maxBuffer: GIT_MAX_BUFFER,
+  });
   return stdout.trim();
 }
 
@@ -248,9 +251,14 @@ async function findWorktreeAtHead(
     if (!existsSync(candidate)) continue;
     try {
       if ((await git(candidate, 'rev-parse', 'HEAD')) !== head) continue;
-      if ((await git(candidate, 'status', '--porcelain')) === '') {
-        return { clean: candidate, dirty };
-      }
+      // A live worktree: never take index.lock and collide with the user's git.
+      const status = await git(
+        candidate,
+        '--no-optional-locks',
+        'status',
+        '--porcelain',
+      );
+      if (status === '') return { clean: candidate, dirty };
       dirty = true;
     } catch {
       continue;

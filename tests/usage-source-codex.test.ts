@@ -294,6 +294,30 @@ describe('codex session reader', () => {
     expect(ofKind(failed, 'bd_command')).toEqual([]);
   });
 
+  // @lat: [[usage-source-codex#Usage Source Codex#A command that never ran records only the shell call]]
+  it.each(['failed', 'declined'])(
+    'records a %s command that never ran as its shell call only',
+    async (status) => {
+      const script = 'bd close lat-9 && echo x > out.txt && cat lat.md/cli.md';
+      const events = await readCommand(script, {
+        status,
+        exit_code: -1,
+        parsed_cmd: [{ type: 'read', path: 'lat.md/cli.md' }],
+      });
+      expect(toolCalls(events)).toEqual([
+        expect.objectContaining({
+          action: 'shell',
+          shell: {
+            command: script,
+            exit_code: { value: null, reason: 'not_captured' },
+          },
+        }),
+      ]);
+      expect(ofKind(events, 'bd_command')).toEqual([]);
+      expect(ofKind(events, 'bypass_read')).toEqual([]);
+    },
+  );
+
   // @lat: [[usage-source-codex#Usage Source Codex#Token usage splits the cache]]
   it('reports token usage once per response with the cache split', async () => {
     const path = installFixture('main.jsonl', 'rollout-main.jsonl');

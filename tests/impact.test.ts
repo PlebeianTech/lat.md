@@ -1,22 +1,19 @@
 import { beforeAll, describe, expect, it } from 'vitest';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   plainStyler,
   type CmdContext,
 } from '@plebeiantech/lat.md-core/context';
 import { commandProjectAnalysis } from '@plebeiantech/lat.md-core/project-analysis';
+import { flattenSections } from '@plebeiantech/lat.md-core/lattice-model';
 import {
-  flattenSections,
-  type Section,
-} from '@plebeiantech/lat.md-core/lattice-model';
-import {
-  buildImpactIndex,
   impactCommand,
   loadImpactIndex,
   reportImpact,
   type ImpactIndex,
 } from '../src/cli/impact.js';
-import type { GraphEdge } from '../src/graph-export.js';
 
 const projectRoot = join(import.meta.dirname, '..');
 const ctx: CmdContext = {
@@ -139,43 +136,79 @@ describe('lat impact', () => {
     expect(huge.output).toBe(enough.output);
   });
 
+  // @lat: [[impact#Impact#Stays under the cost of lat section]]
+  it('caps a long listing under the cost of lat section and counts the rest', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'lat-impact-cap-'));
+    try {
+      await mkdir(join(root, 'lat.md'), { recursive: true });
+      const dependents = Array.from(
+        { length: 120 },
+        (_, i) =>
+          `## Dependent section number ${i} with a long heading\n\nUses [[many#Many#Target]].\n`,
+      );
+      await writeFile(join(root, 'lat.md/lat.md'), '# Lat\n\n- [[many]]\n');
+      await writeFile(
+        join(root, 'lat.md/many.md'),
+        `# Many\n\nIntro.\n\n## Target\n\nTarget body.\n\n${dependents.join('\n')}`,
+      );
+      const tmpIndex = await loadImpactIndex({
+        latDir: join(root, 'lat.md'),
+        projectRoot: root,
+        styler: plainStyler,
+        mode: 'cli',
+      });
+      const capped = reportImpact(tmpIndex, 'many#Many#Target', {
+        depth: DEFAULT_DEPTH,
+      }).output;
+      expect(Buffer.byteLength(capped)).toBeLessThan(LAT_SECTION_COST);
+      const shown = capped.split('\n').filter((l) => /\.md:\d+$/.test(l));
+      const more = /\n\n(\d+) more not shown \(--all lists them\)$/.exec(
+        capped,
+      );
+      expect(more).not.toBeNull();
+      expect(shown.length + Number(more![1])).toBe(120);
+
+      const all = reportImpact(tmpIndex, 'many#Many#Target', {
+        depth: DEFAULT_DEPTH,
+        all: true,
+      }).output;
+      expect(all).not.toContain('more not shown');
+      expect(all.split('\n').filter((l) => /\.md:\d+$/.test(l))).toHaveLength(
+        120,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   // @lat: [[impact#Impact#Walks through code nodes]]
-  it('finds a section whose only dependency path crosses a code-ref edge', () => {
-    const section = (id: string, line: number): Section => ({
-      id,
-      heading: id,
-      depth: 1,
-      file: id,
-      filePath: `${id}.md`,
-      children: [],
-      startLine: line,
-      endLine: line,
-      firstParagraph: '',
-    });
-    const a = section('a', 1);
-    const b = section('b', 2);
-    const edges: GraphEdge[] = [
-      {
-        from: 'code:src/x.ts:3',
-        to: 'section:a',
-        type: 'code-ref',
-        role: 'implements',
-      },
-      {
-        from: 'section:b',
-        to: 'code:src/x.ts:3',
-        type: 'wikilink',
-        role: 'symbol-ref',
-      },
-    ];
-    const result = reportImpact(
-      buildImpactIndex([a, b], edges, new Set()),
-      'a',
-      {
-        depth: 2,
-      },
-    );
-    expect(result.output).toContain('b  b.md:2');
-    expect(result.output).not.toContain('src/x.ts');
+  it('reaches a section that links a symbol whose @lat comment points at the target', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'lat-impact-walk-'));
+    try {
+      await mkdir(join(root, 'lat.md'), { recursive: true });
+      await mkdir(join(root, 'src'), { recursive: true });
+      await writeFile(join(root, 'lat.md/lat.md'), '# Lat\n\n- [[alpha]]\n');
+      await writeFile(
+        join(root, 'lat.md/alpha.md'),
+        '# Alpha\n\nAlpha intro.\n\n## Gamma\n\nGamma body.\n\n## Delta\n\nDelta documents [[src/x.ts#foo]].\n',
+      );
+      await writeFile(
+        join(root, 'src/x.ts'),
+        'export function foo(): number {\n  // @lat: [[alpha#Alpha#Gamma]]\n  return 1;\n}\n',
+      );
+      const tmpIndex = await loadImpactIndex({
+        latDir: join(root, 'lat.md'),
+        projectRoot: root,
+        styler: plainStyler,
+        mode: 'cli',
+      });
+      const { output } = reportImpact(tmpIndex, 'alpha#Alpha#Gamma', {
+        depth: 5,
+      });
+      expect(output).toMatch(/alpha#Alpha#Delta {2}lat\.md\/alpha\.md:\d+/);
+      expect(output).not.toContain('src/x.ts');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
