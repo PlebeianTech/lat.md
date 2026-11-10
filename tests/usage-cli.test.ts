@@ -394,6 +394,44 @@ describe('lat usage savings line', () => {
     expect(text).toContain('method v1');
     expect(text).toContain('correlation, not cause');
   });
+
+  it('shows how many reads the range leaves out as unknown', async () => {
+    seed();
+    const summary = await runJson();
+    const savings = summary.extensions.savings as Record<string, unknown>;
+    savings.net_tokens_saved = { low: 10, point: 20, high: 30 };
+    savings.saved_bytes = { total: 100, known: 1, unknown: 3 };
+    savings.unknown_reads = [
+      { reason: 'a', count: 2 },
+      { reason: 'b', count: 1 },
+    ];
+    const { renderUsageSummary } =
+      await import('../src/fork/usage/usage-cli.js');
+    expect(renderUsageSummary(summary)).toContain(
+      'Tokens saved: 10 to 30 (+3 reads unknown) (point 20)',
+    );
+  });
+
+  it('does not count a hook of unknown injected size as an unknown read', async () => {
+    writeUsageEvent(
+      root,
+      usage({ command: 'hook', caller: 'hook-injected', injected_bytes: 30 }),
+    );
+    writeUsageEvent(
+      root,
+      usage({ command: 'hook', caller: 'hook-injected', injected_bytes: null }),
+    );
+    const summary = await runJson();
+    const savings = summary.extensions.savings as {
+      unknown_reads: { reason: string; count: number }[];
+    };
+    expect(savings.unknown_reads).toEqual([
+      { reason: 'injected_bytes not captured', count: 1 },
+    ]);
+    const text = await run();
+    expect(text).toContain('Tokens saved: -10 to -6 (point -7)');
+    expect(text).not.toContain('reads unknown');
+  });
 });
 
 // @lat: [[usage-cli#Usage CLI#Issue rows are not summed]]

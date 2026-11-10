@@ -13,6 +13,10 @@ Each test runs on a fresh git repository with a `lat.md` directory and no `.lat/
 
 On a project that is not enabled, a summary reads no session store, counts no token messages and leaves no `.lat/` directory.
 
+## The aggregator runs no bd when off
+
+On a project that is not enabled, a summary and a refresh make no call to the bd watcher. After usage is turned on, the next refresh calls it once and the summary counts the session events.
+
 ## LAT_USAGE alone keeps state in memory
 
 With `LAT_USAGE=1` and no `.lat/usage/`, the aggregator reads the session store and counts its events, and still leaves no `.lat/` directory.
@@ -24,6 +28,10 @@ With `LAT_USAGE=1` and no `.lat/usage/`, the aggregator reads the session store 
 ## The raw event index reads nothing when off
 
 The raw event index returns no records, reads no session store and leaves no `.lat/` directory.
+
+## The raw event index runs no bd when off
+
+On a project that is not enabled, a read of the raw event index makes no call to the bd watcher. After usage is turned on, the next read calls it once and returns the session records.
 
 ## lat usage says tracking is not enabled
 
@@ -47,11 +55,11 @@ After `lat usage enable`, a read, and `lat usage disable`, neither `lat usage`, 
 
 ## Enable writes an ignore file
 
-`lat usage enable` writes `.lat/usage/.gitignore` holding `*`, so `git status` shows nothing new. On a directory that already exists without one, enable adds it.
+`lat usage enable` writes `.lat/usage/.gitignore` holding `*`, so `git status` shows nothing new under `.lat`. On a directory that already exists without one, enable adds it.
 
 ## A committed ignore file is replaced
 
-A repository can commit `.lat/usage/.gitignore` empty. Enable and saving state replace it with `*`, so `git add -A` stages nothing else. A symlink there is replaced, never written through.
+A repository can commit `.lat/usage/.gitignore` empty. Enable and saving state replace it with `*`, so `git add -A` stages nothing else under `.lat`. A symlink there is replaced, never written through.
 
 ## Saving state adds a missing ignore file
 
@@ -86,3 +94,15 @@ A stored usage event dated 3000-01-01 and a stored session event with no plausib
 ## The event log reads only regular files
 
 A symlinked events file is not ingested. A regular events file at the same path is.
+
+## State keeps events whose ids look like object properties
+
+Events with the ids `__proto__` and `constructor` in the event log are in the state after a read, and still there after the state is saved and loaded.
+
+After the load, an event with the id `toString` can still be added.
+
+## An unusable state.json is reported once
+
+When `state.json` exists but is unreadable, a symlink, not valid JSON, not an object, or of another version, loading it prints one stderr message and returns an empty state. A second load prints nothing.
+
+The message names the file and quotes nothing from it. A missing `state.json`, a usable one, and a project with no usage directory print nothing.

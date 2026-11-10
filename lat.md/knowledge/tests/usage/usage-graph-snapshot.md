@@ -39,6 +39,20 @@ The content hash of a section is the same at two heads when its text is the same
 
 When no worktree named by the events is at a head, the snapshot has `code_ref_edges` null and the reason `not_captured`, because code refs come from the live working tree.
 
+The snapshot is stored in `.lat/usage/graph-snapshots` like any other.
+
+## A stored past head is not built again
+
+A later process reads the stored snapshot of a past head and runs no git command to build the graph again.
+
+A past head has no worktree, so building it costs one `git show` per document. Fifty such heads cost more than two seconds at every process start.
+
+## A clean worktree gives a stored past head its code-ref edges
+
+A stored snapshot with `code_ref_edges` null is built again, and stored again, when a clean worktree is now at its head.
+
+With no worktree at the head, or a dirty one, the stored snapshot is used as it is. Its reason stays `not_captured` even when a dirty worktree is now at the head.
+
 ## Symbol-ref edges are stored for past and current heads
 
 Sections that cite a source file as `file#symbol` give a symbol-ref edge keyed by the file part of the target. These come from markdown, so a past head has them too.
@@ -76,6 +90,8 @@ A head like `../../../outside` would otherwise name a file outside the snapshot 
 ## A dirty worktree stores no code-ref edges
 
 A worktree at the head with uncommitted changes proves only the commit, not the tree the code refs were read from. The snapshot then has `code_ref_edges` null and the reason `dirty_worktree`.
+
+It is not written to disk, so the next process builds the head again and takes its code-ref edges once the worktree is clean.
 
 ## A project below the repository root gets snapshots
 

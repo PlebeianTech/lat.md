@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import {
+  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -50,9 +51,12 @@ import {
 } from '../src/fork/usage/schema.js';
 import { readLog } from '../src/fork/usage/ingest.js';
 import {
+  addUsageEvent,
   saveState,
   emptyState,
+  forgetStateWarning,
   loadState,
+  statePath,
   USAGE_STATE_VERSION,
 } from '../src/fork/usage/state.js';
 import { usageEnabled } from '../src/fork/usage/enabled.js';
@@ -99,9 +103,11 @@ function git(root: string, ...args: string[]): string {
 
 let root: string;
 let output: string;
+let errors: string;
 
 beforeEach(() => {
   vi.stubEnv('LAT_USAGE', '');
+  forgetStateWarning();
   fake.events = [tokens('t1')];
   fake.reads = 0;
   forgetSnapshots();
@@ -112,8 +118,13 @@ beforeEach(() => {
   git(root, 'add', '.');
   git(root, 'commit', '-q', '-m', 'init');
   output = '';
+  errors = '';
   vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
     output += String(chunk);
+    return true;
+  });
+  vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+    errors += String(chunk);
     return true;
   });
   vi.spyOn(console, 'log').mockImplementation((...parts) => {
@@ -157,6 +168,19 @@ describe('reading usage never opts a project in', () => {
     expect(existsSync(latDir(root))).toBe(false);
   });
 
+  // @lat: [[usage-opt-in#Usage Opt-in#The aggregator runs no bd when off]]
+  it('the aggregator runs no bd while off and runs it once usage is on', async () => {
+    const refresh = vi.fn(async () => null);
+    const aggregator = await createAggregator({ root, bd: { refresh } });
+    await aggregator.summary();
+    await aggregator.refresh();
+    expect(refresh).not.toHaveBeenCalled();
+    vi.stubEnv('LAT_USAGE', '1');
+    await aggregator.refresh();
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect((await aggregator.summary()).totals.tokens.messages).toBe(1);
+  });
+
   // @lat: [[usage-opt-in#Usage Opt-in#LAT_USAGE alone keeps state in memory]]
   it('with LAT_USAGE=1 and no directory it reads but keeps state in memory', async () => {
     vi.stubEnv('LAT_USAGE', '1');
@@ -187,6 +211,17 @@ describe('reading usage never opts a project in', () => {
     expect(page.records).toEqual([]);
     expect(fake.reads).toBe(0);
     expect(existsSync(latDir(root))).toBe(false);
+  });
+
+  // @lat: [[usage-opt-in#Usage Opt-in#The raw event index runs no bd when off]]
+  it('the raw event index runs no bd while off and runs it once usage is on', async () => {
+    const refresh = vi.fn(async () => null);
+    await queryUsageEvents({}, { root, bd: { refresh } });
+    expect(refresh).not.toHaveBeenCalled();
+    vi.stubEnv('LAT_USAGE', '1');
+    const page = await queryUsageEvents({}, { root, bd: { refresh } });
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(page.records).toHaveLength(1);
   });
 
   // @lat: [[usage-opt-in#Usage Opt-in#lat usage says tracking is not enabled]]
@@ -286,9 +321,9 @@ describe('the usage directory is always ignored by git', () => {
     expect(readFileSync(join(usageDir(root), '.gitignore'), 'utf-8')).toBe(
       '*\n',
     );
-    expect(git(root, 'status', '--porcelain', '--untracked-files=all')).toBe(
-      '',
-    );
+    expect(
+      git(root, 'status', '--porcelain', '--untracked-files=all', '--', '.lat'),
+    ).toBe('');
   });
 
   it('lat usage enable adds the ignore file to a directory that lacks one', async () => {
@@ -310,7 +345,7 @@ describe('the usage directory is always ignored by git', () => {
       '*\n',
     );
     saveState(root, emptyState());
-    git(root, 'add', '-A');
+    git(root, 'add', '-A', '--', '.lat');
     expect(git(root, 'diff', '--cached', '--name-only').split('\n')).toEqual([
       '.lat/usage/.gitignore',
     ]);
@@ -479,5 +514,97 @@ describe('readers never follow a planted symlink', () => {
     writeFileSync(join(usageDir(root), 'events-2026-11.jsonl'), event + '\n');
     expect(readLog(root, state)).toBe(true);
     expect(Object.keys(state.usage)).toEqual(['e1']);
+  });
+
+  // @lat: [[usage-opt-in#Usage Opt-in#State keeps events whose ids look like object properties]]
+  it('state keeps events whose ids are __proto__ and constructor through a save and load', () => {
+    mkdirSync(usageDir(root), { recursive: true });
+    const lines = ['__proto__', 'constructor'].map((id) =>
+      JSON.stringify({ ...JSON.parse(event), event_id: id }),
+    );
+    writeFileSync(
+      join(usageDir(root), 'events-2026-11.jsonl'),
+      lines.join('\n') + '\n',
+    );
+    const state = emptyState();
+    expect(readLog(root, state)).toBe(true);
+    saveState(root, state);
+    const loaded = loadState(root);
+    for (const stored of [state, loaded])
+      expect(Object.keys(stored.usage).sort()).toEqual([
+        '__proto__',
+        'constructor',
+      ]);
+    const next = { ...JSON.parse(event), event_id: 'toString' } as UsageEvent;
+    expect(addUsageEvent(loaded, next)).toBe(true);
+  });
+});
+
+describe('an unusable state.json is reported', () => {
+  const stateFile = () => join(usageDir(root), 'state.json');
+  const reports = () => errors.split('\n').filter((line) => line !== '');
+
+  beforeEach(() => mkdirSync(usageDir(root), { recursive: true }));
+
+  // @lat: [[usage-opt-in#Usage Opt-in#An unusable state.json is reported once]]
+  it('prints one stderr message and loads an empty state', () => {
+    writeFileSync(stateFile(), '{not json');
+    expect(loadState(root)).toEqual(emptyState());
+    expect(reports()).toHaveLength(1);
+    expect(reports()[0]).toContain(statePath(root));
+    expect(loadState(root)).toEqual(emptyState());
+    expect(reports()).toHaveLength(1);
+  });
+
+  it.each([
+    ['not valid JSON', '{not json'],
+    ['a different version', JSON.stringify({ ...emptyState(), version: 1 })],
+    ['a missing map', JSON.stringify({ version: USAGE_STATE_VERSION })],
+    ['not an object', 'null'],
+  ])('reports %s', (_name, text) => {
+    writeFileSync(stateFile(), text);
+    expect(loadState(root)).toEqual(emptyState());
+    expect(reports()).toHaveLength(1);
+  });
+
+  it('reports an unreadable state.json', () => {
+    writeFileSync(stateFile(), JSON.stringify(emptyState()));
+    chmodSync(stateFile(), 0o000);
+    try {
+      expect(loadState(root)).toEqual(emptyState());
+      expect(reports()).toHaveLength(1);
+    } finally {
+      chmodSync(stateFile(), 0o644);
+    }
+  });
+
+  it('reports a symlinked state.json without reading it', () => {
+    symlinkSync('/dev/zero', stateFile());
+    expect(loadState(root)).toEqual(emptyState());
+    expect(reports()).toHaveLength(1);
+  });
+
+  it('quotes nothing from the file', () => {
+    writeFileSync(stateFile(), '\u001b[31mred');
+    loadState(root);
+    expect(errors).not.toContain('\u001b');
+    expect(errors).not.toContain('red');
+  });
+
+  it('prints nothing for a missing state.json', () => {
+    expect(loadState(root)).toEqual(emptyState());
+    expect(errors).toBe('');
+  });
+
+  it('prints nothing for a usable state.json', () => {
+    saveState(root, emptyState());
+    expect(loadState(root)).toEqual(emptyState());
+    expect(errors).toBe('');
+  });
+
+  it('prints nothing when there is no usage directory', () => {
+    rmSync(usageDir(root), { recursive: true });
+    expect(loadState(root)).toEqual(emptyState());
+    expect(errors).toBe('');
   });
 });

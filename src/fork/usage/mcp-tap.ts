@@ -18,8 +18,8 @@ interface ToolOutcome {
   failed: boolean;
 }
 
-/** Tool argument holding the query; lat_expand takes its text instead. */
-const QUERY_ARGUMENTS = ['query', 'text'];
+/** Tool argument holding the query. lat_expand's text is a prompt: never stored. */
+const QUERY_ARGUMENTS = ['query'];
 
 function commandName(toolName: string): string {
   return toolName.replace(/^lat_/, '');

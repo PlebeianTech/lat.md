@@ -2,7 +2,7 @@ import type { MouseEvent, ReactElement, ReactNode } from 'react';
 import type {
   DailyPoint,
   Totals,
-  UsageSummary,
+  UsageOverview,
 } from '../../../../src/fork/usage/aggregate-types';
 import type {
   Finding,
@@ -35,14 +35,6 @@ function failure(extension: Reach<object>): string | null {
   return extension !== undefined && 'error' in extension
     ? String(extension.error)
     : null;
-}
-
-const ratio = (part: number, whole: number) =>
-  whole > 0 ? part / whole : null;
-const commandsPerSession = (t: Totals) => ratio(t.commands, t.sessions);
-function searchSuccess(t: Totals): number | null {
-  const answered = t.searches - t.searches_unknown_results;
-  return ratio(answered - t.zero_result_searches, answered);
 }
 
 const round = (value: number, places = 1) => {
@@ -145,7 +137,7 @@ function SignalTiles({
   summary,
   search,
 }: {
-  summary: UsageSummary;
+  summary: UsageOverview;
   search: string;
 }) {
   const { totals, previous, daily, signals } = summary;
@@ -172,27 +164,28 @@ function SignalTiles({
         }
         changeText={change(
           signals.lat_commands_per_session,
-          previous ? commandsPerSession(previous) : undefined,
+          previous?.lat_commands_per_session,
           'number',
           noPrevious,
         )}
-        points={dailyPoints(daily, commandsPerSession)}
+        points={dailyPoints(daily, (point) => point.lat_commands_per_session)}
       />
       <Tile
         name="Search success"
         to={`/_usage/queries${search}`}
         value={
-          signals.search_success === null
-            ? 'unknown (no searches with a known result count)'
-            : showPercent(signals.search_success)
+          signals.follow_through_rate === null
+            ? 'unknown (no searches in this range)'
+            : showPercent(signals.follow_through_rate)
         }
         changeText={change(
-          signals.search_success,
-          previous ? searchSuccess(previous) : undefined,
+          signals.follow_through_rate,
+          previous?.follow_through_rate,
           'percent',
           noPrevious,
         )}
-        points={dailyPoints(daily, searchSuccess)}
+        points={dailyPoints(daily, (point) => point.follow_through_rate)}
+        note="Share of searches followed by a section read."
       />
       <Tile
         name="Bypass rate"
@@ -240,7 +233,7 @@ function SignalTiles({
   );
 }
 
-function NetTokensSaved({ summary }: { summary: UsageSummary }) {
+function NetTokensSaved({ summary }: { summary: UsageOverview }) {
   const { signals } = summary;
   const extension = summary.extensions.savings as Reach<SavingsEstimate>;
   const error = failure(extension);
@@ -259,6 +252,7 @@ function NetTokensSaved({ summary }: { summary: UsageSummary }) {
       ? Math.round(injectedBytes / savings.bytes_per_token.point)
       : null;
   const unknownInjected = savings?.injected_bytes.unknown ?? 0;
+  const unknownReads = savings?.saved_bytes.unknown ?? 0;
   const costText =
     cost === null
       ? 'unknown'
@@ -271,7 +265,7 @@ function NetTokensSaved({ summary }: { summary: UsageSummary }) {
       <h3 style={{ margin: 0, fontSize: 16 }}>Net tokens saved</h3>
       <p style={{ margin: '4px 0', fontSize: 28, overflowWrap: 'anywhere' }}>
         {range
-          ? `${showNumber(range.point)} (${showNumber(range.low)} to ${showNumber(range.high)})`
+          ? `${showNumber(range.point)} (${showNumber(range.low)} to ${showNumber(range.high)})${unknownReads > 0 ? ` (+${showNumber(unknownReads)} reads unknown)` : ''}`
           : `unknown (${unknownReason})`}
       </p>
       <p style={{ margin: '0 0 4px', color: 'var(--muted)' }}>
@@ -296,7 +290,7 @@ function NetTokensSaved({ summary }: { summary: UsageSummary }) {
   );
 }
 
-function CommandsPerDay({ summary }: { summary: UsageSummary }) {
+function CommandsPerDay({ summary }: { summary: UsageOverview }) {
   const series = summary.commands.map((row, index) => ({
     key: row.key,
     label: row.label,
@@ -397,7 +391,7 @@ function hasNoEvents(totals: Totals): boolean {
 
 export function OverviewPage(_props: UsagePageProps): ReactElement {
   const search = useFilterSearch();
-  const { data, error, loading } = useUsageData<UsageSummary>('/api/usage');
+  const { data, error, loading } = useUsageData<UsageOverview>('/api/usage');
   return (
     <section>
       <h1>Overview</h1>

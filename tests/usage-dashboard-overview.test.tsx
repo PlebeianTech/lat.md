@@ -55,6 +55,8 @@ function totals(over: Partial<Totals> = {}): Totals {
     reformulation_rate: 0.1,
     bypass_rate: 0.2,
     median_rank_opened: 1,
+    lat_commands_per_session: 5,
+    search_hit_rate: 0.8,
     ...over,
   };
 }
@@ -104,15 +106,38 @@ function summary(over: Partial<UsageSummary> = {}): UsageSummary {
       sessions: 4,
       zero_result_searches: 5,
       bypass_rate: 0.5,
+      lat_commands_per_session: 4,
+      follow_through_rate: 0.4,
+      search_hit_rate: 0.7,
     }),
     daily: daily([
-      { commands: 5, sessions: 1 },
-      { commands: 5, sessions: 0, bypass_rate: null },
-      { commands: 10, sessions: 2 },
+      {
+        commands: 5,
+        sessions: 1,
+        lat_commands_per_session: 7,
+        follow_through_rate: 0.3,
+        search_hit_rate: 0.6,
+      },
+      {
+        commands: 5,
+        sessions: 0,
+        bypass_rate: null,
+        lat_commands_per_session: 9,
+        follow_through_rate: null,
+        search_hit_rate: null,
+      },
+      {
+        commands: 10,
+        sessions: 2,
+        lat_commands_per_session: 8,
+        follow_through_rate: 0.6,
+        search_hit_rate: 0.9,
+      },
     ]),
     signals: {
       lat_commands_per_session: 5,
-      search_success: 0.8,
+      search_hit_rate: 0.8,
+      follow_through_rate: 0.5,
       bypass_rate: 0.2,
       net_tokens_saved: 2100,
       net_tokens_saved_reason: null,
@@ -201,11 +226,21 @@ describe('usage dashboard overview page', () => {
     expect(container.querySelector('h1')!.textContent).toBe('Overview');
     const adoption = tile('Adoption');
     expect(adoption.textContent).toContain('5');
-    expect(adoption.textContent).toContain('+3');
+    expect(adoption.textContent).toContain('+1');
+    expect(
+      adoption.querySelector('[role="img"]')!.getAttribute('aria-label'),
+    ).toContain('min 7, max 9, last 8');
     expect(adoption.querySelector('[role="img"]')).not.toBeNull();
     const search = tile('Search success');
-    expect(search.textContent).toContain('80%');
-    expect(search.textContent).toContain('+30 points');
+    expect(search.textContent).toContain('50%');
+    expect(search.textContent).toContain('+10 points');
+    expect(search.textContent).not.toContain('80%');
+    expect(search.textContent).toContain(
+      'Share of searches followed by a section read.',
+    );
+    expect(
+      search.querySelector('[role="img"]')!.getAttribute('aria-label'),
+    ).toContain('min 0.3, max 0.6, last 0.6, 1 unknown');
     expect(search.querySelector('[role="img"]')).not.toBeNull();
     const bypass = tile('Bypass rate');
     expect(bypass.textContent).toContain('20%');
@@ -224,7 +259,8 @@ describe('usage dashboard overview page', () => {
         previous: null,
         signals: {
           lat_commands_per_session: null,
-          search_success: null,
+          search_hit_rate: null,
+          follow_through_rate: null,
           bypass_rate: null,
           net_tokens_saved: null,
           net_tokens_saved_reason: 'boom',
@@ -281,6 +317,37 @@ describe('usage dashboard overview page', () => {
     )!;
     expect(costRow.lastElementChild!.textContent).toBe('100');
     expect(net.querySelector('[data-mark="range"]')).not.toBeNull();
+  });
+
+  // @lat: [[usage-dashboard-overview#Usage Dashboard Overview#Net tokens saved shows range, cost, method version and the correlation label]]
+  it('shows the unknown read count beside the range', async () => {
+    const partial = {
+      ...savings,
+      saved_bytes: { total: 9000, known: 8, unknown: 3 },
+      unknown_reads: [
+        { reason: 'a', count: 2 },
+        { reason: 'b', count: 1 },
+      ],
+    };
+    serve(summary({ extensions: { savings: partial } }));
+    await show();
+    expect(tile('Net tokens saved').textContent).toContain(
+      '2,100 (1,500 to 2,900) (+3 reads unknown)',
+    );
+  });
+
+  // @lat: [[usage-dashboard-overview#Usage Dashboard Overview#Net tokens saved shows range, cost, method version and the correlation label]]
+  it('does not count a hook of unknown injected size as an unknown read', async () => {
+    const partial = {
+      ...savings,
+      injected_bytes: { total: 400, known: 1, unknown: 1 },
+      unknown_reads: [{ reason: 'injected_bytes not captured', count: 1 }],
+    };
+    serve(summary({ extensions: { savings: partial } }));
+    await show();
+    const text = tile('Net tokens saved').textContent!;
+    expect(text).toContain('2,100 (1,500 to 2,900)');
+    expect(text).not.toContain('reads unknown');
   });
 
   // @lat: [[usage-dashboard-overview#Usage Dashboard Overview#Net tokens saved shows range, cost, method version and the correlation label]]
@@ -442,7 +509,8 @@ describe('usage dashboard overview page', () => {
       summary({
         signals: {
           ...summary().signals,
-          search_success: null,
+          search_hit_rate: null,
+          follow_through_rate: null,
           lat_commands_per_session: null,
         },
       }),

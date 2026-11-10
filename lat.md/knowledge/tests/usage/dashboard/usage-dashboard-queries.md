@@ -7,7 +7,7 @@ lat:
 
 Tests in `tests/usage-dashboard-queries.test.tsx` for the Queries page of the usage dashboard: a sortable table of search queries and a query detail view.
 
-They render the page in jsdom with a fake `fetch` serving fixtures typed from `src/fork/usage/aggregate-types.ts` and `src/fork/usage/event-index.ts`, and a fake `EventSource`. None asserts on elapsed time.
+They render the page in jsdom with a fake `fetch` serving fixtures typed from `src/fork/usage/aggregate-types.ts`, and a fake `EventSource`. None asserts on elapsed time.
 
 ## The table shows every column and sorts by empty-result share
 
@@ -19,11 +19,19 @@ The empty-result share header is a button that sorts the rows, and a query with 
 
 The detail view of a query shows each section it returned, how often it was returned and opened, and the ranks at which agents opened it.
 
-Ranks come from the raw search and read events: a read opens the section at its position in the result ids of the session's latest search. The view also lists the queries that followed it in the same session within 60 seconds, with a count, and a sparkline of searches per day. It shows section ids and stored query strings only, never result snippets or section bodies.
+The ranks and the follow-up queries come from the facts on the query row, which the server computes. The view lists the follow-up queries with a count, and a sparkline of searches per day. It shows section ids and stored query strings only, never result snippets or section bodies.
+
+## The detail view renders the facts the server sends
+
+The detail view shows the opened ranks and reformulation targets of the query row as given, duplicates and a null query included, and requests no raw events.
+
+## A section id named like an object property shows no inherited ranks
+
+A returned section whose id is `__proto__`, `constructor` or `toString` renders. It shows the ranks the row holds under that id as an own key, or "none" when it holds none.
 
 ## Another query never shows the previous query's facts
 
-Moving from one query's detail page to another shows only the new query's sections and reformulations. The loaded events cover the filters, not one query, so the new query's facts come from them at once.
+Moving from one query's detail page to another shows only the new query's sections and reformulations. Each query's facts travel with its row, so the new query's facts show at once.
 
 ## Unknown values are shown as unknown
 

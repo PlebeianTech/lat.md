@@ -7,7 +7,7 @@ import {
 } from 'react';
 import type {
   SessionRow,
-  UsageSummary,
+  UsageSessions,
 } from '../../../../src/fork/usage/aggregate-types';
 import type { RawRecord } from '../../../../src/fork/usage/event-index';
 import { TimelineLanes, type TimelineLane } from '../charts/timeline-lanes';
@@ -130,9 +130,9 @@ function SessionsList({
           numeric: true,
         },
         {
-          key: 'success',
-          header: 'Search success',
-          value: (s) => s.signals.search_success,
+          key: 'hit-rate',
+          header: 'Search hit rate',
+          value: (s) => s.signals.search_hit_rate,
           format: (v) => `${Math.round(Number(v) * 100)}%`,
           numeric: true,
         },
@@ -439,7 +439,9 @@ function SessionDetail({
 
 export function SessionsPage({ id }: UsagePageProps) {
   const search = useFilterSearch();
-  const { data, error, loading } = useUsageData<UsageSummary>('/api/usage');
+  const { data, error, loading } = useUsageData<UsageSessions>(
+    '/api/usage/sessions',
+  );
   return (
     <section>
       {error && <p role="alert">{error.message}</p>}

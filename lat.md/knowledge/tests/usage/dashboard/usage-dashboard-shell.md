@@ -19,7 +19,19 @@ A path such as `/_usage/sessions/abc` shows the Sessions page with the id `abc`.
 
 ## Changing a filter updates the URL and the filter state
 
-Editing a field of the filter bar writes its parameter, one of `from`, `to`, `agent`, `session` and `issue`, to the query string and exposes the new value through `useUsageFilters` to every page. Clearing a field removes its parameter.
+Editing a filter field writes its parameter (`from`, `to`, `agent`, `session` or `issue`) to the query string and exposes it through `useUsageFilters` to every page. Clearing a field removes it.
+
+## Text filters apply on Enter or blur
+
+Typing in the Bd issue or Session field shows the text but sends no request and leaves the URL alone. Enter or leaving the field applies it, and exactly one summary request follows.
+
+## Text filters follow the URL
+
+When the URL value of the Bd issue or Session filter changes, as with browser Back, the field shows the new value.
+
+## Date and agent controls apply at once
+
+Changing the From, To or Agent control refetches the summary at once, without Enter or blur.
 
 ## Loading a URL with filters restores them
 

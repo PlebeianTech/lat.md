@@ -9,13 +9,7 @@ import { applyParsedOutput, parseCommandOutput } from './output-parsers.js';
 import { USAGE_SCHEMA_VERSION, type UsageEvent } from './schema.js';
 import { writeUsageEvent } from './writer.js';
 
-const QUERY_COMMANDS = new Set([
-  'search',
-  'locate',
-  'section',
-  'refs',
-  'expand',
-]);
+const QUERY_COMMANDS = new Set(['search', 'locate', 'section', 'refs']);
 
 /** Commands that run until killed; wrapping their stdout would never end. */
 const UNCAPTURED_COMMANDS = new Set(['ui', 'ui run']);

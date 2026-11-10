@@ -1,7 +1,7 @@
 import { useMemo, type MouseEvent, type ReactNode } from 'react';
 import type {
   SectionRow,
-  UsageSummary,
+  UsageOverview,
 } from '../../../../src/fork/usage/aggregate-types';
 import type { KnowledgeBreakdown } from '../../../../src/fork/usage/graph-snapshot';
 import type {
@@ -110,7 +110,7 @@ function KnowledgeOverview({
   summary,
   search,
 }: {
-  summary: UsageSummary;
+  summary: UsageOverview;
   search: string;
 }) {
   const knowledge = extensionOf<KnowledgeBreakdown>(
@@ -308,7 +308,7 @@ function SectionDetail({
 
 export function KnowledgePage({ id }: UsagePageProps) {
   const search = useFilterSearch();
-  const { data, error, loading } = useUsageData<UsageSummary>('/api/usage');
+  const { data, error, loading } = useUsageData<UsageOverview>('/api/usage');
   return (
     <section>
       {error && <p role="alert">{error.message}</p>}

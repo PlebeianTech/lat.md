@@ -13,7 +13,9 @@ They render the page in jsdom with `useUsageData` mocked to serve fixtures typed
 
 Adoption, search success, bypass rate and knowledge reach are tiles. Each shows its value for the range, the change against the previous range and a sparkline of the daily values.
 
-The previous-range value comes from the summary's previous totals, and for knowledge reach from the missed-knowledge extension's previous range.
+Search success is follow-through, the share of searches followed by a section read, and its tile says so. It is not the search hit rate, which counts searches with a result and has no tile.
+
+The previous-range and daily values of adoption and search success come from the server's totals, not a formula in the page. The previous-range value comes from the summary's previous totals, and for knowledge reach from the missed-knowledge extension's previous range.
 
 ## An unknown signal says unknown with its reason
 
@@ -22,6 +24,8 @@ A signal that is null, or has no previous range to compare with, reads "unknown"
 ## Net tokens saved shows range, cost, method version and the correlation label
 
 The net tokens saved tile draws the low, point and high estimate beside the injected cost on one axis. It names the method version and is always labelled "correlation, not cause".
+
+When some section reads have an unknown size, `(+k reads unknown)` follows the range. A hook event of unknown injected size is not a read and is not counted in `k`.
 
 ## Unknown net tokens saved shows its reason
 

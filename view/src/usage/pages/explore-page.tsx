@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import type {
+  FieldFilters,
   RawEventsPage,
   RawFacet,
   RawRecord,
@@ -22,17 +23,19 @@ import {
   useUsageFilters,
   useUsageLocation,
 } from '../filters';
-import { fetchAllUsageEvents, useUsageData } from '../use-usage-data';
+import {
+  fetchAllUsageEvents,
+  useUsageData,
+  type QueryParams,
+  type UsageData,
+} from '../use-usage-data';
 
 const MAX_IDS = 50;
-const ROWS_PER_STEP = 200;
 const WRAP = { overflowWrap: 'anywhere' } as const;
 const SCROLL = { overflowX: 'auto', maxWidth: '100%' } as const;
 
-type Selection = Partial<Record<FacetField, string[]>>;
+type Selection = FieldFilters;
 type FieldValue = string | number | null;
-/** A facet counted here also splits the nulls lat recorded a reason for. */
-type Facet = RawFacet & { unknown?: number };
 
 // A null section or error class is unknown only with a recorded reason. Without
 // one there is no value: a lat search names no section, a success no error.
@@ -44,74 +47,29 @@ function hasReason(record: RawRecord, field: 'section_id' | 'error_class') {
   return record.type === 'usage' && !!record.event.unknown_reasons?.[field];
 }
 
-// undefined: the record kind has no such field
-function fieldValue(
-  record: RawRecord,
-  field: FacetField,
-): FieldValue | undefined {
-  if (field === 'agent' || field === 'session_id') return record[field];
-  if (record.type !== 'usage') return undefined;
-  return record.event[field];
-}
-
-function matchesSelection(
-  record: RawRecord,
-  selection: Selection,
-  except?: FacetField,
-): boolean {
-  for (const field of FACET_FIELDS) {
-    const wanted = selection[field];
-    if (field === except || !wanted?.length) continue;
-    const value = fieldValue(record, field);
-    if (value == null || !wanted.includes(String(value))) return false;
-  }
-  return true;
-}
-
-function countValues(records: RawRecord[], field: FacetField): Facet {
-  const counts = new Map<string | number, number>();
-  let missing = 0;
-  let unknown = 0;
-  for (const record of records) {
-    const value = fieldValue(record, field);
-    if (value === undefined) continue;
-    if (value === null) {
-      if (
-        (field === 'section_id' || field === 'error_class') &&
-        hasReason(record, field)
-      )
-        unknown++;
-      else missing++;
-    } else counts.set(value, (counts.get(value) ?? 0) + 1);
-  }
-  const values = [...counts]
-    .map(([value, count]) => ({ value, count }))
-    .sort(
-      (a, b) =>
-        b.count - a.count || String(a.value).localeCompare(String(b.value)),
-    );
-  return { field, values: values.slice(0, MAX_FACET_VALUES), missing, unknown };
-}
-
 function newestFirst(a: RawRecord, b: RawRecord): number {
   return Date.parse(b.ts) - Date.parse(a.ts) || (a.id < b.id ? 1 : -1);
 }
 
-async function loadEvents(
-  filterParams: Record<string, string>,
-  ids: string[],
-): Promise<RawRecord[]> {
-  if (ids.length === 0) return fetchAllUsageEvents(filterParams);
-  const byId = new Map<string, RawRecord>();
-  for (let start = 0; start < ids.length; start += MAX_IDS) {
-    const chunk = ids.slice(start, start + MAX_IDS);
-    for (const record of await fetchAllUsageEvents({
-      ...filterParams,
-      ids: chunk.join(','),
-    }))
-      byId.set(record.id, record);
-  }
+function mergeRecords(current: RawRecord[], page: RawRecord[]): RawRecord[] {
+  const byId = new Map(current.map((record) => [record.id, record]));
+  for (const record of page) byId.set(record.id, record);
   return [...byId.values()].sort(newestFirst);
+}
+
+/** The server filters: ticked facet values, as `where.<field>`, and the selected event ids. */
+function selectionParams(
+  selection: Selection,
+  ids: string[],
+  except?: FacetField,
+): QueryParams {
+  const params: QueryParams = {};
+  for (const field of FACET_FIELDS) {
+    const values = selection[field];
+    if (field !== except && values?.length) params[`where.${field}`] = values;
+  }
+  if (ids.length > 0) params.ids = ids.join(',');
+  return params;
 }
 
 function Link({ to, children }: { to: string; children: ReactNode }) {
@@ -223,59 +181,66 @@ function EventTable({
 }
 
 function GroupTable({
-  records,
   field,
+  params,
 }: {
-  records: RawRecord[];
   field: FacetField;
+  params: QueryParams;
 }) {
-  const facet = countValues(records, field);
-  const unknown = facet.unknown ?? 0;
-  const lacking =
-    records.length -
-    facet.missing -
-    unknown -
-    records.filter((record) => fieldValue(record, field) != null).length;
+  const { data: facet, error } = useUsageData<RawFacet>('/api/usage/raw', {
+    ...params,
+    facet: field,
+  });
+  const empty =
+    facet &&
+    facet.values.length + facet.missing + facet.unknown + facet.lacking === 0;
   return (
-    <div style={SCROLL}>
-      <table data-group-table>
-        <caption>
-          Events by {field}, top {MAX_FACET_VALUES} values
-        </caption>
-        <thead>
-          <tr>
-            <th>{field}</th>
-            <th>Events</th>
-          </tr>
-        </thead>
-        <tbody>
-          {facet.values.map(({ value, count }) => (
-            <tr key={String(value)}>
-              <td style={WRAP}>{String(value)}</td>
-              <td>{count}</td>
-            </tr>
-          ))}
-          {facet.missing > 0 && (
-            <tr>
-              <td>{missingLabel(field)}</td>
-              <td>{facet.missing}</td>
-            </tr>
-          )}
-          {unknown > 0 && (
-            <tr>
-              <td>unknown</td>
-              <td>{unknown}</td>
-            </tr>
-          )}
-          {lacking > 0 && (
-            <tr>
-              <td>n/a (session events have no {field})</td>
-              <td>{lacking}</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
+    <>
+      {error && <p role="alert">{error.message}</p>}
+      {!facet && !error && <p>Loading events…</p>}
+      {empty && <p>No events match the current filters.</p>}
+      {facet && !empty && (
+        <div style={SCROLL}>
+          <table data-group-table>
+            <caption>
+              Events by {field}, top {MAX_FACET_VALUES} values
+            </caption>
+            <thead>
+              <tr>
+                <th>{field}</th>
+                <th>Events</th>
+              </tr>
+            </thead>
+            <tbody>
+              {facet.values.map(({ value, count }) => (
+                <tr key={String(value)}>
+                  <td style={WRAP}>{String(value)}</td>
+                  <td>{count}</td>
+                </tr>
+              ))}
+              {facet.missing > 0 && (
+                <tr>
+                  <td>{missingLabel(field)}</td>
+                  <td>{facet.missing}</td>
+                </tr>
+              )}
+              {facet.unknown > 0 && (
+                <tr>
+                  <td>unknown</td>
+                  <td>{facet.unknown}</td>
+                </tr>
+              )}
+              {facet.lacking > 0 && (
+                <tr>
+                  <td>n/a (session events have no {field})</td>
+                  <td>{facet.lacking}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -284,7 +249,7 @@ function FacetGroup({
   selected,
   onToggle,
 }: {
-  facet: Facet;
+  facet: RawFacet;
   selected: string[];
   onToggle: (field: FacetField, value: string) => void;
 }) {
@@ -309,33 +274,27 @@ function FacetGroup({
           {missingLabel(field)} ({facet.missing})
         </div>
       )}
-      {(facet.unknown ?? 0) > 0 && <div>unknown ({facet.unknown})</div>}
+      {facet.unknown > 0 && <div>unknown ({facet.unknown})</div>}
     </fieldset>
   );
 }
 
 function FacetSlot({
   field,
-  loadedRecords,
   selection,
+  ids,
   onToggle,
 }: {
   field: FacetField;
-  loadedRecords: RawRecord[] | undefined;
   selection: Selection;
+  ids: string[];
   onToggle: (field: FacetField, value: string) => void;
 }) {
-  const { data, error } = useUsageData<RawFacet>('/api/usage/raw', {
+  // A facet counts over the other fields' ticks, so its own values stay listed.
+  const { data: facet, error } = useUsageData<RawFacet>('/api/usage/raw', {
+    ...selectionParams(selection, ids, field),
     facet: field,
   });
-  const facet = loadedRecords
-    ? countValues(
-        loadedRecords.filter((record) =>
-          matchesSelection(record, selection, field),
-        ),
-        field,
-      )
-    : data;
   return (
     <>
       {error && field === FACET_FIELDS[0] && (
@@ -352,36 +311,94 @@ function FacetSlot({
   );
 }
 
-function PagedEvents({ filterSearch }: { filterSearch: string }) {
+/** Loads the page after a cursor and reports it, so the first page stays loaded and live beside it. */
+function OlderEvents({
+  params,
+  cursor,
+  onPage,
+}: {
+  params: QueryParams;
+  cursor: string;
+  onPage: (page: UsageData<RawEventsPage>) => void;
+}) {
+  const page = useUsageData<RawEventsPage>('/api/usage/raw', {
+    ...params,
+    cursor,
+  });
+  useEffect(() => onPage(page), [page, onPage]);
+  return null;
+}
+
+function PagedEvents({
+  params,
+  filterSearch,
+}: {
+  params: QueryParams;
+  filterSearch: string;
+}) {
   const [cursor, setCursor] = useState<string | undefined>();
+  const [older, setOlder] = useState<UsageData<RawEventsPage>>();
   const [records, setRecords] = useState<RawRecord[]>([]);
-  const { data, error, loading } = useUsageData<RawEventsPage>(
-    '/api/usage/raw',
-    cursor ? { cursor } : undefined,
-  );
+  const loaded = useRef<RawRecord[]>([]);
+  loaded.current = records;
+  const first = useUsageData<RawEventsPage>('/api/usage/raw', params);
+  const { data, error, loading } = first;
+  const lastPage = cursor ? older : first;
+  const awaitingOlder = !!cursor && !older?.data && !older?.error;
+  const nextCursor =
+    lastPage?.data?.next_cursor ?? (awaitingOlder ? cursor : undefined);
+  const loadingMore = first.loading || !!older?.loading;
+  const failure = error ?? older?.error;
   useEffect(() => {
     if (!data) return;
+    const oldest = data.next_cursor ? data.records.at(-1) : undefined;
+    const newestLoaded = loaded.current[0];
+    // More new events than one page leave a gap no cursor reaches: start over.
+    if (
+      oldest &&
+      newestLoaded &&
+      oldest.id !== newestLoaded.id &&
+      newestFirst(oldest, newestLoaded) < 0
+    ) {
+      setCursor(undefined);
+      setOlder(undefined);
+      setRecords(data.records);
+      return;
+    }
     setRecords((current) => {
-      const byId = new Map(current.map((record) => [record.id, record]));
-      for (const record of data.records) byId.set(record.id, record);
-      return [...byId.values()].sort(newestFirst);
+      // The first page replaces its own range, so a row that stopped matching
+      // leaves, while the older pages already loaded stay.
+      const outside = oldest
+        ? current.filter((record) => newestFirst(record, oldest) > 0)
+        : [];
+      return mergeRecords(outside, data.records);
     });
   }, [data]);
+  useEffect(() => {
+    if (older?.data) {
+      const page = older.data.records;
+      setRecords((current) => mergeRecords(current, page));
+    }
+  }, [older?.data]);
   return (
     <>
-      {error && <p role="alert">{error.message}</p>}
+      {failure && <p role="alert">{failure.message}</p>}
       {loading && records.length === 0 && <p>Loading events…</p>}
       {data && data.records.length === 0 && records.length === 0 && (
         <p>No events match the current filters.</p>
       )}
+      {data && records.length > 0 && <p>{data.total} events</p>}
       {records.length > 0 && (
         <EventTable records={records} filterSearch={filterSearch} />
       )}
-      {data?.next_cursor && (
+      {cursor && (
+        <OlderEvents params={params} cursor={cursor} onPage={setOlder} />
+      )}
+      {nextCursor && (
         <button
           type="button"
-          disabled={loading}
-          onClick={() => setCursor(data.next_cursor ?? undefined)}
+          disabled={loadingMore}
+          onClick={() => setCursor(nextCursor)}
         >
           Load more events
         </button>
@@ -390,28 +407,17 @@ function PagedEvents({ filterSearch }: { filterSearch: string }) {
   );
 }
 
-type Loaded = {
-  state: 'loading' | 'error' | 'ready';
-  key: string;
-  records: RawRecord[];
-  message?: string;
-};
-
-const NOTHING_LOADED: Loaded = { state: 'loading', key: '', records: [] };
-
 export function ExplorePage() {
   const { filters } = useUsageFilters();
   const { pathname, search } = useUsageLocation();
   const [selection, setSelection] = useState<Selection>({});
   const [groupBy, setGroupBy] = useState<FacetField | ''>('');
-  const [visible, setVisible] = useState(ROWS_PER_STEP);
-  const [loaded, setLoaded] = useState<Loaded>(NOTHING_LOADED);
   const [exportError, setExportError] = useState<string | undefined>();
 
-  const eventIds = [
+  const allEventIds = [
     ...new Set(new URLSearchParams(search).getAll('event')),
   ].filter(Boolean);
-  const idKey = eventIds.join(',');
+  const eventIds = allEventIds.slice(0, MAX_IDS);
   const filterQuery = filtersToSearchParams(filters).toString();
   const filterSearch = filterQuery ? `?${filterQuery}` : '';
   const filterParams = useMemo(
@@ -419,64 +425,8 @@ export function ExplorePage() {
     [filterQuery],
   );
   const picked = FACET_FIELDS.some((field) => selection[field]?.length);
-  const loadsAll = picked || groupBy !== '' || eventIds.length > 0;
-  const requestKey = `${filterQuery}|${idKey}`;
-  const heartbeat = useUsageData<RawEventsPage>('/api/usage/raw', {
-    limit: '1',
-  });
-
-  const runId = useRef(0);
-  const inFlight = useRef<string | null>(null);
-
-  useEffect(
-    () => () => {
-      runId.current++;
-      inFlight.current = null;
-    },
-    [],
-  );
-
-  useEffect(() => {
-    if (!loadsAll) {
-      runId.current++;
-      inFlight.current = null;
-      setLoaded(NOTHING_LOADED);
-      return;
-    }
-    if (inFlight.current === requestKey) return;
-    inFlight.current = requestKey;
-    const run = ++runId.current;
-    setLoaded((current) =>
-      current.key === requestKey
-        ? current
-        : { state: 'loading', key: requestKey, records: [] },
-    );
-    loadEvents(filterParams, idKey ? idKey.split(',') : []).then(
-      (records) => {
-        if (run !== runId.current) return;
-        inFlight.current = null;
-        setLoaded({ state: 'ready', key: requestKey, records });
-      },
-      (error: unknown) => {
-        if (run !== runId.current) return;
-        inFlight.current = null;
-        setLoaded((current) => ({
-          ...current,
-          state: 'error',
-          message: error instanceof Error ? error.message : String(error),
-        }));
-      },
-    );
-  }, [loadsAll, filterParams, idKey, requestKey, heartbeat.data]);
-
-  useEffect(() => setVisible(ROWS_PER_STEP), [requestKey]);
-
-  const current = loaded.key === requestKey ? loaded : NOTHING_LOADED;
-  const records = current.records;
-  const showsRows = current.state === 'ready' || records.length > 0;
-  const narrowed = records.filter((record) =>
-    matchesSelection(record, selection),
-  );
+  const params = selectionParams(selection, eventIds);
+  const requestKey = `${filterQuery}|${JSON.stringify(params)}`;
 
   function toggle(field: FacetField, value: string) {
     setSelection((current) => {
@@ -500,9 +450,10 @@ export function ExplorePage() {
   async function exportEvents() {
     setExportError(undefined);
     try {
-      const exported = (
-        await loadEvents(filterParams, idKey ? idKey.split(',') : [])
-      ).filter((record) => matchesSelection(record, selection));
+      const exported = await fetchAllUsageEvents({
+        ...filterParams,
+        ...params,
+      });
       const blob = new Blob(
         [exported.map((record) => JSON.stringify(record)).join('\n') + '\n'],
         { type: 'application/x-ndjson' },
@@ -524,13 +475,13 @@ export function ExplorePage() {
       <p>
         Raw events, newest first. Facet lists and group-by show the top{' '}
         {MAX_FACET_VALUES} values.
-        {loadsAll &&
-          ' Ticked facets and group-by read every event of the current filters.'}
       </p>
-      {eventIds.length > 0 && (
+      {allEventIds.length > 0 && (
         <p>
           Showing {eventIds.length} selected{' '}
-          {eventIds.length === 1 ? 'event' : 'events'}{' '}
+          {eventIds.length === 1 ? 'event' : 'events'}
+          {allEventIds.length > eventIds.length &&
+            `, the first ${MAX_IDS} of ${allEventIds.length}`}{' '}
           <button type="button" onClick={clearSelectedEvents}>
             Clear selection
           </button>
@@ -570,46 +521,21 @@ export function ExplorePage() {
             <FacetSlot
               key={field}
               field={field}
-              loadedRecords={loadsAll && showsRows ? records : undefined}
               selection={selection}
+              ids={eventIds}
               onToggle={toggle}
             />
           ))}
         </aside>
         <div style={{ flex: '3 1 20rem', minWidth: 0 }}>
-          {!loadsAll && (
-            <PagedEvents key={filterQuery} filterSearch={filterSearch} />
-          )}
-          {loadsAll && current.state === 'loading' && <p>Loading events…</p>}
-          {loadsAll && current.state === 'error' && (
-            <p role="alert">{current.message}</p>
-          )}
-          {loadsAll && showsRows && (
-            <>
-              <p>{narrowed.length} events</p>
-              {narrowed.length === 0 && (
-                <p>No events match the current filters.</p>
-              )}
-              {narrowed.length > 0 && groupBy !== '' && (
-                <GroupTable records={narrowed} field={groupBy} />
-              )}
-              {narrowed.length > 0 && groupBy === '' && (
-                <>
-                  <EventTable
-                    records={narrowed.slice(0, visible)}
-                    filterSearch={filterSearch}
-                  />
-                  {narrowed.length > visible && (
-                    <button
-                      type="button"
-                      onClick={() => setVisible(visible + ROWS_PER_STEP)}
-                    >
-                      Show more events
-                    </button>
-                  )}
-                </>
-              )}
-            </>
+          {groupBy === '' ? (
+            <PagedEvents
+              key={requestKey}
+              params={params}
+              filterSearch={filterSearch}
+            />
+          ) : (
+            <GroupTable key={requestKey} field={groupBy} params={params} />
           )}
         </div>
       </div>

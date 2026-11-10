@@ -1,5 +1,5 @@
 import type { MouseEvent, ReactNode } from 'react';
-import type { UsageSummary } from '../../../../src/fork/usage/aggregate-types';
+import type { UsageOverview } from '../../../../src/fork/usage/aggregate-types';
 import type {
   Finding,
   FindingsResult,
@@ -485,7 +485,7 @@ function Section<T>({
 
 export function UtilizationPage(_props: UsagePageProps) {
   const search = useFilterSearch();
-  const summary = useUsageData<UsageSummary>('/api/usage');
+  const summary = useUsageData<UsageOverview>('/api/usage');
   const findings = useUsageData<FindingsResult>('/api/usage/findings');
   const { data, error, loading } = summary;
   const missed = extensionOf<MissedKnowledge>(

@@ -46,6 +46,7 @@ const mystery: Finding = {
 };
 const rawPage: RawEventsPage = {
   next_cursor: null,
+  total: 1,
   records: [
     {
       type: 'usage',

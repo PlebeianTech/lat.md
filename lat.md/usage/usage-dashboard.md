@@ -52,18 +52,22 @@ Each page answers one question.
 - **Queries** lists normalized search queries with result counts, empty-result share, followed share and reformulations. A query opens a view of the sections it returned and the ranks at which agents opened them.
 - **Agents** compares agents on per-session figures, so an agent with many sessions does not win on volume. An agent with no sessions in range shows a row marked "no sessions in range".
 - **Utilization** is described in [Utilization and missed knowledge](#utilization-and-missed-knowledge).
-- **Explore** lists raw events with facet filters, a group-by control, paging and a JSON-lines export. The table shows each event's time, type, agent, session, lat command name or event kind, section id or file path, exit code and error class, and never the full command text. The export holds the full event records, including search query text and absolute paths such as the repository root and worktree.
+- **Explore** lists raw events with facet filters, a group-by control, paging and a JSON-lines export. The server applies the ticked facet values and counts the facets and groups, so the page loads one page of events at a time. The table shows each event's time, type, agent, session, lat command name or event kind, section id or file path, exit code and error class, and never the full command text. The export holds the full event records, including search query text and absolute paths such as the repository root and worktree.
 
 ## Health signals
 
 Four signals sit on the Overview page. Each tile shows the value for the range, the change against the previous range, and a daily sparkline. A signal with nothing to measure reads "unknown" with its reason.
 
 - **Adoption**: lat commands per session. A low value means agents are not reaching for lat.
-- **Search success**: the share of searches with at least one result. Searches whose result count is unknown are left out.
+- **Search success**: the share of searches followed by a section read. A search is followed when a later read in the same session opens a section it returned, before the session searches again. A low value means agents search and then do not open what they found.
 - **Bypass rate**: the share of reads that went around lat, such as an agent opening a file under `lat.md/` with its own read tool instead of `lat section`, out of all section and bypass reads. A high value means agents ignore the lat commands.
 - **Knowledge reach**: the share of documented sections an agent was expected to know that it did reach before editing. See [Utilization and missed knowledge](#utilization-and-missed-knowledge).
 
-Net tokens saved is shown beside the four signals and is explained next.
+Search hit rate has no tile. It is the share of searches with at least one result, and searches whose result count is unknown are left out. The Agents, Issues and Sessions pages show it, and `lat usage --json` carries it. A search can hit and still not succeed: it returned results, but the agent opened none of them.
+
+The summary, and each agent, session and issue row, carries five signals: adoption, search hit rate, search success, bypass rate and net tokens saved. Knowledge reach is a tile too, but the missed-knowledge extension supplies it, so it is not one of the five.
+
+Net tokens saved is shown beside the four tiles and is explained next.
 
 ## Net tokens saved
 
@@ -132,7 +136,7 @@ The comparison is labelled "correlation, not cause". Sessions with a miss may al
 
 Agents and scripts read the same data as the dashboard.
 
-- `lat usage` prints totals, searches, section and bypass reads, injected bytes, token counts, the net tokens saved range and up to ten bd issues. It does not print the health signals. `--json` prints the full aggregate with a `schema_version`. It holds `signals` (adoption as `lat_commands_per_session`, search success, bypass rate and net tokens saved) and, under `extensions.missed_knowledge`, knowledge reach.
+- `lat usage` prints totals, searches, section and bypass reads, injected bytes, token counts, the net tokens saved range and up to ten bd issues. It does not print the health signals. `--json` prints the full aggregate with a `schema_version`. Each row of `queries` carries a `facts` object: `opened_ranks` (the ranks at which each returned section was opened) and `reformulated_to` (the queries that followed it within 60 seconds, with counts). Every totals object, the previous range and each daily point included, carries `lat_commands_per_session`, `search_hit_rate` and `follow_through_rate`. The aggregate also holds the five `signals` (adoption as `lat_commands_per_session`, search hit rate as `search_hit_rate`, search success as `follow_through_rate`, bypass rate and net tokens saved) and, under `extensions.missed_knowledge`, knowledge reach.
 - `lat usage gaps` prints a ranked to-do list of findings, with failed detectors named first. It shows 20 lines and then "... N more (use --json)". Findings rank by sessions, then count. `--json` prints the full finding records.
 - `lat_usage` is an MCP tool over the same data. Its `view` argument is `summary` (totals, `signals` and `savings`, without knowledge reach) or `findings`. It is registered only when the project already has `.lat/usage/`, and it keeps its output short: ten findings with five evidence ids each.
 

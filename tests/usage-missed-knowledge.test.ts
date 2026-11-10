@@ -262,6 +262,7 @@ interface Run {
   filters?: UsageFilters;
   dir?: string;
   baseline?: boolean;
+  baselineWorktree?: string | null;
   contributions?: Contribution[];
 }
 
@@ -282,6 +283,9 @@ async function run(options: Run = {}): Promise<MissedKnowledge> {
             session_id: null,
             repo_root: dir,
             git_head: options.snapshots?.[0]?.git_head ?? head,
+            ...(options.baselineWorktree !== undefined && {
+              worktree: options.baselineWorktree,
+            }),
           }),
         ];
   for (const event of [...baseline, ...(options.usage ?? [])])
@@ -755,6 +759,7 @@ describe('usage missed knowledge', () => {
   // @lat: [[usage-missed-knowledge#Usage Missed Knowledge#A symbol-ref edge covers a file]]
   it('keeps symbol-ref edges when the code refs were not captured', async () => {
     const result = await run({
+      baselineWorktree: null,
       snapshots: [
         snapshotOf(head, {
           code_ref_edges: null,
@@ -778,6 +783,7 @@ describe('usage missed knowledge', () => {
   // @lat: [[usage-missed-knowledge#Usage Missed Knowledge#Files without a section are no-coverage]]
   it('counts a file absent from the tree as new-file without code refs', async () => {
     const result = await run({
+      baselineWorktree: null,
       snapshots: [
         snapshotOf(head, {
           code_ref_edges: null,
@@ -854,6 +860,7 @@ describe('usage missed knowledge', () => {
   // @lat: [[usage-missed-knowledge#Usage Missed Knowledge#A snapshot without edges is not captured]]
   it('counts a session with neither edge kind as not_captured, never a miss', async () => {
     const result = await run({
+      baselineWorktree: null,
       snapshots: [
         snapshotOf(head, {
           code_ref_edges: null,

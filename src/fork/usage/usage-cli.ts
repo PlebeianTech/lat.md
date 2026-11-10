@@ -18,6 +18,7 @@ import {
 } from './enabled.js';
 import { USAGE_SCHEMA_VERSION } from './schema.js';
 import type { SavingsEstimate } from './savings.js';
+import { ignoreUsageInGit, warnIfUsageTracked } from './tracked-usage.js';
 import {
   printNotEnabled,
   registerUsageGapsCommand,
@@ -95,6 +96,7 @@ function enableUsage(root: string): void {
     if (existsSync(kept)) {
       console.log(`Older events stay in ${kept}; move them by hand to merge.`);
     }
+    ignoreUsageInGit(root);
     return;
   }
   if (existsSync(kept)) {
@@ -107,6 +109,7 @@ function enableUsage(root: string): void {
     ensureUsageDirectory(root);
   }
   console.log(trackingState(root));
+  ignoreUsageInGit(root);
 }
 
 function disableUsage(root: string): void {
@@ -152,6 +155,8 @@ export type SavingsView =
       range: { low: number; point: number; high: number };
       method_version: number;
       label: string;
+      /** Section reads left out of the range because their size is unknown. */
+      unknown_reads: number;
     }
   | { range: null; reason: string };
 
@@ -177,6 +182,7 @@ export function savingsOf(summary: UsageSummary): SavingsView {
     range: savings.net_tokens_saved,
     method_version: savings.method_version,
     label: savings.label,
+    unknown_reads: savings.saved_bytes.unknown,
   };
 }
 
@@ -186,7 +192,11 @@ function savingsLine(summary: UsageSummary): string {
     return `Tokens saved: unknown (${savings.reason})`;
   }
   const { low, point, high } = savings.range;
-  return `Tokens saved: ${low} to ${high} (point ${point}), method v${savings.method_version}, ${savings.label}`;
+  const unknown =
+    savings.unknown_reads > 0
+      ? ` (+${savings.unknown_reads} reads unknown)`
+      : '';
+  return `Tokens saved: ${low} to ${high}${unknown} (point ${point}), method v${savings.method_version}, ${savings.label}`;
 }
 
 export function renderUsageSummary(summary: UsageSummary): string {
@@ -224,6 +234,7 @@ async function showUsage(
     issue: options.issue,
     from: options.since,
   });
+  warnIfUsageTracked(projectRoot);
   if (!usageEnabled(projectRoot)) {
     printNotEnabled(options.json);
     return;

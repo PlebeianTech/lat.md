@@ -1,8 +1,7 @@
 // @lat: [[usage-findings#Usage Findings#Extra detectors plug in]]
 import { dayOf, normalizeQuery, type UsageSummary } from './aggregate-types.js';
 import {
-  MAX_PAGE_SIZE,
-  queryUsageEvents,
+  listUsageEvents,
   type RawRecord,
   type EventIndexOptions,
 } from './event-index.js';
@@ -224,7 +223,7 @@ export function findingsFor(
   filters: UsageFilters,
   index: EventIndexOptions,
 ) {
-  const day = new Date().toISOString().slice(0, 10);
+  const day = new Date(aggregator.now()).toISOString().slice(0, 10);
   return aggregator.memo(`findings\0${day}\0${filtersKey(filters)}`, () =>
     computeFindingsFor(aggregator, filters, index),
   );
@@ -250,17 +249,7 @@ async function computeFindingsFor(
       }
     }),
   );
-  const records: RawRecord[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await queryUsageEvents(filters, {
-      ...index,
-      cursor,
-      limit: MAX_PAGE_SIZE,
-    });
-    records.push(...page.records);
-    cursor = page.next_cursor ?? undefined;
-  } while (cursor);
+  const records = await listUsageEvents(filters, index);
   const summary = await aggregator.summary(filters);
   const result = computeFindings({ summary, records }, failed);
   return {
@@ -274,7 +263,10 @@ export const findingsRoute = ({
   root,
   filters,
   aggregator,
-}: UsageRouteContext) => findingsFor(aggregator, filters, { root });
+  bd,
+  sources,
+}: UsageRouteContext) =>
+  findingsFor(aggregator, filters, { root, bd, sources });
 
 // prettier-ignore
 export const findingDetectors: FindingDetector[] = [

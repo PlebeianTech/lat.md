@@ -56,10 +56,10 @@ export class View {
         reason = error instanceof Error ? error.message : String(error);
       }
     }
-    const answered = totals.searches - totals.searches_unknown_results;
     return {
-      lat_commands_per_session: ratio(totals.commands, totals.sessions),
-      search_success: ratio(answered - totals.zero_result_searches, answered),
+      lat_commands_per_session: totals.lat_commands_per_session,
+      search_hit_rate: totals.search_hit_rate,
+      follow_through_rate: totals.follow_through_rate,
       bypass_rate: totals.bypass_rate,
       net_tokens_saved: netTokensSaved,
       net_tokens_saved_reason: reason,
@@ -139,9 +139,12 @@ export function buildAgents(
       : known.indexOf(row.key) >= 0
         ? known.indexOf(row.key)
         : known.length;
+  // @lat: [[usage-aggregate#Usage Aggregate#An agent name never collides with an object property]]
+  const reasonOf = (agent: string) =>
+    Object.hasOwn(reasons, agent) ? reasons[agent] : null;
   return rows
     .sort((a, b) => rank(a) - rank(b) || a.key.localeCompare(b.key))
-    .map((row): AgentRow => ({ ...row, reason: reasons[row.key] ?? null }));
+    .map((row): AgentRow => ({ ...row, reason: reasonOf(row.key) }));
 }
 
 export function descendants(

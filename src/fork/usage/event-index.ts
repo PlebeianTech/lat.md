@@ -32,15 +32,8 @@ import {
 export const MAX_PAGE_SIZE = 200;
 export { FACET_FIELDS, MAX_FACET_VALUES, type FacetField };
 
-/** Fields that only a UsageEvent has. */
-const USAGE_ONLY_FIELDS = new Set<FacetField>([
-  'command',
-  'caller',
-  'surface',
-  'section_id',
-  'error_class',
-  'exit_code',
-]);
+/** Facet fields where a null with a recorded reason counts as unknown. */
+const REASONED_FIELDS = new Set<FacetField>(['section_id', 'error_class']);
 
 interface RawRecordBase {
   /** event_id of the event. */
@@ -65,6 +58,8 @@ export interface RawEventsPage {
   records: RawRecord[];
   /** Pass back as `cursor` for the next page; null on the last page. */
   next_cursor: string | null;
+  /** Every record that matches, in all pages, not only the ones after the cursor. */
+  total: number;
 }
 
 /** Response of GET /api/usage/raw?facet=<field>. */
@@ -72,8 +67,12 @@ export interface RawFacet {
   field: FacetField;
   /** The most frequent values of the filtered records, at most 20. */
   values: { value: string | number; count: number }[];
-  /** Records of the kinds that have the field, where it is null. */
+  /** Records of the kinds that have the field, where it is null for no recorded reason. */
   missing: number;
+  /** Records where a section id or error class is null and lat recorded why. */
+  unknown: number;
+  /** Records of a kind that has no such field, such as session events. */
+  lacking: number;
 }
 
 export interface EventIndexOptions {
@@ -82,9 +81,19 @@ export interface EventIndexOptions {
   bd?: Pick<BdWatcher, 'refresh'>;
 }
 
-export interface PageOptions extends EventIndexOptions {
+/** Field values to keep: any value of a field, every field must match. */
+export type FieldFilters = Partial<Record<FacetField, string[]>>;
+
+export interface Selection {
   /** Only records with these event ids. */
   ids?: string[];
+  /** Only records whose field, as text, is one of the listed values. */
+  where?: FieldFilters;
+  /** Only usage events whose search query is exactly this text. */
+  query?: string;
+}
+
+export interface PageOptions extends EventIndexOptions, Selection {
   cursor?: string;
   /** At most MAX_PAGE_SIZE, which is also the default. */
   limit?: number;
@@ -179,13 +188,17 @@ async function currentModel(options: EventIndexOptions): Promise<Model> {
       enabled: usageEnabled(options.root),
       state: emptyState(),
       sources: options.sources ?? sessionSources,
-      bd: options.bd ?? createBdWatcher(),
+      bd: options.bd ?? createBdWatcher(options.root),
       snapshot: null,
       model: null,
       queue: Promise.resolve(),
     };
     indexes.set(options.root, index);
   }
+  // A restarted live server makes a new watcher and sources; the index follows.
+  // @lat: [[usage-live-raw-events#Usage Live Raw Events#A restarted server hands the index its new sources]]
+  if (options.bd) index.bd = options.bd;
+  if (options.sources) index.sources = options.sources;
   const current = index;
   const run = current.queue.then(async () => {
     const enabled = usageEnabled(options.root);
@@ -199,7 +212,7 @@ async function currentModel(options: EventIndexOptions): Promise<Model> {
     const sessionsChanged =
       enabled &&
       (await readSessions(options.root, current.sources, current.state));
-    const latest = await current.bd.refresh();
+    const latest = enabled ? await current.bd.refresh() : null;
     if (
       logChanged ||
       sessionsChanged ||
@@ -238,16 +251,43 @@ function matches(filters: UsageFilters, model: Model, now: number) {
   };
 }
 
+/** undefined: the record kind has no such field. */
+function fieldOf(
+  record: RawRecord,
+  field: FacetField,
+): string | number | null | undefined {
+  if (field === 'agent' || field === 'session_id') return record[field];
+  return record.type === 'usage' ? record.event[field] : undefined;
+}
+
+function selects(selection: Selection) {
+  const wanted = selection.ids ? new Set(selection.ids) : null;
+  const fields = FACET_FIELDS.flatMap((field) => {
+    const values = selection.where?.[field];
+    return values?.length ? [{ field, values: new Set(values) }] : [];
+  });
+  return (record: RawRecord): boolean => {
+    if (wanted !== null && !wanted.has(record.id)) return false;
+    if (
+      selection.query !== undefined &&
+      (record.type !== 'usage' || record.event.query !== selection.query)
+    )
+      return false;
+    return fields.every(({ field, values }) => {
+      const value = fieldOf(record, field);
+      return value != null && values.has(String(value));
+    });
+  };
+}
+
 async function filtered(
   filters: UsageFilters,
-  options: EventIndexOptions & { ids?: string[] },
+  options: EventIndexOptions & Selection,
 ): Promise<RawRecord[]> {
   const model = await currentModel(options);
   const keep = matches(filters, model, Date.now());
-  const wanted = options.ids ? new Set(options.ids) : null;
-  return model.records.filter(
-    (record) => keep(record) && (wanted === null || wanted.has(record.id)),
-  );
+  const selected = selects(options);
+  return model.records.filter((record) => keep(record) && selected(record));
 }
 
 function encodeCursor(record: RawRecord): string {
@@ -274,6 +314,7 @@ export async function queryUsageEvents(
     throw new Error(`Invalid limit: ${limit}`);
   const size = Math.min(limit, MAX_PAGE_SIZE);
   let records = await filtered(filters, options);
+  const total = records.length;
   if (options.cursor !== undefined) {
     const after = decodeCursor(options.cursor);
     records = records.filter((record) => {
@@ -284,6 +325,7 @@ export async function queryUsageEvents(
   const pageRecords = records.slice(0, size);
   return {
     records: pageRecords,
+    total,
     next_cursor:
       records.length > size
         ? encodeCursor(pageRecords[pageRecords.length - 1])
@@ -291,26 +333,37 @@ export async function queryUsageEvents(
   };
 }
 
+/** Every record that matches the filters, newest first, from one model read. */
+export function listUsageEvents(
+  filters: UsageFilters,
+  options: EventIndexOptions,
+): Promise<RawRecord[]> {
+  return filtered(filters, options);
+}
+
 /** The most frequent values of one field over the matching records. */
 export async function facetUsageEvents(
   filters: UsageFilters,
   field: FacetField,
-  options: EventIndexOptions,
+  options: EventIndexOptions & Selection,
 ): Promise<RawFacet> {
   if (!FACET_FIELDS.includes(field))
     throw new Error(`Unknown facet field: ${field}`);
   const counts = new Map<string | number, number>();
   let missing = 0;
+  let unknown = 0;
+  let lacking = 0;
   for (const record of await filtered(filters, options)) {
-    if (record.type === 'session' && USAGE_ONLY_FIELDS.has(field)) continue;
-    const value: string | number | null =
-      field === 'agent' || field === 'session_id'
-        ? record[field]
-        : record.type === 'usage'
-          ? record.event[field]
-          : null;
-    if (value === null) missing++;
-    else counts.set(value, (counts.get(value) ?? 0) + 1);
+    const value = fieldOf(record, field);
+    if (value === undefined) lacking++;
+    else if (value !== null) counts.set(value, (counts.get(value) ?? 0) + 1);
+    else if (
+      REASONED_FIELDS.has(field) &&
+      record.type === 'usage' &&
+      record.event.unknown_reasons?.[field as 'section_id' | 'error_class']
+    )
+      unknown++;
+    else missing++;
   }
   const values = [...counts]
     .map(([value, count]) => ({ value, count }))
@@ -319,5 +372,5 @@ export async function facetUsageEvents(
         b.count - a.count || String(a.value).localeCompare(String(b.value)),
     )
     .slice(0, MAX_FACET_VALUES);
-  return { field, values, missing };
+  return { field, values, missing, unknown, lacking };
 }

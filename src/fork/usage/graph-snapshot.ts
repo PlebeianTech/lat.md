@@ -368,18 +368,22 @@ export async function snapshotAt(
     // A symlinked cache directory points outside the project: skip it.
     const cached = realUsageDirectory(root, 'graph-snapshots') !== null;
     let snapshot = cached ? readCachedSnapshot(snapshotFile(root, head)) : null;
-    if (!snapshot) {
+    // @lat: [[usage-graph-snapshot#Usage Graph Snapshot#A clean worktree gives a stored past head its code-ref edges]]
+    if (!snapshot || snapshot.code_ref_edges === null) {
       const found = await findWorktreeAtHead(
         head,
         await trustedWorktrees(root, worktrees),
       );
-      snapshot = await snapshotGraphAtHead(
-        root,
-        head,
-        found.clean,
-        found.dirty ? 'dirty_worktree' : 'not_captured',
-      );
-      writeCachedSnapshot(root, head, snapshot);
+      if (!snapshot || found.clean !== null) {
+        snapshot = await snapshotGraphAtHead(
+          root,
+          head,
+          found.clean,
+          found.dirty ? 'dirty_worktree' : 'not_captured',
+        );
+        if (snapshot.code_ref_edges_reason !== 'dirty_worktree')
+          writeCachedSnapshot(root, head, snapshot);
+      }
     }
     result = { snapshot, reason: null };
   } catch (err) {

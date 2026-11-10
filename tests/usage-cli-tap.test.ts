@@ -139,9 +139,7 @@ describe('CLI tap', () => {
     const hook = events.find((e) => e.command === 'hook Stop')!;
     expect(hook.surface).toBe('hook');
     expect(hook.caller).toBe('hook-injected');
-    expect(events.find((e) => e.command === 'expand')!.query).toBe(
-      'see [[nonexistent#x]]',
-    );
+    expect(events.find((e) => e.command === 'expand')!.query).toBeNull();
   });
 
   // @lat: [[usage-tap#Usage Tap#A failed command still records]]

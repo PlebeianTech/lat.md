@@ -61,6 +61,10 @@ A `prepare` that throws is reported under `errors` with the detector name, and t
 
 ## Findings are memoized per data version
 
-`findingsFor` caches its result in the aggregator's memo, keyed by the filters and the UTC day. Repeated and concurrent requests for the same filters run the detectors once.
+`findingsFor` caches its result in the aggregator's memo, keyed by the filters and the UTC day of the aggregator's clock. Repeated and concurrent requests for the same filters run the detectors once.
 
-Other filters run them again, and new data clears the cache. The live server also starts a new data version when the git head moves.
+A new day on that clock computes again, whatever the system clock says. Other filters run them again, and new data clears the cache. The live server also starts a new data version when the git head moves.
+
+## Findings read the events once
+
+`findingsFor` filters the event model once and hands every matching record to the detectors. 450 events cost one read of the bd snapshot, not one per page of 200.

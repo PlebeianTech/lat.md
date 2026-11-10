@@ -58,8 +58,33 @@ describe('usage dashboard shell', () => {
     });
   }
 
+  // The endpoint the Sessions page fetches its rows from; one place to change.
+  const SUMMARY_PATH = '/api/usage/sessions';
+  const fetchMock = vi.fn((_url: string) => new Promise(() => {}));
+  const summaryRequests = () =>
+    fetchMock.mock.calls
+      .map(([url]) => url)
+      .filter((url) => url.split('?')[0] === SUMMARY_PATH);
+  async function typeInto(name: string, value: string): Promise<void> {
+    const element = field(name);
+    await act(async () => element.focus());
+    for (let length = 1; length <= value.length; length++)
+      await edit(name, value.slice(0, length));
+  }
+  async function leave(name: string): Promise<void> {
+    await act(async () => field(name).blur());
+  }
+  async function pressEnter(name: string): Promise<void> {
+    await act(async () =>
+      field(name).dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+      ),
+    );
+  }
+
   beforeEach(() => {
-    vi.stubGlobal('fetch', () => new Promise(() => {}));
+    fetchMock.mockClear();
+    vi.stubGlobal('fetch', fetchMock);
     vi.stubGlobal(
       'EventSource',
       class {
@@ -112,7 +137,8 @@ describe('usage dashboard shell', () => {
       createElement('div', null, createElement(UsageApp), createElement(Probe)),
     );
     await edit('agent', 'codex');
-    await edit('issue', 'lat-eah');
+    await typeInto('issue', 'lat-eah');
+    await leave('issue');
     const params = new URLSearchParams(window.location.search);
     expect(params.get('agent')).toBe('codex');
     expect(params.get('issue')).toBe('lat-eah');
@@ -124,6 +150,66 @@ describe('usage dashboard shell', () => {
       false,
     );
     expect(window.location.pathname).toBe('/_usage/sessions');
+  });
+
+  // @lat: [[usage-dashboard-shell#Usage Dashboard Shell#Text filters apply on Enter or blur]]
+  it.each(['issue', 'session'])(
+    'applies the %s filter on blur, not per keystroke',
+    async (name) => {
+      await open('/_usage/sessions');
+      const before = summaryRequests().length;
+      const url = window.location.href;
+      await typeInto(name, 'lat-eah.19');
+      expect(field(name).value).toBe('lat-eah.19');
+      expect(summaryRequests().length).toBe(before);
+      expect(window.location.href).toBe(url);
+      await leave(name);
+      expect(summaryRequests().length).toBe(before + 1);
+      expect(summaryRequests().at(-1)).toBe(
+        `${SUMMARY_PATH}?${name}=lat-eah.19`,
+      );
+    },
+  );
+
+  // @lat: [[usage-dashboard-shell#Usage Dashboard Shell#Text filters apply on Enter or blur]]
+  it.each(['issue', 'session'])(
+    'applies the %s filter on Enter',
+    async (name) => {
+      await open('/_usage/sessions');
+      const before = summaryRequests().length;
+      await typeInto(name, 'abc');
+      expect(summaryRequests().length).toBe(before);
+      await pressEnter(name);
+      expect(summaryRequests().length).toBe(before + 1);
+      expect(summaryRequests().at(-1)).toBe(`${SUMMARY_PATH}?${name}=abc`);
+      await leave(name);
+      expect(summaryRequests().length).toBe(before + 1);
+    },
+  );
+
+  // @lat: [[usage-dashboard-shell#Usage Dashboard Shell#Text filters follow the URL]]
+  it('shows a filter value that changes in the URL', async () => {
+    await open('/_usage/sessions?issue=lat-1');
+    expect(field('issue').value).toBe('lat-1');
+    await act(async () => {
+      window.history.replaceState(null, '', '/_usage/sessions?issue=lat-2');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(field('issue').value).toBe('lat-2');
+  });
+
+  // @lat: [[usage-dashboard-shell#Usage Dashboard Shell#Date and agent controls apply at once]]
+  it('refetches at once when from, to or agent change', async () => {
+    await open('/_usage/sessions');
+    for (const [name, value] of [
+      ['from', '2026-01-01'],
+      ['to', '2026-02-01'],
+      ['agent', 'codex'],
+    ]) {
+      const before = summaryRequests().length;
+      await edit(name, value);
+      expect(summaryRequests().length).toBe(before + 1);
+    }
   });
 
   // @lat: [[usage-dashboard-shell#Usage Dashboard Shell#Loading a URL with filters restores them]]

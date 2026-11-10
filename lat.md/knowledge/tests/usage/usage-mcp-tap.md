@@ -29,7 +29,7 @@ A `lat_section` call whose result is an error with no section records `found` fa
 
 ## Expand records resolved ids only
 
-A `lat_expand` call records the resolved ids as `result_ids` and no `section_id`.
+A `lat_expand` call records the resolved ids as `result_ids`, no `section_id` and a null `query`: its input text is never stored.
 
 ## Bytes out is the result length
 

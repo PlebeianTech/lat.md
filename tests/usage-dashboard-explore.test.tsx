@@ -98,29 +98,26 @@ const k1 = {
 } as unknown as RawRecord;
 const all = [u1, u2, u3, u4, k1];
 
-const USAGE_ONLY = [
-  'command',
-  'caller',
-  'surface',
-  'section_id',
-  'error_class',
-  'exit_code',
-];
+function valueOf(r: RawRecord, field: FacetField) {
+  if (field === 'agent' || field === 'session_id') return r[field];
+  if (r.type !== 'usage') return undefined;
+  return (r.event as unknown as Record<string, string | number | null>)[field];
+}
 function facetOf(records: RawRecord[], field: FacetField): RawFacet {
   const counts = new Map<string | number, number>();
   let missing = 0;
+  let unknown = 0;
+  let lacking = 0;
   for (const r of records) {
-    if (r.type === 'session' && USAGE_ONLY.includes(field)) continue;
-    const v =
-      field === 'agent' || field === 'session_id'
-        ? r[field]
-        : r.type === 'usage'
-          ? (r.event as unknown as Record<string, string | number | null>)[
-              field
-            ]
-          : null;
-    if (v === null) missing++;
-    else counts.set(v, (counts.get(v) ?? 0) + 1);
+    const v = valueOf(r, field);
+    const reasons = (
+      r.event as unknown as { unknown_reasons?: Record<string, string> }
+    ).unknown_reasons;
+    if (v === undefined) lacking++;
+    else if (v === null) {
+      if (reasons?.[field]) unknown++;
+      else missing++;
+    } else counts.set(v, (counts.get(v) ?? 0) + 1);
   }
   return {
     field,
@@ -128,6 +125,8 @@ function facetOf(records: RawRecord[], field: FacetField): RawFacet {
       .map(([value, count]) => ({ value, count }))
       .sort((a, b) => b.count - a.count),
     missing,
+    unknown,
+    lacking,
   };
 }
 
@@ -139,6 +138,7 @@ describe('usage dashboard explore page', () => {
   let overlap: boolean;
   let failRaw: string | undefined;
   let hangEvents = false;
+  let holdCursor: Promise<void> | undefined;
   let requests: string[];
   const text = () => container.textContent!;
   const click = (element: Element) =>
@@ -149,6 +149,17 @@ describe('usage dashboard explore page', () => {
     [...container.querySelectorAll('[data-event-table] tbody tr')].map(
       (tr) => tr.getAttribute('data-event-id')!,
     );
+  const loadMore = () =>
+    [...container.querySelectorAll('button')].find((b) =>
+      b.textContent!.includes('Load more'),
+    )!;
+  const fresh = (id: string, minute: number) =>
+    usage(id, `2026-01-05T10:0${minute}:00.000Z`, {
+      agent: 'claude',
+      session_id: 's1',
+      command: 'section',
+      section_id: 'cli#CLI#New',
+    });
   const facetBox = (field: string, value: string) =>
     container.querySelector<HTMLInputElement>(
       `input[type="checkbox"][data-facet="${field}"][data-value="${value}"]`,
@@ -169,6 +180,7 @@ describe('usage dashboard explore page', () => {
     overlap = false;
     failRaw = undefined;
     hangEvents = false;
+    holdCursor = undefined;
     requests = [];
     streams.length = 0;
     vi.stubGlobal('EventSource', FakeEventSource);
@@ -193,6 +205,15 @@ describe('usage dashboard explore page', () => {
         let pool = events;
         const ids = params.get('ids');
         if (ids) pool = pool.filter((r) => ids.split(',').includes(r.id));
+        for (const name of new Set(params.keys())) {
+          if (!name.startsWith('where.')) continue;
+          const field = name.slice('where.'.length) as FacetField;
+          const wanted = params.getAll(name);
+          pool = pool.filter((r) => {
+            const v = valueOf(r, field);
+            return v != null && wanted.includes(String(v));
+          });
+        }
         const facet = params.get('facet') as FacetField | null;
         if (path === '/api/usage/raw' && facet)
           return {
@@ -200,12 +221,14 @@ describe('usage dashboard explore page', () => {
             status: 200,
             json: async () => facetOf(pool, facet),
           };
+        if (holdCursor && params.get('cursor')) await holdCursor;
         const start = params.get('cursor') ? Number(params.get('cursor')) : 0;
         const slice = pool.slice(start, start + pageSize);
         const records =
           overlap && start > 0 ? [pool[start - 1], ...slice] : slice;
         const body: RawEventsPage = {
           records,
+          total: pool.length,
           next_cursor:
             start + pageSize < pool.length ? String(start + pageSize) : null,
         };
@@ -237,6 +260,52 @@ describe('usage dashboard explore page', () => {
     expect(facetCount('command', 'search')).toContain('1');
     await click(facetBox('agent', 'codex'));
     expect(rowIds()).toEqual(['u3']);
+  });
+
+  // @lat: [[usage-dashboard-explore#Usage Dashboard Explore#Facets and group-by are filtered by the server]]
+  it('sends ticked values to the server and never loads every event', async () => {
+    pageSize = 2;
+    await show();
+    await click(facetBox('command', 'section'));
+    await click(facetBox('command', 'check'));
+    await click(facetBox('agent', 'codex'));
+    const table = requests.filter(
+      (r) =>
+        r.startsWith('/api/usage/raw') &&
+        !r.includes('facet=') &&
+        r.includes('where.agent'),
+    );
+    expect(table.at(-1)).toContain('where.command=section');
+    expect(table.at(-1)).toContain('where.command=check');
+    expect(table.at(-1)).toContain('where.agent=codex');
+    // a facet leaves its own field out of the filter
+    const agentFacet = requests.filter((r) => r.includes('facet=agent'));
+    expect(agentFacet.at(-1)).toContain('where.command=section');
+    expect(agentFacet.at(-1)).not.toContain('where.agent');
+    expect(rowIds()).toEqual(['u3']);
+    await click(facetBox('agent', 'codex'));
+    const select = container.querySelector<HTMLSelectElement>(
+      'select[aria-label="Group by"]',
+    )!;
+    await act(async () => {
+      select.value = 'session_id';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(requests.at(-1)).toContain('facet=session_id');
+    expect(requests.at(-1)).toContain('where.command=section');
+    // every request is one page or one facet: none asks for a second page
+    expect(requests.some((r) => r.includes('cursor='))).toBe(false);
+  });
+
+  // @lat: [[usage-dashboard-explore#Usage Dashboard Explore#The event count comes from the server total]]
+  it('shows the server total, not the loaded rows', async () => {
+    pageSize = 2;
+    await show();
+    expect(rowIds()).toEqual(['u1', 'u2']);
+    expect(text()).toContain('5 events');
+    await click(facetBox('command', 'section'));
+    expect(text()).toContain('2 events');
+    expect(text()).not.toContain('5 events');
   });
 
   // @lat: [[usage-dashboard-explore#Usage Dashboard Explore#The filtered view refreshes on usage changes]]
@@ -323,6 +392,129 @@ describe('usage dashboard explore page', () => {
     expect(requests.some((r) => r.includes('cursor='))).toBe(true);
   });
 
+  // @lat: [[usage-dashboard-explore#Usage Dashboard Explore#Load more stays mounted while the next page loads]]
+  it('keeps the focused Load more button, disabled, while the next page loads', async () => {
+    pageSize = 2;
+    await show();
+    let release!: () => void;
+    holdCursor = new Promise<void>((resolve) => (release = resolve));
+    const button = loadMore();
+    button.focus();
+    await click(button);
+    expect(loadMore()).toBe(button);
+    expect(button.disabled).toBe(true);
+    expect(document.activeElement).toBe(button);
+    release();
+    await act(async () => {});
+    expect(rowIds()).toEqual(['u1', 'u2', 'u3', 'u4']);
+    expect(button.disabled).toBe(false);
+    await click(loadMore());
+    await act(async () => {});
+    expect(rowIds()).toEqual(['u1', 'u2', 'u3', 'u4', 'k1']);
+    expect(loadMore()).toBeUndefined();
+  });
+
+  // @lat: [[usage-dashboard-explore#Usage Dashboard Explore#Load more stays mounted while the next page loads]]
+  it('keeps Load more away while a live change refetches the last page', async () => {
+    pageSize = 4;
+    await show();
+    await click(loadMore());
+    await act(async () => {});
+    expect(rowIds()).toEqual(['u1', 'u2', 'u3', 'u4', 'k1']);
+    expect(loadMore()).toBeUndefined();
+    let release!: () => void;
+    holdCursor = new Promise<void>((resolve) => (release = resolve));
+    await act(async () => {
+      streams.at(-1)!.listeners['usage-change']();
+    });
+    await act(async () => {});
+    expect(loadMore()).toBeUndefined();
+    release();
+    await act(async () => {});
+    expect(loadMore()).toBeUndefined();
+  });
+
+  // @lat: [[usage-dashboard-explore#Usage Dashboard Explore#A live change after load more shows new events and keeps older pages]]
+  it('shows a new event at the top after load more, keeping older pages', async () => {
+    pageSize = 2;
+    await show();
+    const more = [...container.querySelectorAll('button')].find((b) =>
+      b.textContent!.includes('Load more'),
+    )!;
+    await click(more);
+    await act(async () => {});
+    expect(rowIds()).toEqual(['u1', 'u2', 'u3', 'u4']);
+    events = [
+      usage('u5', '2026-01-05T10:05:00.000Z', {
+        agent: 'claude',
+        session_id: 's1',
+        command: 'section',
+        section_id: 'cli#CLI#New',
+      }),
+      ...all,
+    ];
+    await act(async () => {
+      streams.at(-1)!.listeners['usage-change']();
+    });
+    await act(async () => {});
+    await act(async () => {});
+    expect(rowIds()).toEqual(['u5', 'u1', 'u2', 'u3', 'u4']);
+    expect(text()).toContain('6 events');
+  });
+
+  // @lat: [[usage-dashboard-explore#Usage Dashboard Explore#A live change after load more shows new events and keeps older pages]]
+  it('drops a row that stops matching in the refreshed first page', async () => {
+    pageSize = 2;
+    await show();
+    const more = [...container.querySelectorAll('button')].find((b) =>
+      b.textContent!.includes('Load more'),
+    )!;
+    await click(more);
+    await act(async () => {});
+    events = all.filter((r) => r.id !== 'u1');
+    await act(async () => {
+      streams.at(-1)!.listeners['usage-change']();
+    });
+    await act(async () => {});
+    await act(async () => {});
+    expect(rowIds()).toEqual(['u2', 'u3', 'u4', 'k1']);
+  });
+
+  // @lat: [[usage-dashboard-explore#Usage Dashboard Explore#A live change after load more shows new events and keeps older pages]]
+  it('continues to older rows with Load more after a live change', async () => {
+    pageSize = 2;
+    await show();
+    await click(loadMore());
+    await act(async () => {});
+    events = [fresh('u5', 5), ...all];
+    await act(async () => {
+      streams.at(-1)!.listeners['usage-change']();
+    });
+    await act(async () => {});
+    await act(async () => {});
+    await click(loadMore());
+    await act(async () => {});
+    expect(rowIds()).toEqual(['u5', 'u1', 'u2', 'u3', 'u4', 'k1']);
+  });
+
+  // @lat: [[usage-dashboard-explore#Usage Dashboard Explore#A live change after load more shows new events and keeps older pages]]
+  it('starts over from the first page when new events outnumber a page', async () => {
+    pageSize = 2;
+    await show();
+    await click(loadMore());
+    await act(async () => {});
+    events = [fresh('u7', 7), fresh('u6', 6), fresh('u5', 5), ...all];
+    await act(async () => {
+      streams.at(-1)!.listeners['usage-change']();
+    });
+    await act(async () => {});
+    await act(async () => {});
+    expect(rowIds()).toEqual(['u7', 'u6']);
+    await click(loadMore());
+    await act(async () => {});
+    expect(rowIds()).toEqual(['u7', 'u6', 'u5', 'u1']);
+  });
+
   // @lat: [[usage-dashboard-explore#Usage Dashboard Explore#Export downloads the current filtered result as JSON lines]]
   it('exports the filtered result as JSON lines', async () => {
     pageSize = 2;
@@ -396,7 +588,7 @@ describe('usage dashboard explore page', () => {
       (f) => f.querySelector('legend')!.textContent === 'error_class',
     )!;
     expect(facet.textContent).toContain('none (');
-    expect(facet.textContent).not.toContain('unknown (');
+    expect(facet.textContent).toContain('unknown (1)');
   });
 
   // @lat: [[usage-dashboard-explore#Usage Dashboard Explore#Unknown values are shown as unknown and no command text is shown]]
@@ -417,7 +609,7 @@ describe('usage dashboard explore page', () => {
       (f) => f.querySelector('legend')!.textContent === 'section_id',
     )!;
     expect(facet.textContent).toContain('none (');
-    expect(facet.textContent).not.toContain('unknown (');
+    expect(facet.textContent).toContain('unknown (1)');
     const select = container.querySelector<HTMLSelectElement>(
       'select[aria-label="Group by"]',
     )!;

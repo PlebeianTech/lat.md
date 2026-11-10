@@ -4,7 +4,8 @@ import type {
   IssueRow,
   Row,
   SessionRow,
-  UsageSummary,
+  UsageOverview,
+  UsageSessions,
 } from '../../../../src/fork/usage/aggregate-types';
 import { EntityTable, type EntityColumn } from '../entity-table';
 import { filtersToSearchParams, navigateTo, useUsageFilters } from '../filters';
@@ -79,7 +80,7 @@ function groupByParent(issues: IssueRow[]): {
 const CORRELATION = 'correlation, not cause';
 
 /** The label every net tokens saved figure carries, with the method version when the summary has one. */
-function savingsLabel(summary: UsageSummary): string {
+function savingsLabel(summary: UsageOverview): string {
   const savings = summary.extensions?.savings as
     | { method_version?: unknown }
     | undefined;
@@ -103,9 +104,9 @@ type Measure = {
 const MEASURES: Measure[] = [
   { key: 'commands', header: 'Lat commands', value: (s) => s.totals.commands },
   {
-    key: 'success',
-    header: 'Search success',
-    value: (s) => s.signals.search_success,
+    key: 'hit-rate',
+    header: 'Search hit rate',
+    value: (s) => s.signals.search_hit_rate,
     format: (v) => percent(Number(v)),
   },
   {
@@ -144,7 +145,7 @@ const COLUMNS: EntityColumn<IssueRow>[] = [
 ];
 
 function describeSignal(signals: HealthSignals): Record<string, string> {
-  const { lat_commands_per_session, search_success, bypass_rate } = signals;
+  const { lat_commands_per_session, search_hit_rate, bypass_rate } = signals;
   const saved = signals.net_tokens_saved;
   return {
     'Lat commands per session':
@@ -153,8 +154,8 @@ function describeSignal(signals: HealthSignals): Record<string, string> {
         : lat_commands_per_session.toLocaleString('en-US', {
             maximumFractionDigits: 1,
           }),
-    'Search success':
-      search_success === null ? 'unknown' : percent(search_success),
+    'Search hit rate':
+      search_hit_rate === null ? 'unknown' : percent(search_hit_rate),
     'Bypass rate': bypass_rate === null ? 'unknown' : percent(bypass_rate),
     'Net tokens saved':
       saved !== null
@@ -186,7 +187,7 @@ function UnattributedRow({ row, label }: { row: Row; label: string }) {
             {[
               'Activity',
               'Lat commands',
-              'Search success',
+              'Search hit rate',
               'Bypass reads',
               'Net tokens saved',
               'Sessions',
@@ -205,7 +206,7 @@ function UnattributedRow({ row, label }: { row: Row; label: string }) {
           <tr>
             <td style={{ padding: '0.375rem 0.5rem' }}>Unattributed</td>
             <td>{count(row.totals.commands)}</td>
-            <td>{signals['Search success']}</td>
+            <td>{signals['Search hit rate']}</td>
             <td>{count(row.totals.bypass_reads)}</td>
             <td>{signals['Net tokens saved']}</td>
             <td>{count(row.totals.sessions)}</td>
@@ -247,7 +248,7 @@ function IssueDetail({
   search,
 }: {
   id: string;
-  data: UsageSummary | undefined;
+  data: UsageOverview | undefined;
   search: string;
 }) {
   const issue = data?.issues.find((row) => row.key === id);
@@ -260,8 +261,9 @@ function IssueDetail({
     childrenOf(key).forEach((child) => collect(child.key));
   };
   collect(id);
+  const sessionRows = useUsageData<UsageSessions>('/api/usage/sessions');
   const sessions: SessionRow[] =
-    data?.sessions.filter((session) =>
+    sessionRows.data?.sessions.filter((session) =>
       session.issues.some((key) => inside.has(key)),
     ) ?? [];
   return (
@@ -308,7 +310,10 @@ function IssueDetail({
             </ul>
           )}
           <h2>Sessions</h2>
-          {sessions.length === 0 ? (
+          {sessionRows.error && <p role="alert">{sessionRows.error.message}</p>}
+          {!sessionRows.data ? (
+            sessionRows.loading && <p>Loading sessions…</p>
+          ) : sessions.length === 0 ? (
             <p>No sessions worked on this issue.</p>
           ) : (
             <ul aria-label="Sessions">
@@ -329,7 +334,7 @@ function IssueDetail({
 
 export function IssuesPage({ id }: UsagePageProps) {
   const search = useFilterSearch();
-  const { data, error, loading } = useUsageData<UsageSummary>('/api/usage');
+  const { data, error, loading } = useUsageData<UsageOverview>('/api/usage');
   return (
     <section>
       {error && <p role="alert">{error.message}</p>}

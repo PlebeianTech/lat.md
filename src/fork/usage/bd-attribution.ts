@@ -5,6 +5,7 @@ import {
   exportJournal,
   findReopens,
   loadIssueGraph,
+  resolveBeadsDir,
   tailJournal,
   type BdIssue,
   type BdRunner,
@@ -142,6 +143,16 @@ function openIssues(intervals: Interval[] | undefined, ts: number): string[] {
   return [...new Set(ids)];
 }
 
+/**
+ * An in_progress issue stops absorbing unclaimed events at its last recorded
+ * bd activity (`updated_at`), so a stale issue does not take later work. A
+ * snapshot without `updated_at` leaves the window open.
+ */
+function openEnd(issue: BdIssue & { updated_at?: string }): number {
+  const updated = issue.updated_at ? Date.parse(issue.updated_at) : NaN;
+  return Number.isNaN(updated) ? Infinity : updated;
+}
+
 function timestampIssues(issues: BdIssue[], ts: number): string[] {
   return issues
     .filter((issue) => {
@@ -149,7 +160,7 @@ function timestampIssues(issues: BdIssue[], ts: number): string[] {
       const end = issue.closed_at
         ? Date.parse(issue.closed_at)
         : issue.status === 'in_progress'
-          ? Infinity
+          ? openEnd(issue)
           : -Infinity;
       return Date.parse(issue.started_at) <= ts && ts <= end;
     })
@@ -193,10 +204,11 @@ function attributed(
  * 2. A subagent session with no open claim of its own is attributed through
  *    its parent session's claims (parent_session_id on the activity, or the
  *    link learned from any event), up the chain.
- * 3. Timestamp: between an assigned issue's started_at and closed_at.
+ * 3. Timestamp: between an assigned issue's started_at and closed_at, or its
+ *    last bd activity (updated_at) while it is still in progress.
  * 4. Otherwise unattributed.
  *
- * A null snapshot (bd missing, BEADS_DIR unset) attributes nothing. A claim
+ * A null snapshot (bd missing, no database) attributes nothing. A claim
  * naming an issue absent from the snapshot is ignored.
  */
 export function attributeActivity(
@@ -329,11 +341,16 @@ export interface BdWatcher {
  * list. A change with no journal rows (a sync pulled it in, which this
  * clone's journal never records), a failed tail (the checkpoint fell below
  * the retained floor) or a sequence behind the checkpoint re-baselines from
- * `bd events export`.
+ * `bd events export`. A reload that yields the same issues, links and
+ * reopens returns the previous snapshot object. A refresh made while another
+ * is running returns the running one's snapshot, so callers that share a
+ * watcher never advance the checkpoint twice. `root` is the project root that
+ * picks the database (`resolveBeadsDir`).
  */
 export function createBdWatcher(
-  run: BdRunner = createBdRunner(),
-  fingerprint: () => string = () => beadsDirFingerprint(process.env.BEADS_DIR),
+  root: string,
+  run: BdRunner = createBdRunner(root),
+  fingerprint: () => string = () => beadsDirFingerprint(resolveBeadsDir(root)),
 ): BdWatcher {
   let lastFingerprint: string | null = null;
   let snapshot: BdSnapshot | null = null;
@@ -360,20 +377,26 @@ export function createBdWatcher(
     return true;
   }
 
+  async function reload(): Promise<BdSnapshot | null> {
+    const current = fingerprint();
+    if (current !== '' && current === lastFingerprint) return snapshot;
+    const journaled = await advance();
+    const graph = await loadIssueGraph(run);
+    const next = graph ? { ...graph, reopens: journaled ? reopens : [] } : null;
+    lastFingerprint = graph && journaled ? current : null;
+    // Unchanged bd output keeps the previous object, so consumers that
+    // compare snapshots by identity skip their rebuild.
+    if (JSON.stringify(next) !== JSON.stringify(snapshot)) snapshot = next;
+    return snapshot;
+  }
+
+  let running: Promise<BdSnapshot | null> | null = null;
   return {
-    async refresh() {
-      const current = fingerprint();
-      if (current !== '' && current === lastFingerprint) return snapshot;
-      const journaled = await advance();
-      const graph = await loadIssueGraph(run);
-      if (!graph || !journaled) {
-        snapshot = graph ? { ...graph, reopens: [] } : null;
-        lastFingerprint = null;
-        return snapshot;
-      }
-      lastFingerprint = current;
-      snapshot = { ...graph, reopens };
-      return snapshot;
+    refresh() {
+      running ??= reload().finally(() => {
+        running = null;
+      });
+      return running;
     },
   };
 }

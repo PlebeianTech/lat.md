@@ -11,7 +11,7 @@ They render the page in jsdom with a fake `fetch` serving fixtures typed from `s
 
 ## The tree nests epics, sub-epics and leaves with own and rolled-up totals
 
-Each issue is one row with its type, status and, for both its own events and its events plus its descendants, the lat commands, search success, bypass reads, net tokens saved and sessions.
+Each issue is one row with its type, status and, for both its own events and its events plus its descendants, the lat commands, search hit rate, bypass reads, net tokens saved and sessions.
 
 A child issue sits under its bd parent, whatever its id, and shows once the parent is expanded. An issue whose parent has no row is a top-level row. A self-parent or a parent cycle never crashes the page: one member of the cycle is shown at top level and the others nest under it, so every row stays visible. The parent's rolled-up commands differ from its own. The table has no footer and no grand total: issues share events, so a sum over rows would count them twice.
 
@@ -32,6 +32,10 @@ Every place that shows net tokens saved (the table note, the unattributed row an
 ## Links keep the filter query string
 
 Every link to another page or detail view carries the current filters as a query string: the issue rows, the child and session links and the way back to the list.
+
+## The session list waits for its own request
+
+The detail view fetches `/api/usage/sessions`. While that request loads it says so, and if it fails it shows the error; neither case claims the issue has no sessions.
 
 ## Loading and error states
 

@@ -11,6 +11,7 @@ vi.mock('../src/fork/usage/sources/index.js', () => ({
 import { plainStyler } from '@plebeiantech/lat.md-core/context';
 import { startViewServer, type ViewServer } from '../src/view/server.js';
 import { configureUsageLive, stopUsageLive } from '../src/fork/usage/live.js';
+import { createAggregator } from '../src/fork/usage/aggregate.js';
 import type { RawRecord } from '../src/fork/usage/event-index.js';
 import {
   computeFindings,
@@ -328,7 +329,6 @@ beforeEach(async () => {
   writeFileSync(join(clientDir, 'usage.html'), '<!doctype html><html></html>');
   fakes.sources.length = 0;
   configureUsageLive({
-    sources: [],
     bd: { refresh: async () => null },
     contributions: [],
     pollMs: 20,
@@ -442,10 +442,102 @@ describe('usage findings cache', () => {
   });
 });
 
+describe('usage findings collection', () => {
+  const tempRoot = () => {
+    const dir = gitInit(mkdtempSync(join(tmpdir(), 'lat-usage-findings-day-')));
+    mkdirSync(join(dir, 'lat.md'));
+    return dir;
+  };
+
+  // @lat: [[usage-findings#Usage Findings#Findings are memoized per data version]]
+  it('takes the cache day from the aggregator clock', async () => {
+    const dir = tempRoot();
+    try {
+      writeUsageEvent(dir, usage({ event_id: 'd1', ts: at(1) }));
+      let clock = Date.parse('2026-11-10T12:00:00Z');
+      const bd = { refresh: async () => null };
+      const aggregator = await createAggregator({
+        root: dir,
+        sources: [],
+        bd,
+        contributions: [],
+        now: () => clock,
+      });
+      await aggregator.refresh();
+      let detects = 0;
+      const counting = {
+        name: 'counting-day',
+        detect: () => {
+          detects++;
+          return [];
+        },
+      };
+      findingDetectors.push(counting);
+      try {
+        const options = { root: dir, sources: [], bd };
+        await findingsFor(aggregator, {}, options);
+        await findingsFor(aggregator, {}, options);
+        expect(detects).toBe(1);
+        clock = Date.parse('2026-11-11T00:00:01Z');
+        await findingsFor(aggregator, {}, options);
+        expect(detects).toBe(2);
+      } finally {
+        findingDetectors.splice(findingDetectors.indexOf(counting), 1);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // @lat: [[usage-findings#Usage Findings#Findings read the events once]]
+  it('reads the event model once however many events there are', async () => {
+    const dir = tempRoot();
+    try {
+      for (let i = 0; i < 450; i++)
+        writeUsageEvent(dir, usage({ ts: at(i), query: `q${i}` }));
+      const refresh = vi.fn(async () => null);
+      let seen = 0;
+      const probe = {
+        name: 'probe-count',
+        detect: ({ records }: FindingsInput) => {
+          seen = records.length;
+          return [];
+        },
+      };
+      findingDetectors.push(probe);
+      try {
+        await findingsFor(
+          {
+            refresh: async () => undefined,
+            invalidate: () => undefined,
+            now: () => Date.now(),
+            memo: <T>(_key: string, compute: () => Promise<T>) => compute(),
+            summary: async () =>
+              ({
+                days: DAYS,
+                sections: [],
+                extensions: {},
+              }) as unknown as UsageSummary,
+          },
+          {},
+          { root: dir, sources: [], bd: { refresh } },
+        );
+        expect(seen).toBe(450);
+        expect(refresh).toHaveBeenCalledTimes(1);
+      } finally {
+        findingDetectors.splice(findingDetectors.indexOf(probe), 1);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('usage findings prepare hook', () => {
   const fakeAggregator = {
     refresh: async () => undefined,
     invalidate: () => undefined,
+    now: () => Date.now(),
     memo: <T>(_key: string, compute: () => Promise<T>) => compute(),
     summary: async () =>
       ({ days: DAYS, sections: [], extensions: {} }) as unknown as UsageSummary,

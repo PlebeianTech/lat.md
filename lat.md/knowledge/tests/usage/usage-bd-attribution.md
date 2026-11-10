@@ -47,7 +47,7 @@ The event is credited only when the open child claims name exactly one issue. Tw
 
 An event with no open claim inside an assigned issue's `started_at` to `closed_at` window is attributed with method `timestamp`.
 
-The window edges are included and an event just outside is not. An in-progress issue with no `closed_at` stays open. An issue with no assignee or no `started_at` never matches.
+The window edges are included and an event just outside is not. An in-progress issue with no `closed_at` stays open until its last bd activity (`updated_at`); an event after that is unattributed. An issue with no assignee or no `started_at` never matches.
 
 ## Rollup through two levels of parent-child
 
@@ -63,9 +63,23 @@ An event that matches no claim and no window is attributed to no issue with meth
 
 ## bd unavailable
 
-With bd missing, failing, or `BEADS_DIR` unset, loading returns null and attribution returns unattributed for every event. Nothing throws.
+With bd missing, failing, or finding no database, loading returns null and attribution returns unattributed for every event. Nothing throws.
 
 The runner ends bd's stdin at once, so a bd that reads stdin gets end of input instead of waiting for the call timeout.
+
+## The project database wins over BEADS_DIR
+
+When the project root has a `.beads/` directory, the runner starts bd in the project root and leaves `BEADS_DIR` out of bd's environment, even when `BEADS_DIR` is exported.
+
+The test runs a fake `bd` script that prints its working directory and the `BEADS_DIR` it saw.
+
+## BEADS_DIR applies without a project database
+
+When the project root has no `.beads/` directory and `BEADS_DIR` is set, the runner passes `BEADS_DIR` to bd and keeps the process working directory, as before the project database existed.
+
+## Without a database setting bd searches from the project root
+
+With no project `.beads/` and no `BEADS_DIR`, the runner starts bd in the project root, and bd finds its own database from there.
 
 ## Discovered-from links
 
@@ -80,3 +94,17 @@ The first journal row after a close whose state is not closed is a reopen, and d
 ## Watcher re-tails only when the database changes
 
 An unchanged fingerprint makes no bd call. A change with new journal rows extends the reopen list from the checkpoint. A change with no journal rows, or a tail that fails, re-baselines from the full export.
+
+## Watcher keeps the snapshot when bd output is unchanged
+
+With an empty fingerprint every refresh reloads bd. A reload that yields the same issues, links and reopens returns the previous snapshot object; changed output returns a new one.
+
+## Overlapping refreshes run bd once
+
+A refresh made while another is running on the same watcher returns the running call's snapshot and runs no bd command of its own.
+
+The test holds the first bd call, starts two refreshes after a journaled reopen, and expects one tail, one reopen and one shared snapshot. It then changes the fingerprint again to show a settled refresh frees the watcher.
+
+## The watcher follows the project database
+
+A watcher made for a root and given no fingerprint reloads bd after that root's own `.beads/` database changes, and not after a change only in the store `BEADS_DIR` names.

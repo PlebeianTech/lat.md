@@ -1,22 +1,14 @@
+import { type MouseEvent, type ReactNode } from 'react';
 import {
-  useEffect,
-  useMemo,
-  useState,
-  type MouseEvent,
-  type ReactNode,
-} from 'react';
-import {
-  REFORMULATION_WINDOW_MS,
-  normalizeQuery,
+  type QueryDetailRow,
   type QueryRow,
-  type UsageSummary,
+  type UsageOverview,
 } from '../../../../src/fork/usage/aggregate-types';
-import type { RawRecord } from '../../../../src/fork/usage/event-index';
 import { Sparkline, type SparklinePoint } from '../charts/sparkline';
 import { EntityTable } from '../entity-table';
 import { filtersToSearchParams, navigateTo, useUsageFilters } from '../filters';
 import type { UsagePageProps } from '../routes';
-import { fetchAllUsageEvents, useUsageData } from '../use-usage-data';
+import { useUsageData } from '../use-usage-data';
 
 const WRAP = { overflowWrap: 'anywhere' } as const;
 
@@ -125,114 +117,11 @@ function QueriesList({
   );
 }
 
-interface QueryFacts {
-  /** Ranks at which each section was opened after this query, one per read. */
-  ranks: Map<string, number[]>;
-  /** Searches that followed this one in the same session within the window, by normalized query (null: none recorded), with counts. */
-  reformulations: Map<string | null, number>;
-}
-
-/**
- * Replays the lat commands of each session in order. The rule is the one of
- * buildSequence in src/fork/usage/aggregate.ts (not exported, so repeated
- * here): keep it identical, or the lists drift from the QueryRow counts.
- */
-function replay(records: RawRecord[], target: string): QueryFacts {
-  const facts: QueryFacts = { ranks: new Map(), reformulations: new Map() };
-  const commands = records
-    .filter(
-      (record): record is RawRecord & { type: 'usage' } =>
-        record.type === 'usage' &&
-        record.event.caller !== 'hook-injected' &&
-        Boolean(record.session_id),
-    )
-    .sort(
-      (a, b) =>
-        Date.parse(a.ts) - Date.parse(b.ts) ||
-        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-    );
-  const lastSearch = new Map<string, (typeof commands)[number]>();
-  for (const record of commands) {
-    const { event } = record;
-    const previous = lastSearch.get(record.session_id!);
-    const previousIsTarget =
-      previous?.event.query != null &&
-      normalizeQuery(previous.event.query) === target;
-    if (event.command === 'search') {
-      if (
-        previous &&
-        previousIsTarget &&
-        Date.parse(record.ts) - Date.parse(previous.ts) <=
-          REFORMULATION_WINDOW_MS
-      ) {
-        const next = event.query === null ? null : normalizeQuery(event.query);
-        facts.reformulations.set(
-          next,
-          (facts.reformulations.get(next) ?? 0) + 1,
-        );
-      }
-      lastSearch.set(record.session_id!, record);
-    }
-    if (event.section_id === null || !previous || !previousIsTarget) continue;
-    const index = previous.event.result_ids.indexOf(event.section_id);
-    if (index < 0) continue;
-    const ranks = facts.ranks.get(event.section_id) ?? [];
-    ranks.push(index + 1);
-    facts.ranks.set(event.section_id, ranks);
-  }
-  for (const ranks of facts.ranks.values()) ranks.sort((a, b) => a - b);
-  return facts;
-}
-
-function QueryEvents({
-  row,
-  refresh,
-  search,
-}: {
-  row: QueryRow;
-  /** Changes when the summary is refetched, so the events reload with it. */
-  refresh: unknown;
-  search: string;
-}) {
-  const { filters } = useUsageFilters();
-  const key = filtersToSearchParams(filters).toString();
-  const [events, setEvents] = useState<RawRecord[] | undefined>();
-  const [error, setError] = useState<Error | undefined>();
-
-  useEffect(() => {
-    let current = true;
-    fetchAllUsageEvents(Object.fromEntries(new URLSearchParams(key))).then(
-      (records) => {
-        if (!current) return;
-        setEvents(records);
-        setError(undefined);
-      },
-      (failure: unknown) => {
-        if (current)
-          setError(
-            failure instanceof Error ? failure : new Error(String(failure)),
-          );
-      },
-    );
-    return () => {
-      current = false;
-    };
-  }, [key, refresh]);
-
-  const facts = useMemo(
-    () => (events ? replay(events, row.key) : undefined),
-    [events, row.key],
-  );
-  const reformulated = facts
-    ? [...facts.reformulations].sort(
-        (a, b) => b[1] - a[1] || (a[0] ?? '').localeCompare(b[0] ?? ''),
-      )
-    : [];
+function QueryEvents({ row, search }: { row: QueryDetailRow; search: string }) {
+  const { opened_ranks, reformulated_to } = row.facts;
   return (
     <>
       <h2>Sections returned</h2>
-      {error && <p role="alert">{error.message}</p>}
-      {!facts && !error && <p>Loading events…</p>}
       {row.sections_returned.length === 0 ? (
         <p>This query returned no sections.</p>
       ) : (
@@ -262,10 +151,9 @@ function QueryEvents({
                   <td>{count(section.returned)}</td>
                   <td>{count(section.opened)}</td>
                   <td>
-                    {facts
-                      ? (facts.ranks.get(section.section_id)?.join(', ') ??
-                        'none')
-                      : 'unknown'}
+                    {Object.hasOwn(opened_ranks, section.section_id)
+                      ? opened_ranks[section.section_id].join(', ')
+                      : 'none'}
                   </td>
                 </tr>
               ))}
@@ -274,26 +162,24 @@ function QueryEvents({
         </div>
       )}
       <h2>Reformulations</h2>
-      {!facts && <p>unknown</p>}
-      {facts &&
-        (reformulated.length === 0 ? (
-          <p>
-            No search followed this query within a minute in the same session.
-          </p>
-        ) : (
-          <ul aria-label="Reformulations">
-            {reformulated.map(([next, times]) => (
-              <li key={next ?? ''} style={WRAP}>
-                {next === null ? (
-                  'no query recorded'
-                ) : (
-                  <Link to={queryPath(next, search)}>{next}</Link>
-                )}{' '}
-                ({count(times)})
-              </li>
-            ))}
-          </ul>
-        ))}
+      {reformulated_to.length === 0 ? (
+        <p>
+          No search followed this query within a minute in the same session.
+        </p>
+      ) : (
+        <ul aria-label="Reformulations">
+          {reformulated_to.map(({ query: next, count: times }) => (
+            <li key={next ?? ''} style={WRAP}>
+              {next === null ? (
+                'no query recorded'
+              ) : (
+                <Link to={queryPath(next, search)}>{next}</Link>
+              )}{' '}
+              ({count(times)})
+            </li>
+          ))}
+        </ul>
+      )}
     </>
   );
 }
@@ -301,12 +187,10 @@ function QueryEvents({
 function QueryDetail({
   id,
   row,
-  refresh,
   search,
 }: {
   id: string;
-  row: QueryRow | undefined;
-  refresh: unknown;
+  row: QueryDetailRow | undefined;
   search: string;
 }) {
   return (
@@ -329,7 +213,7 @@ function QueryDetail({
             label={`Searches per day: ${row.key}`}
             points={searchesPerDay(row)}
           />
-          <QueryEvents row={row} refresh={refresh} search={search} />
+          <QueryEvents row={row} search={search} />
         </>
       ) : (
         <p>This query is not in the summary under the current filters.</p>
@@ -340,7 +224,7 @@ function QueryDetail({
 
 export function QueriesPage({ id }: UsagePageProps) {
   const search = useFilterSearch();
-  const { data, error, loading } = useUsageData<UsageSummary>('/api/usage');
+  const { data, error, loading } = useUsageData<UsageOverview>('/api/usage');
   return (
     <section>
       {error && <p role="alert">{error.message}</p>}
@@ -349,7 +233,6 @@ export function QueriesPage({ id }: UsagePageProps) {
         <QueryDetail
           id={id}
           row={data.queries.find((q) => q.key === id)}
-          refresh={data}
           search={search}
         />
       )}

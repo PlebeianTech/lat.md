@@ -1,11 +1,12 @@
 import { execFile, type ExecFileOptions } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { closeSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { openRegularFile } from './enabled.js';
 
 /**
- * Runs `bd <args>` and returns stdout, or null when bd is missing, BEADS_DIR is
- * unset, the call fails or times out. It never throws.
+ * Runs `bd <args>` and returns stdout, or null when bd is missing, finds no
+ * database, the call fails or times out. It never throws.
  */
 export type BdRunner = (args: string[]) => Promise<string | null>;
 
@@ -13,24 +14,51 @@ const CALL_TIMEOUT_MS = 15_000;
 // `bd list --all --json` carries every issue description.
 const MAX_OUTPUT_BYTES = 128 * 1024 * 1024;
 
+function projectBeadsDir(root: string): string | undefined {
+  const dir = join(root, '.beads');
+  try {
+    return statSync(dir).isDirectory() ? dir : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The bd database directory of a project root: its own `.beads/` first, so a
+ * project database wins even when BEADS_DIR is exported for the whole machine;
+ * else BEADS_DIR; else undefined, and bd searches for a database itself.
+ */
+export function resolveBeadsDir(
+  root: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  return projectBeadsDir(root) ?? (env.BEADS_DIR || undefined);
+}
+
 /**
  * Async execFile with stdin closed at once: a bd that reads stdin sees end of
  * input instead of waiting on it. execFile ignores a `stdio` option and always
  * opens stdin as a pipe, so the runner ends that pipe itself.
+ *
+ * Where bd runs follows `resolveBeadsDir`. A project `.beads/` runs bd in the
+ * project root without BEADS_DIR. Only a BEADS_DIR with no project database
+ * keeps the process working directory and passes BEADS_DIR on. With neither,
+ * bd runs in the project root and finds its database itself.
  */
-export function createBdRunner(env: NodeJS.ProcessEnv = process.env): BdRunner {
-  const beadsDir = env.BEADS_DIR;
+export function createBdRunner(
+  root: string,
+  env: NodeJS.ProcessEnv = process.env,
+): BdRunner {
   return (args) =>
     new Promise((resolvePromise) => {
-      if (!beadsDir) {
-        resolvePromise(null);
-        return;
-      }
+      const { BEADS_DIR: beadsDir, ...withoutBeadsDir } = env;
+      const project = projectBeadsDir(root) !== undefined;
       const options = {
         timeout: CALL_TIMEOUT_MS,
         maxBuffer: MAX_OUTPUT_BYTES,
         encoding: 'utf-8',
-        env: { ...env, BEADS_DIR: beadsDir },
+        env: project ? withoutBeadsDir : env,
+        ...(project || !beadsDir ? { cwd: root } : {}),
       } as ExecFileOptions;
       const child = execFile('bd', args, options, (error, stdout) => {
         resolvePromise(error ? null : String(stdout));
@@ -223,7 +251,8 @@ export function findReopens(
  * command, read-only ones included, rewrites the manifest with the same bytes.
  * Entries with no manifest, such as the `.lock` file, are skipped. Unchanged
  * means the database is unchanged, so the roughly 220 ms `bd events tail` is
- * skipped. An unreadable store gives '', which the watcher treats as changed.
+ * skipped. An unresolved or unreadable store gives '', which the watcher treats
+ * as changed. Callers pass `resolveBeadsDir(root)`.
  */
 export function beadsDirFingerprint(beadsDir: string | undefined): string {
   if (!beadsDir) return '';
@@ -232,8 +261,18 @@ export function beadsDirFingerprint(beadsDir: string | undefined): string {
     const parts: string[] = [];
     for (const database of readdirSync(root).sort()) {
       const manifest = join(root, database, '.dolt', 'noms', 'manifest');
-      if (!existsSync(manifest)) continue;
-      const hash = createHash('sha256').update(readFileSync(manifest));
+      let bytes: Buffer;
+      try {
+        const fd = openRegularFile(manifest);
+        try {
+          bytes = readFileSync(fd);
+        } finally {
+          closeSync(fd);
+        }
+      } catch {
+        continue;
+      }
+      const hash = createHash('sha256').update(bytes);
       parts.push(`${database}:${hash.digest('hex')}`);
     }
     return parts.join(',');

@@ -37,7 +37,7 @@ The command passes its flags to `parseUsageFilters` and has no parser of its own
 
 ## The json output is the aggregate summary
 
-`--json` prints the whole `UsageSummary`, with `extensions.savings` and the graph snapshot extension (`extensions.knowledge`), and it carries `schema_version`.
+`--json` prints the whole `UsageSummary`, with `extensions.savings` and the graph snapshot extension (`extensions.knowledge`), and it carries `schema_version`. Each query row includes its `facts`.
 
 ## The text output shows unknown as unknown
 
@@ -45,7 +45,9 @@ An unknown token total or net saving prints as `unknown`, with its reason, and n
 
 ## The text output shows savings as a labelled range
 
-Savings print as a low to high range with the point estimate, the `method_version` and the words `correlation, not cause`.
+Savings print as a low to high range with the point estimate, the `method_version` and the words `correlation, not cause`. When some section reads have an unknown size, `(+k reads unknown)` follows the range.
+
+A hook event of unknown injected size is not a read and is not counted in `k`.
 
 ## Issue rows are not summed
 

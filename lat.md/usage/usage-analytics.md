@@ -42,7 +42,7 @@ These are the usage event fields. Units are in each entry. A type of `X | null` 
 - `repo_root` (string): absolute path of the project root.
 - `git_head` (string or null): the full commit hash of HEAD, read from `.git` files. Lat does not run git. Null has a reason.
 - `worktree` (string or null): absolute path of the git worktree that holds the root. Null has a reason.
-- `query` (string or null): the first argument of a command that takes a query. Null for other commands.
+- `query` (string or null): the first argument of a command that takes a query. Null for other commands, and always null for `expand`, whose input is a prompt.
 - `result_ids` (array of string): ranked section ids. For `lat expand`, the resolved ids. The CLI tap fills it from `lat search` (rank order), `lat expand` and the hook's search results, on exit 0 only. Otherwise it is an empty array.
 - `result_count` (number or null): the length of `result_ids`, set whenever the tap fills `result_ids`. Otherwise null, with `not_captured`.
 - `section_id` (string or null): the section a command read: the id on the first line of `lat section` output, or the section a hook printed in full. Otherwise null, with `not_captured`. Null without a reason when `found` is false.
@@ -123,9 +123,11 @@ Usage is opt-in per project. It is on when `.lat/usage/` exists as a real direct
 
 Only two things create `.lat/usage/`: `lat usage enable`, and the logger of a project that is already on. Each one also writes `.lat/usage/.gitignore` holding `*`, so nothing in the directory can be committed. A process that writes into an existing `.lat/usage/` without that file adds it first. A `.gitignore` with any other content, such as an empty one a repository committed, is replaced the same way.
 
+`lat usage enable` also makes sure `<project root>/.gitignore` ignores `.lat/usage/`, on the already-enabled path too. When no line there already ignores it (`.lat/usage`, `.lat/usage/` or `.lat/`, each with or without a leading slash), it appends the entry under a one-line comment that says why, and it creates the file when missing. A symlinked `.gitignore` is skipped with a one-line note, never written through. The code is [[src/fork/usage/tracked-usage.ts]].
+
 Reading never opts a project in. The aggregator, the raw event index, graph snapshots, `lat usage`, `lat usage gaps`, the `lat_usage` MCP tool and the live endpoints never create the directory:
 
-- When usage is off, they read no session store and no log. `lat usage` and `lat usage gaps` print that tracking is not enabled and exit 0. The dashboard shows its empty state. An aggregator or raw event index that is already running drops the events it holds when usage turns off, and reads them again when it turns back on.
+- When usage is off, they read no session store and no log, and run no bd. `lat usage` and `lat usage gaps` print that tracking is not enabled and exit 0. The dashboard shows its empty state. An aggregator or raw event index that is already running drops the events it holds when usage turns off, and reads them again when it turns back on.
 - When only `LAT_USAGE=1` turns usage on and the directory does not exist, the aggregator keeps its state and graph snapshots in memory. It writes nothing to disk.
 - A failed snapshot cache write never turns a built snapshot into a failure.
 
@@ -135,11 +137,23 @@ A cloned repository can ship `.lat/usage/` with symlinks in it. Writers write on
 
 Readers are guarded the same way. They read `state.json`, the events files and the snapshot cache only inside a real `.lat/usage`, and open each one with `O_NOFOLLOW` and `O_NONBLOCK`, then refuse anything that is not a regular file. A planted link to `/dev/zero` is never read.
 
+A repository can still commit files under `.lat/usage/`, and a cloner then records into files git already tracks. The rule above stays, but when `git ls-files -- .lat/usage` lists any file, `lat usage` and the first start of the live state of a project root under `lat ui` print a warning on stderr, so `--json` on stdout stays clean. It says to run `git rm -r --cached .lat/usage` and names no file. Git runs without a shell, in the project root; when git is missing, fails, or the root is not in a repository, nothing is printed.
+
+A `state.json` that exists but cannot be used, because it is unreadable, not valid JSON, or of the wrong version or shape, is reported once per process on stderr, and the aggregator starts from an empty state. The message quotes nothing from the file. A missing `state.json` is silent.
+
 ## Stored session events
 
 The aggregator keeps session events in `.lat/usage/state.json`. A stored `tool_call` event has no shell command text. It keeps `shell.exit_code` only. To get the command, follow `source` (path and offset) back to the transcript line. The code is [[src/fork/usage/state.ts]].
 
 So a restart needs no re-read. The stored state also holds the agent name beside each event, because a SessionEvent does not carry it.
+
+## The bd database
+
+Attribution to bd issues reads one bd database per project root, chosen by [[src/fork/usage/bd-client.ts#resolveBeadsDir]]. When `<project root>/.beads` is a directory, it is the database.
+
+Then bd runs in the project root without `BEADS_DIR` in its environment, so a project database wins even when `BEADS_DIR` is exported for the whole machine. Otherwise `BEADS_DIR` is used when set, and bd runs as it did before. With neither, bd runs in the project root and finds its own database from there. With neither a project `.beads/` nor `BEADS_DIR`, or a store that cannot be fingerprinted, the fingerprint is empty. The live server then cannot see database changes, and every refresh reloads bd with two or three bd commands. A route request refreshes once. `/api/usage/raw`, and `/api/usage/findings` when its result is not cached, refresh twice. When bd is missing or finds no database, every event is unattributed.
+
+While usage is off, no refresh runs bd and the live server does not fingerprint the database, so a repository that ships its own `.beads/` never has bd started in it.
 
 ## Savings
 

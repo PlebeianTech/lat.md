@@ -67,6 +67,8 @@ function totals(overrides: {
     reformulation_rate: null,
     bypass_rate: null,
     median_rank_opened: null,
+    lat_commands_per_session: null,
+    search_hit_rate: null,
   };
 }
 
@@ -78,7 +80,7 @@ function session(
     tokens?: number | null;
     unknownTokens?: number;
     messages?: number;
-    search_success?: number | null;
+    search_hit_rate?: number | null;
   } = {},
 ): SessionRow {
   const stats: Stats = {
@@ -87,7 +89,8 @@ function session(
     daily: [],
     signals: {
       lat_commands_per_session: null,
-      search_success: overrides.search_success ?? null,
+      search_hit_rate: overrides.search_hit_rate ?? null,
+      follow_through_rate: null,
       bypass_rate: null,
       net_tokens_saved: null,
       net_tokens_saved_reason: null,
@@ -117,7 +120,7 @@ const parent = session('sess-1', {
   commands: 7,
   bypass_reads: 2,
   tokens: 1500,
-  search_success: 0.75,
+  search_hit_rate: 0.75,
   issues: ['lat-1', 'lat-2'],
   children: ['sess-sub'],
 });
@@ -235,7 +238,7 @@ describe('usage dashboard sessions page', () => {
     sessions = [parent, subagent];
     failSummary = undefined;
     hang = false;
-    rawPages = () => ({ records: [], next_cursor: null });
+    rawPages = () => ({ records: [], next_cursor: null, total: 0 });
     vi.stubGlobal('EventSource', FakeEventSource);
     vi.stubGlobal(
       'fetch',
@@ -243,7 +246,7 @@ describe('usage dashboard sessions page', () => {
         requests.push(url);
         if (hang) return new Promise<never>(() => {});
         const path = url.split('?')[0];
-        if (path === '/api/usage' && failSummary)
+        if (path === '/api/usage/sessions' && failSummary)
           return {
             ok: false,
             status: 500,
@@ -278,7 +281,7 @@ describe('usage dashboard sessions page', () => {
       'Start',
       'Duration',
       'Lat commands',
-      'Search success',
+      'Search hit rate',
       'Bypass reads',
       'Tokens',
       'Issues',
@@ -320,8 +323,8 @@ describe('usage dashboard sessions page', () => {
       );
     rawPages = (cursor) =>
       cursor === null
-        ? { records: many(0, 200), next_cursor: 'next' }
-        : { records: many(200, 250), next_cursor: null };
+        ? { records: many(0, 200), next_cursor: 'next', total: 250 }
+        : { records: many(200, 250), next_cursor: null, total: 250 };
     await show('sess-1');
     const rawUrls = requests.filter((u) => u.startsWith('/api/usage/raw'));
     expect(rawUrls).toHaveLength(2);
@@ -334,6 +337,7 @@ describe('usage dashboard sessions page', () => {
   // @lat: [[usage-dashboard-sessions#Usage Dashboard Sessions#The detail timeline places each event in the right lane at the right time]]
   it('places each event in its lane at its time', async () => {
     rawPages = () => ({
+      total: 0,
       records: Object.values(lanes),
       next_cursor: null,
     });
@@ -359,6 +363,7 @@ describe('usage dashboard sessions page', () => {
   // @lat: [[usage-dashboard-sessions#Usage Dashboard Sessions#Selecting an event shows its fields]]
   it('shows the fields of the selected event and no query text', async () => {
     rawPages = () => ({
+      total: 0,
       records: [lanes.command, lanes.bypass],
       next_cursor: null,
     });
@@ -390,6 +395,7 @@ describe('usage dashboard sessions page', () => {
   // @lat: [[usage-dashboard-sessions#Usage Dashboard Sessions#Selecting an event shows its fields]]
   it('shows unknown only for a null field with a reason', async () => {
     rawPages = () => ({
+      total: 0,
       records: [
         usageRecord('cmd-2', '2026-01-02T10:00:10.000Z', {
           unknown_reasons: { section_id: 'not_captured' },
@@ -415,6 +421,7 @@ describe('usage dashboard sessions page', () => {
   // @lat: [[usage-dashboard-sessions#Usage Dashboard Sessions#Another session never shows the previous session's events]]
   it("hides the previous session's events while the next one loads", async () => {
     rawPages = () => ({
+      total: 0,
       records: [lanes.command, lanes.bypass],
       next_cursor: null,
     });
@@ -511,7 +518,7 @@ describe('usage dashboard sessions page', () => {
     sessions = [session('empty', { tokens: 0, messages: 0 })];
     await show();
     const row = container.querySelector('tbody tr')!.textContent!;
-    // Search success, Tokens and Unknown counts; the Issues "none" stays.
+    // Search hit rate, Tokens and Unknown counts; the Issues "none" stays.
     expect(row.match(/unknown/g)).toHaveLength(3);
     await show('empty');
     expect(text()).toContain('tokens unknown');

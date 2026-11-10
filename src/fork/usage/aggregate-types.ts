@@ -84,13 +84,16 @@ export interface Totals {
   reformulation_rate: number | null;
   bypass_rate: number | null;
   median_rank_opened: number | null;
+  lat_commands_per_session: number | null;
+  search_hit_rate: number | null;
 }
 
 export type DailyPoint = Totals & { day: string };
 
 export interface HealthSignals {
   lat_commands_per_session: number | null;
-  search_success: number | null;
+  search_hit_rate: number | null;
+  follow_through_rate: number | null;
   bypass_rate: number | null;
   /** Null until a contribution supplies it (lat-eah.33). */
   net_tokens_saved: number | null;
@@ -156,6 +159,18 @@ export interface QueryRow extends Row {
   reformulations: number;
 }
 
+/** What the Queries detail view shows beyond the counts of a `QueryRow`. */
+export interface QueryFacts {
+  /** Ranks at which each returned section was opened, one per read, ascending. */
+  opened_ranks: Record<string, number[]>;
+  /** Normalized queries of the searches that followed this one within the window (null: none recorded), with counts. */
+  reformulated_to: { query: string | null; count: number }[];
+}
+
+export interface QueryDetailRow extends QueryRow {
+  facts: QueryFacts;
+}
+
 export interface SectionRow extends Row {
   document: string;
   reads: number;
@@ -171,7 +186,7 @@ export interface DocumentRow extends Row {
   sections_read: number;
 }
 
-/** Response of GET /api/usage. */
+/** What `Aggregator.summary` returns; GET /api/usage serves it as a `UsageOverview`. */
 export interface UsageSummary {
   filters: UsageFilters;
   range: {
@@ -191,12 +206,20 @@ export interface UsageSummary {
   issues: IssueRow[];
   unattributed: Row;
   commands: Row[];
-  queries: QueryRow[];
+  queries: QueryDetailRow[];
   sections: SectionRow[];
   documents: DocumentRow[];
   byDay: Row[];
   /** Results of the registered contributions, by key. */
   extensions: Record<string, unknown>;
+}
+
+/** Response of GET /api/usage: the summary without the session rows. */
+export type UsageOverview = Omit<UsageSummary, 'sessions'>;
+
+/** Response of GET /api/usage/sessions. */
+export interface UsageSessions {
+  sessions: SessionRow[];
 }
 
 /** What a contribution sees: the filtered view and the unfiltered facts. */
@@ -243,6 +266,8 @@ export interface Aggregator {
   memo<T>(key: string, compute: () => Promise<T>): Promise<T>;
   /** Starts a new data version, as if the data had changed. */
   invalidate(): void;
+  /** The clock the aggregator keys its caches by; the system clock by default. */
+  now(): number;
 }
 
 export interface AggregatorOptions {
@@ -264,6 +289,8 @@ export interface Sequence {
   reads: Map<string, ReadFact>;
   followed: Set<string>;
   reformulated: Set<string>;
+  /** For a reformulated search, the normalized query of the search that followed it (null: none recorded). */
+  reformulatedTo: Map<string, string | null>;
   readsBySearch: Map<string, { sectionId: string; rank: number }[]>;
 }
 
@@ -399,6 +426,7 @@ export function computeTotals(items: Item[], sequence: Sequence): Totals {
     }
   }
   durations.sort((a, b) => a - b);
+  const answered = searches - unknownResults;
   return {
     commands,
     sessions: sessions.size,
@@ -431,6 +459,8 @@ export function computeTotals(items: Item[], sequence: Sequence): Totals {
     reformulation_rate: ratio(reformulated, searches),
     bypass_rate: ratio(bypass, bypass + reads),
     median_rank_opened: median(ranks),
+    lat_commands_per_session: ratio(commands, sessions.size),
+    search_hit_rate: ratio(answered - zero, answered),
   };
 }
 

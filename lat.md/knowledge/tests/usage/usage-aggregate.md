@@ -19,6 +19,18 @@ Two concurrent identical summaries share one computation, and a repeat after a r
 
 Different filters compute again. New data, or `invalidate()`, starts a new data version, so the next summary is computed afresh. The cache key also holds the UTC day, so relative ranges move on at midnight.
 
+## A memo computed across a reset is not cached
+
+A memoized computation still running when the data version changes answers its own caller once and is not run again.
+
+Its result is not stored, so a later caller for the same key computes afresh.
+
+## A summary ignores a refresh in progress
+
+While a refresh has read a new agent reason but is still waiting for bd, a summary reports the reasons of the data version it was built from.
+
+The next summary, after the refresh ended, reports the new reason.
+
 ## A restart resumes from state.json
 
 An aggregator stopped after its first refresh and rebuilt from `state.json` reads only the new log lines and new session events.
@@ -81,6 +93,36 @@ Queries that differ in case or spacing are one row.
 
 A query row has its count, its sessions, its median result count, its empty-result share, its follow-through share, its median opened rank, the sections it returned with how often each was opened, and its reformulations.
 
+## A query row carries its opened ranks and reformulation targets
+
+Each query row has the ranks at which its searches' results were opened, per section, and the queries that followed it within 60 seconds, with counts.
+
+Both come from the same event-order pass as the row's counts, so they cannot drift from them. A follow-up search without a query counts under a null query.
+
+## A section id never collides with an object property
+
+A section id such as `__proto__`, `constructor` or `toString` is a key like any other. The summary does not throw, and the opened ranks of that section reach the row as an own key.
+
+The ranks are collected in a Map and emitted with `Object.fromEntries`, so an id taken from an event cannot reach `Object.prototype`.
+
+## An agent name never collides with an object property
+
+An agent named `constructor`, `toString` or `__proto__` gets its own row. The summary does not throw, the row counts the commands of that agent, and its reason is null.
+
+The reason of a row is looked up with `Object.hasOwn`, so an agent name taken from an event cannot reach `Object.prototype`.
+
+## An event id never collides with an object property
+
+A usage event or a session event whose id is `__proto__` or `constructor` is stored like any other. Adding it a second time changes nothing and does not throw.
+
+The usage and session maps of the state have no prototype, so an id taken from an event cannot reach `Object.prototype`.
+
+## Query facts pair reads over the whole log
+
+Under an agent, session or date filter, a read is paired with the latest earlier search of its session in the unfiltered log, not with a search that survived the filter.
+
+A search by another agent between a search and its read therefore stops the read from following the first search, and the facts say so.
+
 ## Another search within 60 seconds is a reformulation
 
 A search followed by another search in the same session within 60 seconds is reformulated. One at 61 seconds is not, and a search in another session is not.
@@ -107,9 +149,17 @@ A null token counter, result count or output size is counted as unknown and neve
 
 Every row carries one point for each UTC day of the range and the totals of the previous range of equal length. Without a start date there is no previous range, and the field is null.
 
-## Each row carries four health signals
+## Totals carry commands per session, search hit rate and follow-through
 
-Agent, session and issue rows carry lat commands per session, search success, bypass rate, and net tokens saved with the injected bytes beside it. Net tokens saved is null until a contribution supplies it.
+Every Totals, so the previous range and each daily point too, holds commands per session, search hit rate and follow-through.
+
+The Overview shows commands per session and follow-through, and holds no formula of its own. Search hit rate has no Overview tile.
+
+Search hit rate is the searches with a result over the searches with a known result count. Follow-through is the followed searches over all searches.
+
+## Each row carries five health signals
+
+Agent, session and issue rows carry lat commands per session, search hit rate, follow-through, bypass rate, and net tokens saved with the injected bytes beside it. Net tokens saved is null until a contribution supplies it.
 
 ## Filters narrow the summary
 

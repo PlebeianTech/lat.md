@@ -1,4 +1,4 @@
-import type { MouseEvent } from 'react';
+import { useEffect, useState, type MouseEvent } from 'react';
 import {
   filtersToSearchParams,
   navigateTo,
@@ -8,6 +8,38 @@ import {
 import { matchRoute, USAGE_ROUTES } from './routes';
 
 const AGENTS = ['claude', 'codex', 'antigravity', 'pi', 'opencode'];
+
+/** A text filter that shows what the user types and applies it on Enter or blur. */
+function TextFilter({
+  name,
+  value,
+  placeholder,
+  apply,
+}: {
+  name: 'issue' | 'session';
+  value: string;
+  placeholder?: string;
+  apply: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  const commit = () => {
+    if (draft !== value) apply(draft);
+  };
+  return (
+    <input
+      type="text"
+      name={name}
+      placeholder={placeholder}
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') commit();
+      }}
+    />
+  );
+}
 
 function FilterBar() {
   const { filters, setFilters } = useUsageFilters();
@@ -54,21 +86,19 @@ function FilterBar() {
       </label>
       <label>
         Bd issue
-        <input
-          type="text"
+        <TextFilter
           name="issue"
           placeholder="Includes descendants"
           value={filters.issue ?? ''}
-          onChange={(event) => setFilters({ issue: event.target.value })}
+          apply={(issue) => setFilters({ issue })}
         />
       </label>
       <label>
         Session
-        <input
-          type="text"
+        <TextFilter
           name="session"
           value={filters.session ?? ''}
-          onChange={(event) => setFilters({ session: event.target.value })}
+          apply={(session) => setFilters({ session })}
         />
       </label>
     </form>

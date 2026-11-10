@@ -124,6 +124,17 @@ async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   return (await response.json()) as T;
 }
 
+/** A list value becomes one repeated parameter. */
+export type QueryParams = Record<string, string | string[]>;
+
+function addParams(target: URLSearchParams, extra: QueryParams): void {
+  for (const [name, value] of Object.entries(extra)) {
+    target.delete(name);
+    for (const each of Array.isArray(value) ? value : [value])
+      target.append(name, each);
+  }
+}
+
 function withQuery(path: string, params: URLSearchParams): string {
   const query = params.toString();
   return query ? `${path}?${query}` : path;
@@ -132,12 +143,11 @@ function withQuery(path: string, params: URLSearchParams): string {
 /** Fetches a usage endpoint under the shared filters and refetches when the server reports a change. */
 export function useUsageData<T>(
   path: string,
-  extraParams?: Record<string, string>,
+  extraParams?: QueryParams,
 ): UsageData<T> {
   const { filters } = useUsageFilters();
   const params = filtersToSearchParams(filters);
-  for (const [name, value] of Object.entries(extraParams ?? {}))
-    params.set(name, value);
+  addParams(params, extraParams ?? {});
   const url = withQuery(path, params);
   const [state, setState] = useState<UsageData<T>>({
     data: undefined,
@@ -201,13 +211,14 @@ export function useUsageData<T>(
 
 /** Every raw event under the given parameters, following the cursor to the last page. */
 export async function fetchAllUsageEvents(
-  params: Record<string, string> = {},
+  params: QueryParams = {},
 ): Promise<RawRecord[]> {
   const records: RawRecord[] = [];
   const seen = new Set<string>();
   let cursor: string | null = null;
   do {
-    const query = new URLSearchParams(params);
+    const query = new URLSearchParams();
+    addParams(query, params);
     if (cursor) query.set('cursor', cursor);
     const page: RawEventsPage = await fetchJson(
       withQuery('/api/usage/raw', query),

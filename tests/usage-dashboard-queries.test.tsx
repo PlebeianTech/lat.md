@@ -6,11 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   CountedSum,
   DailyPoint,
-  QueryRow,
+  QueryDetailRow,
   Totals,
   UsageSummary,
 } from '../src/fork/usage/aggregate-types';
-import type { RawEventsPage, RawRecord } from '../src/fork/usage/event-index';
 import { QueriesPage } from '../view/src/usage/pages/queries-page';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -57,10 +56,15 @@ function totals(searches: number): Totals {
     reformulation_rate: null,
     bypass_rate: null,
     median_rank_opened: null,
+    lat_commands_per_session: null,
+    search_hit_rate: null,
   };
 }
 
-function query(key: string, extra: Partial<QueryRow> = {}): QueryRow {
+function query(
+  key: string,
+  extra: Partial<QueryDetailRow> = {},
+): QueryDetailRow {
   const daily: DailyPoint[] = [
     { day: '2026-01-01', ...totals(1) },
     { day: '2026-01-02', ...totals(2) },
@@ -73,7 +77,8 @@ function query(key: string, extra: Partial<QueryRow> = {}): QueryRow {
     daily,
     signals: {
       lat_commands_per_session: null,
-      search_success: null,
+      search_hit_rate: null,
+      follow_through_rate: null,
       bypass_rate: null,
       net_tokens_saved: null,
       net_tokens_saved_reason: null,
@@ -87,6 +92,7 @@ function query(key: string, extra: Partial<QueryRow> = {}): QueryRow {
     median_rank_opened: 2,
     sections_returned: [],
     reformulations: 0,
+    facts: { opened_ranks: {}, reformulated_to: [] },
     ...extra,
   };
 }
@@ -103,6 +109,10 @@ const parser = query('how does the parser work', {
     { section_id: 'cli#CLI#Search', returned: 3, opened: 2 },
     { section_id: 'cli#CLI#Check', returned: 2, opened: 0 },
   ],
+  facts: {
+    opened_ranks: { 'cli#CLI#Search': [1, 2] },
+    reformulated_to: [{ query: 'parser internals', count: 1 }],
+  },
 });
 const lost = query('nothing matches this', {
   count: 5,
@@ -117,85 +127,13 @@ const blank = query('unmeasured', {
   median_rank_opened: null,
 });
 
-const base = {
-  agent: 'claude' as const,
-  issue_ids: [],
-  attribution: 'unattributed' as const,
-};
-const search = (
-  id: string,
-  ts: string,
-  queryText: string | null,
-  resultIds: string[],
-  session = 'sess-1',
-) =>
-  ({
-    ...base,
-    type: 'usage',
-    id,
-    ts,
-    session_id: session,
-    event: {
-      event_id: id,
-      ts,
-      command: 'search',
-      surface: 'cli',
-      caller: 'agent',
-      query: queryText,
-      result_ids: resultIds,
-      result_count: resultIds.length,
-      section_id: null,
-    },
-  }) as unknown as RawRecord;
-const read = (id: string, ts: string, sectionId: string, session = 'sess-1') =>
-  ({
-    ...base,
-    type: 'usage',
-    id,
-    ts,
-    session_id: session,
-    event: {
-      event_id: id,
-      ts,
-      command: 'section',
-      surface: 'cli',
-      caller: 'agent',
-      query: null,
-      result_ids: [],
-      section_id: sectionId,
-    },
-  }) as unknown as RawRecord;
-
-// sess-1: the parser query returns [Check, Search, Other]; Search is read at rank 2,
-// then a second search follows within 60 seconds (a reformulation). sess-2: Search read at
-// rank 1 after the same query. A later search in sess-1, over a minute on, is no reformulation.
-const baseEvents: RawRecord[] = [
-  search('s1', '2026-01-02T10:00:00.000Z', 'How does  the parser work', [
-    'cli#CLI#Check',
-    'cli#CLI#Search',
-    'cli#CLI#Other',
-  ]),
-  read('r1', '2026-01-02T10:00:05.000Z', 'cli#CLI#Search'),
-  search('s2', '2026-01-02T10:00:30.000Z', 'parser internals', []),
-  search('s3', '2026-01-02T10:05:00.000Z', 'much later', []),
-  search(
-    's4',
-    '2026-01-03T09:00:00.000Z',
-    'how does the parser work',
-    ['cli#CLI#Search'],
-    'sess-2',
-  ),
-  read('r2', '2026-01-03T09:00:02.000Z', 'cli#CLI#Search', 'sess-2'),
-];
-
 describe('usage dashboard queries page', () => {
   let root: Root;
   let container: HTMLDivElement;
-  let queries: QueryRow[];
-  let events: RawRecord[];
+  let queries: QueryDetailRow[];
   let failSummary: string | undefined;
-  let failRaw: string | undefined;
   let hang = false;
+  let fetched: string[];
   const text = () => container.textContent!;
   const hrefs = () =>
     [...container.querySelectorAll('a')].map((a) => a.getAttribute('href'));
@@ -221,28 +159,26 @@ describe('usage dashboard queries page', () => {
 
   beforeEach(() => {
     queries = [parser, lost, blank];
-    events = baseEvents;
     failSummary = undefined;
-    failRaw = undefined;
     hang = false;
+    fetched = [];
     vi.stubGlobal('EventSource', FakeEventSource);
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
         if (hang) return new Promise<never>(() => {});
-        const path = url.split('?')[0];
-        const failure = path === '/api/usage/raw' ? failRaw : failSummary;
-        if (failure)
+        fetched.push(url);
+        if (failSummary)
           return {
             ok: false,
             status: 500,
-            json: async () => ({ error: failure }),
+            json: async () => ({ error: failSummary }),
           };
-        const body =
-          path === '/api/usage/raw'
-            ? ({ records: events, next_cursor: null } satisfies RawEventsPage)
-            : ({ queries } as unknown as UsageSummary);
-        return { ok: true, status: 200, json: async () => body };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ queries }) as unknown as UsageSummary,
+        };
       }),
     );
     container = document.createElement('div');
@@ -336,46 +272,64 @@ describe('usage dashboard queries page', () => {
       expect(summaryText).toContain(word);
   });
 
-  // @lat: [[usage-dashboard-queries#Usage Dashboard Queries#The detail view shows returned sections, opened ranks and reformulations]]
-  it('counts reformulations as the server rule does, null-query follow-ups included', async () => {
-    // Searches of "parity" in sess-3: p1 then a null-query search 10 s later
-    // (reformulated), p2 then a search 20 s later (reformulated), p3 then a
-    // search 90 s later (not). Two reads of one section after p1 both open it at
-    // rank 1, and the server counts both: ranks are not deduped.
-    events = [
-      search('p1', '2026-02-01T10:00:00.000Z', 'Parity', ['x#X'], 'sess-3'),
-      read('pr1', '2026-02-01T10:00:01.000Z', 'x#X', 'sess-3'),
-      read('pr2', '2026-02-01T10:00:02.000Z', 'x#X', 'sess-3'),
-      search('pn', '2026-02-01T10:00:10.000Z', null, [], 'sess-3'),
-      search('p2', '2026-02-01T10:01:00.000Z', 'parity', ['x#X'], 'sess-3'),
-      search('pf', '2026-02-01T10:01:20.000Z', 'other', [], 'sess-3'),
-      search('p3', '2026-02-01T10:05:00.000Z', 'parity', ['x#X'], 'sess-3'),
-      search('pl', '2026-02-01T10:06:30.000Z', 'later', [], 'sess-3'),
-    ];
+  // @lat: [[usage-dashboard-queries#Usage Dashboard Queries#The detail view renders the facts the server sends]]
+  it('renders the server facts without requesting raw events', async () => {
     queries = [
       query('parity', {
         count: 3,
         reformulations: 2,
         sections_returned: [{ section_id: 'x#X', returned: 3, opened: 2 }],
+        facts: {
+          opened_ranks: { 'x#X': [1, 1] },
+          reformulated_to: [
+            { query: null, count: 1 },
+            { query: 'other', count: 1 },
+          ],
+        },
       }),
     ];
     await show('parity');
-    const items = [
-      ...container.querySelectorAll('[aria-label="Reformulations"] li'),
-    ];
-    const total = items.reduce(
-      (n, li) => n + Number(/\((\d+)\)/.exec(li.textContent!)![1]),
-      0,
-    );
-    expect(total).toBe(queries[0].reformulations);
-    expect(items.map((li) => li.textContent)).toContain(
-      'no query recorded (1)',
-    );
     expect(
       cells(
         container.querySelector('[aria-label="Sections returned"] tbody tr')!,
       )[3],
     ).toBe('1, 1');
+    expect(
+      [...container.querySelectorAll('[aria-label="Reformulations"] li')].map(
+        (li) => li.textContent,
+      ),
+    ).toEqual(['no query recorded (1)', 'other (1)']);
+    expect(fetched.some((url) => url.includes('/api/usage/raw'))).toBe(false);
+  });
+
+  // @lat: [[usage-dashboard-queries#Usage Dashboard Queries#A section id named like an object property shows no inherited ranks]]
+  it('renders section ids such as __proto__ and constructor', async () => {
+    queries = [
+      query('planted', {
+        sections_returned: [
+          { section_id: '__proto__', returned: 2, opened: 1 },
+          { section_id: 'constructor', returned: 2, opened: 0 },
+          { section_id: 'toString', returned: 2, opened: 0 },
+        ],
+        facts: {
+          // fromEntries makes __proto__ an own key, as JSON.parse does.
+          opened_ranks: Object.fromEntries([['__proto__', [3]]]),
+          reformulated_to: [],
+        },
+      }),
+    ];
+    await show('planted');
+    expect(
+      [
+        ...container.querySelectorAll(
+          '[aria-label="Sections returned"] tbody tr',
+        ),
+      ].map(cells),
+    ).toEqual([
+      ['__proto__', '2', '1', '3'],
+      ['constructor', '2', '0', 'none'],
+      ['toString', '2', '0', 'none'],
+    ]);
   });
 
   // @lat: [[usage-dashboard-queries#Usage Dashboard Queries#Another query never shows the previous query's facts]]
@@ -384,7 +338,6 @@ describe('usage dashboard queries page', () => {
     expect(
       container.querySelector('[aria-label="Reformulations"]')!.textContent,
     ).toContain('parser internals');
-    hang = true;
     await act(async () =>
       root.render(createElement(QueriesPage, { id: 'nothing matches this' })),
     );
@@ -461,12 +414,8 @@ describe('usage dashboard queries page', () => {
   });
 
   // @lat: [[usage-dashboard-queries#Usage Dashboard Queries#Loading and error states]]
-  it('says so when a detail query is not in the summary or its events fail', async () => {
+  it('says so when a detail query is not in the summary', async () => {
     await show('never searched');
     expect(text()).toContain('not in the summary');
-    failRaw = 'raw broke';
-    await show('how does the parser work');
-    expect(text()).toContain('raw broke');
-    expect(text()).toContain('how does the parser work');
   });
 });

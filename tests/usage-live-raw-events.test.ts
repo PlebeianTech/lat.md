@@ -13,18 +13,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const fakes = vi.hoisted(() => ({
   sources: [] as unknown[],
   snapshot: null as unknown,
+  createBdWatcher: vi.fn(),
 }));
 vi.mock('../src/fork/usage/sources/index.js', () => ({
   sessionSources: fakes.sources,
 }));
 vi.mock('../src/fork/usage/bd-attribution.js', async (original) => ({
   ...(await original<object>()),
-  createBdWatcher: () => ({ refresh: async () => fakes.snapshot }),
+  createBdWatcher: fakes.createBdWatcher,
 }));
 import { plainStyler } from '@plebeiantech/lat.md-core/context';
 import { startViewServer, type ViewServer } from '../src/view/server.js';
-import { configureUsageLive, stopUsageLive } from '../src/fork/usage/live.js';
-import type { RawEventsPage, RawFacet } from '../src/fork/usage/event-index.js';
+import {
+  checkUsageLive,
+  configureUsageLive,
+  stopUsageLive,
+  usageLiveStatus,
+} from '../src/fork/usage/live.js';
+import {
+  queryUsageEvents,
+  type RawEventsPage,
+  type RawFacet,
+} from '../src/fork/usage/event-index.js';
 import {
   USAGE_SCHEMA_VERSION,
   type SessionEvent,
@@ -86,6 +96,13 @@ function session(
   } as SessionEvent;
 }
 
+/** A reader that finds no events in any transcript. */
+const readNothing: SessionSource['read'] = async (_path, checkpoint) => ({
+  events: [],
+  checkpoint: checkpoint ?? { offset: 0 },
+  reason: null,
+});
+
 function claudeSource(events: SessionEvent[]): SessionSource {
   return {
     agent: 'claude',
@@ -129,13 +146,11 @@ beforeEach(async () => {
   writeFileSync(join(clientDir, 'usage.html'), PAGE);
   fakes.sources.length = 0;
   fakes.snapshot = SNAPSHOT;
-  configureUsageLive({
-    sources: [],
-    bd: { refresh: async () => null },
-    contributions: [],
-    pollMs: 20,
-    heartbeatMs: 20,
-  });
+  fakes.createBdWatcher.mockReset();
+  fakes.createBdWatcher.mockImplementation(() => ({
+    refresh: vi.fn(async () => fakes.snapshot),
+  }));
+  configureUsageLive({ contributions: [], pollMs: 20, heartbeatMs: 20 });
   server = await startViewServer(
     { projectRoot: root, latDir, mode: 'cli', styler: plainStyler },
     { port: 0, watch: false, git: false, clientDir },
@@ -231,6 +246,22 @@ function scenario() {
     usage({ event_id: 'a4', ts: at(1500) }),
   ];
   for (const event of events) writeUsageEvent(root, event);
+}
+
+function countDiscoveries() {
+  const claude = vi.fn(async () => ['/fake/claude.jsonl']);
+  const codex = vi.fn(async () => []);
+  fakes.sources.push(
+    { agent: 'claude', discover: claude, read: readNothing },
+    { agent: 'codex', discover: codex, read: readNothing },
+  );
+  configureUsageLive({
+    contributions: [],
+    pollMs: 60_000,
+    heartbeatMs: 60_000,
+  });
+  writeUsageEvent(root, usage());
+  return () => [claude.mock.calls.length, codex.mock.calls.length];
 }
 
 describe('usage raw events endpoint', () => {
@@ -375,6 +406,8 @@ describe('usage raw events endpoint', () => {
         { value: 'section', count: 1 },
       ],
       missing: 0,
+      unknown: 0,
+      lacking: 4,
     });
     expect((await facet('agent')).values).toEqual([
       { value: 'claude', count: 8 },
@@ -410,6 +443,75 @@ describe('usage raw events endpoint', () => {
       expect((await get(`?facet=${field}`)).status).toBeGreaterThanOrEqual(400);
   });
 
+  // @lat: [[usage-live-raw-events#Usage Live Raw Events#Field filters and the query filter narrow records and facets]]
+  it('filters records and facets by field values and by query text', async () => {
+    scenario();
+    writeUsageEvent(
+      root,
+      usage({ event_id: 'q1', ts: at(4), query: 'how to check', found: true }),
+    );
+    writeUsageEvent(
+      root,
+      usage({
+        event_id: 'q2',
+        ts: at(5),
+        query: 'other',
+        unknown_reasons: { error_class: 'not_captured' },
+      }),
+    );
+    const both = await page('?where.command=section&where.command=hook');
+    expect(ids(both).sort()).toEqual(['a2', 'b2']);
+    expect(ids(await page('?where.command=search&where.agent=codex'))).toEqual([
+      'b1',
+    ]);
+    expect(ids(await page('?where.exit_code=1'))).toEqual(['a3']);
+    expect(ids(await page('?where.session_id=B&agent=codex')).sort()).toEqual([
+      'b1',
+      'b2',
+    ]);
+    // a session event has no command, so it never matches a command value
+    expect(
+      (await page('?where.command=search')).records.every(
+        (r) => r.type === 'usage',
+      ),
+    ).toBe(true);
+    expect(ids(await page('?query=how%20to%20check'))).toEqual(['q1']);
+    expect(ids(await page('?query=how')).length).toBe(0);
+    expect(ids(await page('?query=other&where.command=search'))).toEqual([
+      'q2',
+    ]);
+    const paged = await page('?where.command=search&limit=2');
+    expect(paged.records).toHaveLength(2);
+    expect(paged.next_cursor).not.toBeNull();
+    // the total counts every match, on every page
+    expect(paged.total).toBe(6);
+    const rest = await page(
+      `?where.command=search&limit=2&cursor=${encodeURIComponent(paged.next_cursor!)}`,
+    );
+    expect(rest.total).toBe(6);
+    expect((await page('?where.agent=codex')).total).toBe(2);
+
+    // a facet counts the filtered records and splits unknown from missing
+    const sections = await facet('command', '&where.agent=codex');
+    expect(sections.values).toEqual([
+      { value: 'hook', count: 1 },
+      { value: 'search', count: 1 },
+    ]);
+    const errors = await facet('error_class', '&query=other');
+    expect(errors).toMatchObject({ values: [], missing: 0, unknown: 1 });
+    expect(await facet('error_class', '&where.agent=claude')).toMatchObject({
+      unknown: 1,
+      lacking: 4,
+    });
+    expect(await facet('error_class', '&where.agent=codex')).toMatchObject({
+      unknown: 0,
+      lacking: 0,
+    });
+
+    for (const bad of ['where.nonsense=x', 'where.issue=lat-1'])
+      expect((await get(`?${bad}`)).status).toBeGreaterThanOrEqual(400);
+  });
+
   it('returns at most 20 facet values', async () => {
     for (let i = 0; i < 25; i++)
       writeUsageEvent(
@@ -417,6 +519,116 @@ describe('usage raw events endpoint', () => {
         usage({ command: `cmd${String(i).padStart(2, '0')}` }),
       );
     expect((await facet('command')).values).toHaveLength(20);
+  });
+
+  // @lat: [[usage-live-raw-events#Usage Live Raw Events#One bd watcher serves the summary and the index]]
+  it('makes one bd watcher for the summary and the raw index of a root', async () => {
+    scenario();
+    const summary = await fetch(`${server.url}api/usage`);
+    expect(summary.status).toBe(200);
+    await page();
+    await facet('command');
+    expect(fakes.createBdWatcher).toHaveBeenCalledTimes(1);
+    expect(
+      fakes.createBdWatcher.mock.results[0].value.refresh,
+    ).toHaveBeenCalled();
+  });
+
+  // @lat: [[usage-live-raw-events#Usage Live Raw Events#Findings share the watcher of the root]]
+  it('makes one bd watcher when the findings route is requested first', async () => {
+    scenario();
+    const findings = await fetch(`${server.url}api/usage/findings`);
+    expect(findings.status).toBe(200);
+    await page();
+    expect(fakes.createBdWatcher).toHaveBeenCalledTimes(1);
+  });
+
+  // @lat: [[usage-live-raw-events#Usage Live Raw Events#A restarted server hands the index its new watcher]]
+  it('reads the bd watcher of the restarted live server, not the stopped one', async () => {
+    scenario();
+    await page();
+    stopUsageLive(root);
+    const [stopped] = fakes.createBdWatcher.mock.results.map((r) => r.value);
+    stopped.refresh.mockClear();
+    await page();
+    expect(fakes.createBdWatcher).toHaveBeenCalledTimes(2);
+    const restarted = fakes.createBdWatcher.mock.results[1].value;
+    expect(restarted.refresh).toHaveBeenCalled();
+    expect(stopped.refresh).not.toHaveBeenCalled();
+  });
+
+  // @lat: [[usage-live-raw-events#Usage Live Raw Events#Raw and findings requests share the discovery of a change]]
+  it('discovers each source once for the raw and findings requests that follow a change', async () => {
+    const discoveries = countDiscoveries();
+    await page();
+    const before = discoveries();
+    const checking = checkUsageLive(root);
+    const statuses = await Promise.all([
+      ...Array.from({ length: 10 }, () => get().then((r) => r.status)),
+      fetch(`${server.url}api/usage/findings`).then((r) => r.status),
+    ]);
+    await checking;
+    expect(statuses).toEqual(Array(11).fill(200));
+    expect(discoveries()).toEqual(before.map((calls) => calls + 1));
+  });
+
+  // @lat: [[usage-live-raw-events#Usage Live Raw Events#Raw and findings requests share the discovery of a change]]
+  it('discovers each source once when the findings request is the first to read the index', async () => {
+    const discoveries = countDiscoveries();
+    expect((await fetch(`${server.url}api/usage`)).status).toBe(200);
+    const before = discoveries();
+    await checkUsageLive(root);
+    const findings = await fetch(`${server.url}api/usage/findings`);
+    expect(findings.status).toBe(200);
+    expect(discoveries()).toEqual(before.map((calls) => calls + 1));
+  });
+
+  // @lat: [[usage-live-raw-events#Usage Live Raw Events#A restarted server hands the index its new sources]]
+  it('lists the session files the restarted live server found, not the stopped one', async () => {
+    const one = session('session_name', 'A', 0, { name: 'one' });
+    const two = session('session_name', 'B', 1, { name: 'two' });
+    const files: Record<string, SessionEvent[]> = {
+      '/fake/one.jsonl': [one],
+      '/fake/two.jsonl': [two],
+    };
+    const found = ['/fake/one.jsonl'];
+    const source: SessionSource = {
+      agent: 'claude',
+      discover: async () => [...found],
+      read: async (path, checkpoint) => ({
+        events: files[path].slice(checkpoint?.offset ?? 0),
+        checkpoint: { offset: files[path].length },
+        reason: null,
+      }),
+    };
+    fakes.sources.push(source);
+    configureUsageLive({
+      contributions: [],
+      pollMs: 60_000,
+      heartbeatMs: 60_000,
+    });
+    writeUsageEvent(root, usage());
+    const sessionIds = async () =>
+      (await page()).records
+        .filter((r) => r.type === 'session')
+        .map((r) => r.id);
+    expect(await sessionIds()).toEqual([one.event_id]);
+    stopUsageLive(root);
+    found.push('/fake/two.jsonl');
+    expect(await sessionIds()).toEqual([two.event_id, one.event_id]);
+  });
+
+  // @lat: [[usage-live-raw-events#Usage Live Raw Events#An index without a live server discovers on the raw sources]]
+  it('calls discover on the raw sources for every read when no live server feeds the index', async () => {
+    const discover = vi.fn(async () => []);
+    fakes.sources.push({ agent: 'claude', discover, read: readNothing });
+    writeUsageEvent(root, usage());
+    const bd = { refresh: async () => null };
+    await queryUsageEvents({}, { root, bd });
+    await queryUsageEvents({}, { root, bd });
+    expect(usageLiveStatus(root).watching).toBe(false);
+    expect(discover).toHaveBeenCalledTimes(2);
+    expect(discover).toHaveBeenCalledWith(root);
   });
 
   // @lat: [[usage-live-raw-events#Usage Live Raw Events#Records hold pointers, not transcript text]]

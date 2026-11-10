@@ -32,7 +32,7 @@ interface StatsInput {
   commands: number;
   sessions?: number;
   bypass_reads?: number;
-  search_success?: number | null;
+  search_hit_rate?: number | null;
   net_tokens_saved?: number | null;
   reason?: string | null;
 }
@@ -67,6 +67,8 @@ function stats(input: StatsInput): Stats {
     reformulation_rate: null,
     bypass_rate: null,
     median_rank_opened: null,
+    lat_commands_per_session: null,
+    search_hit_rate: null,
   };
   return {
     totals,
@@ -74,7 +76,8 @@ function stats(input: StatsInput): Stats {
     daily: [],
     signals: {
       lat_commands_per_session: input.commands / (input.sessions ?? 1),
-      search_success: input.search_success ?? null,
+      search_hit_rate: input.search_hit_rate ?? null,
+      follow_through_rate: null,
       bypass_rate: null,
       net_tokens_saved: input.net_tokens_saved ?? null,
       net_tokens_saved_reason: input.reason ?? null,
@@ -112,7 +115,7 @@ const epic = issue(
 const subEpic = issue(
   'lat-e.1',
   { commands: 2 },
-  { commands: 6, search_success: 0.5, bypass_reads: 4 },
+  { commands: 6, search_hit_rate: 0.5, bypass_reads: 4 },
   { label: 'Sub epic', issue_type: 'epic', parent: 'lat-e' },
 );
 const leaf = issue(
@@ -171,6 +174,8 @@ describe('usage dashboard issues page', () => {
   let extensions: Record<string, unknown>;
   let failSummary: string | undefined;
   let hang = false;
+  let sessionsMode: 'ok' | 'hang' | 'fail' = 'ok';
+  let requests: string[] = [];
   const text = () => container.textContent!;
   const hrefs = () =>
     [...container.querySelectorAll('a')].map((a) => a.getAttribute('href'));
@@ -210,11 +215,23 @@ describe('usage dashboard issues page', () => {
     extensions = { savings: { method_version: 'v7' } };
     failSummary = undefined;
     hang = false;
+    sessionsMode = 'ok';
+    requests = [];
     vi.stubGlobal('EventSource', FakeEventSource);
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
+        requests.push(url);
         if (hang) return new Promise<never>(() => {});
+        if (url.startsWith('/api/usage/sessions')) {
+          if (sessionsMode === 'hang') return new Promise<never>(() => {});
+          if (sessionsMode === 'fail')
+            return {
+              ok: false,
+              status: 500,
+              json: async () => ({ error: 'sessions broke' }),
+            };
+        }
         if (failSummary)
           return {
             ok: false,
@@ -248,8 +265,8 @@ describe('usage dashboard issues page', () => {
       'Status',
       'Lat commands',
       'Lat commands (rolled up)',
-      'Search success',
-      'Search success (rolled up)',
+      'Search hit rate',
+      'Search hit rate (rolled up)',
       'Bypass reads',
       'Bypass reads (rolled up)',
       'Net tokens saved',
@@ -283,7 +300,7 @@ describe('usage dashboard issues page', () => {
     const subCells = cells(rowOf('lat-e.1 Sub'));
     expect(subCells[column('Lat commands')]).toBe('2');
     expect(subCells[column('Lat commands (rolled up)')]).toBe('6');
-    expect(subCells[column('Search success (rolled up)')]).toBe('50%');
+    expect(subCells[column('Search hit rate (rolled up)')]).toBe('50%');
     expect(subCells[column('Bypass reads (rolled up)')]).toBe('4');
     expect(text()).toContain('correlation, not cause, method v7');
     expect(container.querySelector('tfoot')).toBeNull();
@@ -371,12 +388,15 @@ describe('usage dashboard issues page', () => {
   // @lat: [[usage-dashboard-issues#Usage Dashboard Issues#The detail view shows signals, children and sessions]]
   it('shows signals, children and sessions on the detail view', async () => {
     await show('lat-e');
+    expect(requests.map((u) => u.split('?')[0])).toContain(
+      '/api/usage/sessions',
+    );
     expect(text()).toContain('Issues');
     expect(text()).toContain('Big epic');
     const signals = container.querySelector('[aria-label="Health signals"]')!;
     for (const word of [
       'Lat commands per session',
-      'Search success',
+      'Search hit rate',
       'Bypass rate',
       'Net tokens saved',
       '-42',
@@ -432,6 +452,27 @@ describe('usage dashboard issues page', () => {
     expect(hrefs()).toContain(`/_usage/issues${filters}`);
     expect(hrefs()).toContain(`/_usage/issues/lat-e.1${filters}`);
     expect(hrefs()).toContain(`/_usage/sessions/sess-a${filters}`);
+  });
+
+  // @lat: [[usage-dashboard-issues#Usage Dashboard Issues#The session list waits for its own request]]
+  it('shows a loading line, not an empty list, while the sessions load', async () => {
+    sessionsMode = 'hang';
+    await show('lat-e');
+    expect(text()).toContain('Big epic');
+    expect(text()).toContain('Loading sessions');
+    expect(text()).not.toContain('No sessions worked on this issue');
+  });
+
+  // @lat: [[usage-dashboard-issues#Usage Dashboard Issues#The session list waits for its own request]]
+  it('shows the error, not an empty list, when the sessions fail', async () => {
+    sessionsMode = 'fail';
+    await show('lat-e');
+    expect(text()).toContain('Big epic');
+    expect(container.querySelector('[role="alert"]')!.textContent).toContain(
+      'sessions broke',
+    );
+    expect(text()).not.toContain('No sessions worked on this issue');
+    expect(text()).not.toContain('Loading sessions');
   });
 
   // @lat: [[usage-dashboard-issues#Usage Dashboard Issues#Loading and error states]]

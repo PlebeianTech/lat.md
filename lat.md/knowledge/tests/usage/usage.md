@@ -4,6 +4,7 @@ Specifications for the usage analytics epic: the event schema, the in-process ta
 
 - [[usage-schema]] — Event schema, session reader contract and opt-in switch
 - [[usage-opt-in]] — Reading usage never opts a project in
+- [[usage-tracked-usage]] — Tracked usage files and the project .gitignore
 - [[usage-tap]] — CLI command tap
 - [[usage-mcp-tap]] — MCP tool-call tap
 - [[usage-source-claude]] — Claude Code session reader

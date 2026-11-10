@@ -90,9 +90,16 @@ export function emptyState(): UsageState {
     logs: {},
     sources: {},
     reasons: {},
-    usage: {},
-    sessions: {},
+    usage: byId(),
+    sessions: byId(),
   };
+}
+
+// @lat: [[usage-aggregate#Usage Aggregate#An event id never collides with an object property]]
+function byId<T>(entries: [string, T][] = []): Record<string, T> {
+  const record: Record<string, T> = Object.create(null);
+  for (const [id, value] of entries) record[id] = value;
+  return record;
 }
 
 export function statePath(root: string): string {
@@ -117,9 +124,8 @@ function filterValues<T>(
   record: Record<string, unknown>,
   valid: (value: unknown) => boolean,
 ): Record<string, T> {
-  return Object.fromEntries(
-    Object.entries(record).filter(([, value]) => valid(value)),
-  ) as Record<string, T>;
+  const kept = Object.entries(record).filter(([, value]) => valid(value));
+  return byId(kept as [string, T][]);
 }
 
 /**
@@ -143,16 +149,33 @@ export function loadState(root: string): UsageState {
         state.reasons,
       ].every(isPlainObject)
     )
-      return emptyState();
+      throw new Error('not a usage state file');
     state.usage = filterValues<UsageEvent>(state.usage, validUsageEvent);
     state.sessions = filterValues<StoredSessionEvent>(
       state.sessions,
       validStoredSession,
     );
     return state;
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+      warnUnusableState(root);
     return emptyState();
   }
+}
+
+let stateWarned = false;
+
+export function forgetStateWarning(): void {
+  stateWarned = false;
+}
+
+// @lat: [[usage-analytics#Usage Analytics#Opt-in and the usage directory]]
+function warnUnusableState(root: string): void {
+  if (stateWarned) return;
+  stateWarned = true;
+  process.stderr.write(
+    `Ignoring ${statePath(root)}: it is unreadable, not valid JSON or not a usage state file. Starting from an empty state.\n`,
+  );
 }
 
 /**

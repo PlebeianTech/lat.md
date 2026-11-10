@@ -56,6 +56,8 @@ function totals(sessions: number, commands: number): Totals {
     reformulation_rate: null,
     bypass_rate: null,
     median_rank_opened: null,
+    lat_commands_per_session: null,
+    search_hit_rate: null,
   };
 }
 
@@ -72,7 +74,8 @@ function agent(
     daily: [],
     signals: {
       lat_commands_per_session: sessions === 0 ? null : 4,
-      search_success: null,
+      search_hit_rate: null,
+      follow_through_rate: null,
       bypass_rate: null,
       net_tokens_saved: null,
       net_tokens_saved_reason: null,
@@ -84,22 +87,22 @@ function agent(
 }
 
 // codex has many sessions but a worse bypass rate; pi has one session and a
-// perfect search success. antigravity has no sessions at all; opencode is absent.
+// perfect search hit rate. antigravity has no sessions at all; opencode is absent.
 const claude = agent('claude', 10, {
   lat_commands_per_session: 6,
-  search_success: 0.9,
+  search_hit_rate: 0.9,
   bypass_rate: 0.1,
   net_tokens_saved: 1000,
 });
 const codex = agent('codex', 40, {
   lat_commands_per_session: 2,
-  search_success: 0.5,
+  search_hit_rate: 0.5,
   bypass_rate: 0.6,
   net_tokens_saved: 400,
 });
 const pi = agent('pi', 1, {
   lat_commands_per_session: 3,
-  search_success: 1,
+  search_hit_rate: 1,
   bypass_rate: 0,
   net_tokens_saved: null,
   net_tokens_saved_reason: 'no baseline',
@@ -188,7 +191,7 @@ describe('usage dashboard agents page', () => {
       pi: '3',
       antigravity: 'unknown',
     });
-    expect(chartValues('Search success')).toMatchObject({
+    expect(chartValues('Search hit rate')).toMatchObject({
       claude: '90',
       codex: '50',
     });
@@ -256,9 +259,9 @@ describe('usage dashboard agents page', () => {
   });
 
   // @lat: [[usage-dashboard-agents#Usage Dashboard Agents#Ratios show without sessions]]
-  it('shows known search success and bypass rate for an agent with no sessions', async () => {
+  it('shows known search hit rate and bypass rate for an agent with no sessions', async () => {
     const stray = agent('unknown', 0, {
-      search_success: 0.75,
+      search_hit_rate: 0.75,
       bypass_rate: 0.25,
       net_tokens_saved_reason: 'no sessions to compare',
     });
@@ -274,7 +277,7 @@ describe('usage dashboard agents page', () => {
       '25%',
       'unknown',
     ]);
-    expect(chartValues('Search success')).toMatchObject({ unknown: '75' });
+    expect(chartValues('Search hit rate')).toMatchObject({ unknown: '75' });
     expect(chartValues('Bypass rate')).toMatchObject({ unknown: '25' });
     expect(chartValues('Lat commands per session')).toMatchObject({
       unknown: 'unknown',

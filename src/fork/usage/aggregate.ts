@@ -39,7 +39,9 @@ import {
   compareItems,
   dayOf,
   isCommand,
+  isSearch,
   isSectionRead,
+  normalizeQuery,
   startOfDay,
   type AggregateContext,
   type Aggregator,
@@ -47,6 +49,9 @@ import {
   type Contribution,
   type Item,
   type Model,
+  type QueryDetailRow,
+  type QueryFacts,
+  type QueryRow,
   type Sequence,
   type SessionFacts,
   type UsageSummary,
@@ -133,6 +138,7 @@ function buildSequence(items: Item[]): Sequence {
     reads: new Map(),
     followed: new Set(),
     reformulated: new Set(),
+    reformulatedTo: new Map(),
     readsBySearch: new Map(),
   };
   const lastSearch = new Map<string, Item>();
@@ -145,8 +151,13 @@ function buildSequence(items: Item[]): Sequence {
     }
     const previous = lastSearch.get(item.session_id);
     if (usage.command === 'search') {
-      if (previous && item.ts - previous.ts <= REFORMULATION_WINDOW_MS)
+      if (previous && item.ts - previous.ts <= REFORMULATION_WINDOW_MS) {
         sequence.reformulated.add(previous.id);
+        sequence.reformulatedTo.set(
+          previous.id,
+          usage.query === null ? null : normalizeQuery(usage.query),
+        );
+      }
       lastSearch.set(item.session_id, item);
     }
     if (usage.section_id === null) continue;
@@ -160,6 +171,50 @@ function buildSequence(items: Item[]): Sequence {
     } else sequence.reads.set(item.id, { rank: null, searchId: null });
   }
   return sequence;
+}
+
+/** Adds the opened ranks and reformulation targets of each query row, from the whole-log sequence. */
+function withQueryFacts(view: View, rows: QueryRow[]): QueryDetailRow[] {
+  const { sequence } = view.model;
+  // @lat: [[usage-aggregate#Usage Aggregate#A section id never collides with an object property]]
+  const openedRanks = new Map<string, Map<string, number[]>>();
+  const reformulatedTo = new Map<string, Map<string | null, number>>();
+  for (const item of view.items) {
+    if (!isSearch(item) || item.usage?.query == null) continue;
+    const key = normalizeQuery(item.usage.query);
+    const opened = openedRanks.get(key) ?? new Map<string, number[]>();
+    openedRanks.set(key, opened);
+    const reads = sequence.readsBySearch.get(item.id) ?? [];
+    for (const { sectionId, rank } of reads) {
+      const ranks = opened.get(sectionId) ?? [];
+      ranks.push(rank);
+      opened.set(sectionId, ranks);
+    }
+    if (sequence.reformulatedTo.has(item.id)) {
+      const next = sequence.reformulatedTo.get(item.id)!;
+      const counts =
+        reformulatedTo.get(key) ?? new Map<string | null, number>();
+      counts.set(next, (counts.get(next) ?? 0) + 1);
+      reformulatedTo.set(key, counts);
+    }
+  }
+  return rows.map((row) => {
+    const facts: QueryFacts = {
+      opened_ranks: Object.fromEntries(
+        [...openedRanks.get(row.key)!].map(([sectionId, ranks]) => [
+          sectionId,
+          ranks.sort((a, b) => a - b),
+        ]),
+      ),
+      reformulated_to: [...(reformulatedTo.get(row.key) ?? [])]
+        .map(([query, count]) => ({ query, count }))
+        .sort(
+          (a, b) =>
+            b.count - a.count || (a.query ?? '').localeCompare(b.query ?? ''),
+        ),
+    };
+    return { ...row, facts };
+  });
 }
 
 function buildModel(state: UsageState, snapshot: BdSnapshot | null): Model {
@@ -268,13 +323,16 @@ export async function createAggregator(
 ): Promise<Aggregator> {
   const { root } = options;
   const sources = options.sources ?? sessionSources;
-  const bd = options.bd ?? createBdWatcher();
+  const bd = options.bd ?? createBdWatcher(root);
   const registered = options.contributions ?? contributions;
   const now = options.now ?? Date.now;
   let enabled = usageEnabled(root);
   let state = loadState(root);
   let model: Model | null = null;
   let snapshot: BdSnapshot | null = null;
+  // The agent reasons of the data version `model` was built from; state.reasons
+  // changes while a refresh waits for bd, before the new model exists.
+  let reasons: UsageState['reasons'] = {};
   const memos = new Map<string, Promise<unknown>>();
 
   function invalidate(): void {
@@ -284,6 +342,8 @@ export async function createAggregator(
   function memo<T>(key: string, compute: () => Promise<T>): Promise<T> {
     const known = memos.get(key) as Promise<T> | undefined;
     if (known) return known;
+    // invalidate() drops this entry, so a computation that ran across a reset
+    // still answers its caller but is never served to a later one.
     const result = compute();
     memos.set(key, result);
     result.catch(() => {
@@ -303,7 +363,7 @@ export async function createAggregator(
     const logChanged = enabled && readLog(root, state);
     const sessionsChanged =
       enabled && (await readSessions(root, sources, state));
-    const latest = await bd.refresh();
+    const latest = enabled ? await bd.refresh() : null;
     if (logChanged || sessionsChanged) saveState(root, state);
     if (
       logChanged ||
@@ -313,6 +373,7 @@ export async function createAggregator(
     ) {
       snapshot = latest;
       model = buildModel(state, latest);
+      reasons = { ...state.reasons };
       invalidate();
     }
   }
@@ -321,12 +382,13 @@ export async function createAggregator(
   async function summary(filters: UsageFilters = {}): Promise<UsageSummary> {
     if (model === null) await refresh();
     return memo(`summary\0${dayOf(now())}\0${filtersKey(filters)}`, () =>
-      compute(model!, filters),
+      compute(model!, reasons, filters),
     );
   }
 
   async function compute(
     current: Model,
+    agentReasons: UsageState['reasons'],
     filters: UsageFilters,
   ): Promise<UsageSummary> {
     const time = resolveRange(filters, now());
@@ -392,7 +454,7 @@ export async function createAggregator(
       },
       days,
       ...overall,
-      agents: buildAgents(view, state.reasons),
+      agents: buildAgents(view, agentReasons),
       sessions: buildSessions(view),
       issues,
       unattributed,
@@ -402,7 +464,7 @@ export async function createAggregator(
           (key) => key,
         )
         .sort(byCommandsThenKey),
-      queries: buildQueries(view),
+      queries: withQueryFacts(view, buildQueries(view)),
       sections: buildSections(view),
       documents: buildDocuments(view),
       byDay: view
@@ -415,7 +477,7 @@ export async function createAggregator(
     };
   }
 
-  return { refresh, summary, memo, invalidate };
+  return { refresh, summary, memo, invalidate, now };
 }
 
 /** Append one Contribution per later issue here; see the header. */

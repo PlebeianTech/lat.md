@@ -7,16 +7,21 @@
  *
  *   registerUsageRoute('/api/usage/example', exampleHandler);
  *
- * The handler gets `{ root, url, filters, aggregator }` (filters parsed from
- * the query string by parseUsageFilters) and returns a JSON-serializable
- * value. The aggregator is refreshed before every handler call. Nothing else
- * in this file changes for a route; the handler lives in its owner's file.
+ * The handler gets `{ root, url, filters, aggregator, bd }` (filters parsed
+ * from the query string by parseUsageFilters) and returns a JSON-serializable
+ * value. The aggregator is refreshed before every handler call. A handler that
+ * reads the raw event index passes it `bd`, the one bd watcher of the root.
+ * Nothing else in this file changes for a route; the handler lives in its
+ * owner's file.
  *
  * Lifecycle. `src/view/server.ts` has one dispatch line and cannot hook the
  * server's close(), so the watchers belong to this module: they start on the
  * first request under /api/usage and stop when the last event-stream client
  * disconnects. A client that only ever sends plain GETs leaves them running
  * until the process ends; they are unref'd and never keep it alive.
+ *
+ * One bd watcher serves a root: the aggregator and the raw event index share
+ * the one made when the root starts, so a change runs the bd commands once.
  *
  * Change detection watches three things: the event logs under
  * <root>/.lat/usage/, the transcript directories of every session reader
@@ -55,7 +60,8 @@ import {
   type Aggregator,
   type AggregatorOptions,
 } from './aggregate.js';
-import { beadsDirFingerprint } from './bd-client.js';
+import { createBdWatcher, type BdWatcher } from './bd-attribution.js';
+import { beadsDirFingerprint, resolveBeadsDir } from './bd-client.js';
 import { findGitEntry } from './cli-tap.js';
 import { usageEnabled } from './enabled.js';
 import { parseUsageFilters, type UsageFilters } from './filters.js';
@@ -64,12 +70,19 @@ import { forgetSnapshots } from './graph-snapshot.js';
 import { rawEventsRoute } from './live-raw-events.js';
 import { USAGE_SCHEMA_VERSION } from './schema.js';
 import { sessionSources } from './sources/index.js';
+import type { SessionSource } from './sources/types.js';
+import { warnOnceIfUsageTracked } from './tracked-usage.js';
 
 export interface UsageRouteContext {
   root: string;
   url: URL;
   filters: UsageFilters;
   aggregator: Aggregator;
+  /** The root's bd watcher, shared with the aggregator. Unset for MCP. */
+  bd?: Pick<BdWatcher, 'refresh'>;
+  // @lat: [[usage-live-raw-events#Usage Live Raw Events#Raw and findings requests share the discovery of a change]]
+  /** The live server's sources, which share one discovery. Unset for MCP. */
+  sources?: SessionSource[];
 }
 
 export type UsageRouteHandler = (
@@ -80,6 +93,8 @@ export interface UsageLiveOptions extends Partial<AggregatorOptions> {
   /** How often the signature is checked without a file event. */
   pollMs?: number;
   heartbeatMs?: number;
+  /** How long a file event waits for more events before one check runs. */
+  debounceMs?: number;
 }
 
 const EVENTS_PATH = '/api/usage/events';
@@ -104,6 +119,7 @@ export function configureUsageLive(next: UsageLiveOptions): void {
 
 interface Live {
   root: string;
+  bd: Pick<BdWatcher, 'refresh'>;
   aggregator: Promise<Aggregator>;
   ready: Promise<void>;
   streams: Set<ServerResponse>;
@@ -113,6 +129,13 @@ interface Live {
   head: string;
   queue: Promise<unknown>;
   scheduled: boolean;
+  /** The pending debounced check, cleared when the live stops. */
+  debounce: NodeJS.Timeout | null;
+  /** Session transcripts found by the last discovery; null before the first. */
+  discovered: Set<string> | null;
+  // @lat: [[usage-live#Usage Live#Requests after a change share one discovery]]
+  walks: Map<SessionSource, Promise<string[]>>;
+  sources: SessionSource[];
   stopped: boolean;
 }
 
@@ -125,6 +148,25 @@ function exclusive<T>(live: Live, job: () => Promise<T>): Promise<T> {
   const run = live.queue.then(job);
   live.queue = run.catch(() => undefined);
   return run;
+}
+
+/** `sources` discovering through `walks`; clearing `walks` forces a new walk. */
+// @lat: [[usage-live#Usage Live#A walk in flight is shared and an invalidation is kept]]
+export function shareDiscovery(
+  sources: SessionSource[],
+  walks: Map<SessionSource, Promise<string[]>>,
+): SessionSource[] {
+  return sources.map((source) => ({
+    ...source,
+    discover: (repoRoot: string) => {
+      let walk = walks.get(source);
+      if (!walk) {
+        walk = source.discover(repoRoot);
+        walks.set(source, walk);
+      }
+      return walk;
+    },
+  }));
 }
 
 function stat(path: string): string {
@@ -165,7 +207,15 @@ function watchDirectories(live: Live, wanted: Map<string, RegExp | null>) {
     if (live.watchers.has(dir)) continue;
     try {
       const watcher = watch(dir, { persistent: false }, (_event, name) => {
-        if (only === null || !name || only.test(name.toString())) trigger(live);
+        if (only === null || !name || only.test(name.toString())) {
+          // A file nobody has listed yet may be a new transcript.
+          if (
+            only === null &&
+            (!name || !live.discovered?.has(join(dir, name.toString())))
+          )
+            live.walks.clear();
+          trigger(live);
+        }
       });
       watcher.on('error', () => undefined);
       live.watchers.set(dir, watcher);
@@ -188,13 +238,21 @@ async function observe(live: Live) {
     parts.push('no-logs');
   }
   // Usage off: read no session store, as aggregate.refresh and the event index.
-  const sources = usageEnabled(root) ? (options.sources ?? sessionSources) : [];
-  for (const source of sources)
-    for (const path of await source.discover(root)) {
-      parts.push(stat(path));
-      wanted.set(dirname(path), null);
-    }
-  parts.push(beadsDirFingerprint(process.env.BEADS_DIR));
+  // Discovery walks the agents' stores, so every caller shares one walk of each.
+  if (!usageEnabled(root)) {
+    live.walks.clear();
+    live.discovered = null;
+  } else {
+    const found: string[] = [];
+    for (const source of live.sources)
+      found.push(...(await source.discover(root)));
+    live.discovered = new Set(found);
+    parts.push(beadsDirFingerprint(resolveBeadsDir(root)));
+  }
+  for (const path of live.discovered ?? []) {
+    parts.push(stat(path));
+    wanted.set(dirname(path), null);
+  }
   const head = headFingerprint(root);
   parts.push(head);
   watchDirectories(live, wanted);
@@ -229,10 +287,15 @@ async function check(live: Live): Promise<void> {
 function trigger(live: Live): void {
   if (live.scheduled || live.stopped) return;
   live.scheduled = true;
-  exclusive(live, async () => {
-    live.scheduled = false;
-    await check(live);
-  }).catch(() => undefined);
+  // Events that arrive while the timer waits join this one check.
+  live.debounce = setTimeout(() => {
+    live.debounce = null;
+    exclusive(live, async () => {
+      live.scheduled = false;
+      await check(live);
+    }).catch(() => undefined);
+  }, options.debounceMs ?? 50);
+  live.debounce.unref();
 }
 
 /** Runs one change check now; resolves when it and its push are done. */
@@ -240,6 +303,7 @@ export async function checkUsageLive(root: string): Promise<void> {
   const live = lives.get(root);
   if (!live) return;
   await live.ready;
+  live.walks.clear();
   await exclusive(live, () => check(live));
 }
 
@@ -250,6 +314,7 @@ export function usageLiveStatus(root: string) {
 
 function stopLive(live: Live): void {
   live.stopped = true;
+  if (live.debounce) clearTimeout(live.debounce);
   for (const timer of live.timers) clearInterval(timer);
   for (const watcher of live.watchers.values()) watcher.close();
   live.watchers.clear();
@@ -266,14 +331,21 @@ export function stopUsageLive(root?: string): void {
 }
 
 function startLive(root: string): Live {
+  warnOnceIfUsageTracked(root);
   const previous = (retired.get(root) ?? Promise.resolve()).catch(
     () => undefined,
   );
+  const bd = options.bd ?? createBdWatcher(root);
+  const walks = new Map<SessionSource, Promise<string[]>>();
+  const sources = shareDiscovery(options.sources ?? sessionSources, walks);
   const live: Live = {
     root,
+    bd,
     // Created only after the stopped live's refresh ended, so two aggregators
     // never write the same state.json at once.
-    aggregator: previous.then(() => createAggregator({ ...options, root })),
+    aggregator: previous.then(() =>
+      createAggregator({ ...options, root, bd, sources }),
+    ),
     ready: Promise.resolve(),
     streams: new Set(),
     watchers: new Map(),
@@ -282,6 +354,10 @@ function startLive(root: string): Live {
     head: '',
     queue: Promise.resolve(),
     scheduled: false,
+    debounce: null,
+    discovered: null,
+    walks,
+    sources,
     stopped: false,
   };
   live.ready = (async () => {
@@ -291,7 +367,11 @@ function startLive(root: string): Live {
     live.head = observed.head;
     await exclusive(live, () => aggregator.refresh());
     live.timers.push(
-      setInterval(() => trigger(live), options.pollMs ?? 5_000),
+      setInterval(() => {
+        // The poll is the safety net for a store directory nobody watches yet.
+        live.walks.clear();
+        trigger(live);
+      }, options.pollMs ?? 5_000),
       setInterval(
         () => broadcast(live, ': heartbeat\n\n'),
         options.heartbeatMs ?? 15_000,
@@ -413,7 +493,14 @@ export async function handleUsage(
   const live = await liveFor(root);
   const aggregator = await live.aggregator;
   await exclusive(live, () => aggregator.refresh());
-  const value = await route({ root, url, filters, aggregator });
+  const value = await route({
+    root,
+    url,
+    filters,
+    aggregator,
+    bd: live.bd,
+    sources: live.sources,
+  });
   send(
     res,
     200,
@@ -425,13 +512,18 @@ export async function handleUsage(
 }
 
 async function usageAggregate({ filters, aggregator }: UsageRouteContext) {
-  return {
-    schema_version: USAGE_SCHEMA_VERSION,
-    ...(await aggregator.summary(filters)),
-  };
+  const { sessions: _sessions, ...overview } =
+    await aggregator.summary(filters);
+  return { schema_version: USAGE_SCHEMA_VERSION, ...overview };
+}
+
+async function usageSessions({ filters, aggregator }: UsageRouteContext) {
+  const { sessions } = await aggregator.summary(filters);
+  return { schema_version: USAGE_SCHEMA_VERSION, sessions };
 }
 
 // ROUTES: append one registerUsageRoute line per route below this line.
 registerUsageRoute('/api/usage', usageAggregate);
+registerUsageRoute('/api/usage/sessions', usageSessions);
 registerUsageRoute('/api/usage/raw', rawEventsRoute);
 registerUsageRoute('/api/usage/findings', findingsRoute);

@@ -11,7 +11,7 @@ They render the page in jsdom with a fake `fetch` serving fixtures typed from `s
 
 ## The table lists sessions with all columns and nests subagents
 
-Each session is one row with name (the id when unnamed), agent, start, duration, lat commands, search success, bypass reads, tokens used and the bd issues worked.
+Each session is one row with name (the id when unnamed), agent, start, duration, lat commands, search hit rate, bypass reads, tokens used and the bd issues worked.
 
 A subagent session sits under its parent and shows once the parent is expanded. A value the data layer could not supply reads "unknown", never 0.
 

@@ -1,7 +1,14 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect } from 'vitest';
 import type { SessionEvent } from '../src/fork/usage/schema.js';
 import {
   attributeActivity,
@@ -51,7 +58,10 @@ function activity(session: string, minutes: number, parent?: string): Activity {
   };
 }
 
-function issue(id: string, extra: Partial<BdIssue> = {}): BdIssue {
+function issue(
+  id: string,
+  extra: Partial<BdIssue & { updated_at: string }> = {},
+): BdIssue {
   return {
     id,
     title: `title ${id}`,
@@ -89,6 +99,16 @@ const CAPTURED_REOPEN_JOURNAL = `
 `;
 
 describe('usage bd attribution', () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'usage-bd-root-'));
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
   // @lat: [[usage-bd-attribution#Usage bd Attribution#Claim to close attributes a session's events]]
   it('attributes events between claim and close, ends included', () => {
     const commands = [
@@ -310,6 +330,25 @@ describe('usage bd attribution', () => {
     );
   });
 
+  // @lat: [[usage-bd-attribution#Usage bd Attribution#Timestamp fallback]]
+  it('stops an in-progress issue at its last bd activity', () => {
+    const issues = [
+      issue('stale', {
+        status: 'in_progress',
+        assignee: 'dave',
+        started_at: at(0),
+        updated_at: at(10),
+      }),
+    ];
+    const ids = [5, 10, 11].map((m) => activity('s9', m));
+    const { attributions } = attribute(ids, [], issues);
+    expect(ids.map((e) => attributions.get(e.event_id)?.method)).toEqual([
+      'timestamp',
+      'timestamp',
+      'unattributed',
+    ]);
+  });
+
   it('excludes events just outside the window, includes both edges', () => {
     const issues = [
       issue('x', {
@@ -509,17 +548,21 @@ describe('usage bd attribution', () => {
     const { attributions } = attributeActivity([event], commands, null);
     expect(attributions.get(event.event_id)?.method).toBe('unattributed');
 
-    expect(await createBdRunner({})(['list'])).toBeNull();
     const failing: BdRunner = async () => null;
     expect(await loadIssueGraph(failing)).toBeNull();
-    expect(await createBdWatcher(failing, () => 'f').refresh()).toBeNull();
+    expect(
+      await createBdWatcher(root, failing, () => 'f').refresh(),
+    ).toBeNull();
     const garbled: BdRunner = async () => 'not json';
     expect(await loadIssueGraph(garbled)).toBeNull();
-    const missingBinary = createBdRunner({
+    // No bd on PATH, with and without a BEADS_DIR.
+    const missingBinary = createBdRunner(root, { PATH: '/nonexistent' });
+    expect(await missingBinary(['list'])).toBeNull();
+    const missingWithBeadsDir = createBdRunner(root, {
       BEADS_DIR: '/nonexistent',
       PATH: '/nonexistent',
     });
-    expect(await missingBinary(['list'])).toBeNull();
+    expect(await missingWithBeadsDir(['list'])).toBeNull();
   });
 
   // @lat: [[usage-bd-attribution#Usage bd Attribution#bd unavailable]]
@@ -529,7 +572,7 @@ describe('usage bd attribution', () => {
       // A bd that reads stdin to the end, then answers.
       writeFileSync(join(bin, 'bd'), '#!/bin/sh\ncat >/dev/null\necho done\n');
       chmodSync(join(bin, 'bd'), 0o755);
-      const run = createBdRunner({
+      const run = createBdRunner(root, {
         BEADS_DIR: bin,
         PATH: `${bin}:/bin:/usr/bin`,
       });
@@ -537,6 +580,47 @@ describe('usage bd attribution', () => {
     } finally {
       rmSync(bin, { recursive: true, force: true });
     }
+  });
+
+  describe('where bd runs', () => {
+    let bin: string;
+    let env: NodeJS.ProcessEnv;
+
+    beforeEach(() => {
+      bin = mkdtempSync(join(tmpdir(), 'usage-bd-bin-'));
+      // A bd that prints the directory it ran in and the BEADS_DIR it saw.
+      writeFileSync(
+        join(bin, 'bd'),
+        '#!/bin/sh\necho "$(pwd -P)|${BEADS_DIR-unset}"\n',
+      );
+      chmodSync(join(bin, 'bd'), 0o755);
+      env = { PATH: `${bin}:/bin:/usr/bin` };
+    });
+
+    afterEach(() => {
+      rmSync(bin, { recursive: true, force: true });
+    });
+
+    // @lat: [[usage-bd-attribution#Usage bd Attribution#The project database wins over BEADS_DIR]]
+    it('runs in the project root without BEADS_DIR when the project has a .beads directory', async () => {
+      mkdirSync(join(root, '.beads'));
+      const run = createBdRunner(root, { ...env, BEADS_DIR: '/elsewhere' });
+      expect(await run(['list'])).toBe(`${realpathSync(root)}|unset\n`);
+    });
+
+    // @lat: [[usage-bd-attribution#Usage bd Attribution#BEADS_DIR applies without a project database]]
+    it('passes BEADS_DIR and keeps the working directory when the project has no .beads directory', async () => {
+      const run = createBdRunner(root, { ...env, BEADS_DIR: '/elsewhere' });
+      expect(await run(['list'])).toBe(
+        `${realpathSync(process.cwd())}|/elsewhere\n`,
+      );
+    });
+
+    // @lat: [[usage-bd-attribution#Usage bd Attribution#Without a database setting bd searches from the project root]]
+    it('runs in the project root and lets bd find its database when there is neither', async () => {
+      const run = createBdRunner(root, env);
+      expect(await run(['list'])).toBe(`${realpathSync(root)}|unset\n`);
+    });
   });
 
   // @lat: [[usage-bd-attribution#Usage bd Attribution#Discovered-from links]]
@@ -680,7 +764,7 @@ describe('usage bd attribution', () => {
         .join('\n');
     };
     let fingerprint = 'a';
-    const watcher = createBdWatcher(run, () => fingerprint);
+    const watcher = createBdWatcher(root, run, () => fingerprint);
 
     expect((await watcher.refresh())?.reopens).toEqual([]);
     expect(calls).toEqual(['events export', 'list --all']);
@@ -711,5 +795,124 @@ describe('usage bd attribution', () => {
     expect(afterSync?.reopens).toEqual([
       { issueId: 'x', ts: at(2), seq: 2, closedTs: at(1) },
     ]);
+  });
+
+  // @lat: [[usage-bd-attribution#Usage bd Attribution#Overlapping refreshes run bd once]]
+  it('runs bd once for refreshes that overlap and gives both the same snapshot', async () => {
+    const journal: JournalRecord[] = [
+      {
+        seq: 1,
+        ts: at(1),
+        op: 'close',
+        issue_id: 'x',
+        issue: { status: 'closed' },
+      },
+    ];
+    const calls: string[] = [];
+    let held = false;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const run: BdRunner = async (args) => {
+      calls.push(args.slice(0, 2).join(' '));
+      // Only the first bd call of the overlapping refreshes waits.
+      if (held) {
+        held = false;
+        await gate;
+      }
+      if (args[0] === 'list') return JSON.stringify([issue('x')]);
+      const since = args[1] === 'export' ? 0 : Number(args[3]);
+      return journal
+        .filter((r) => r.seq > since)
+        .map((r) => JSON.stringify(r))
+        .join('\n');
+    };
+    let fingerprint = 'a';
+    const watcher = createBdWatcher(root, run, () => fingerprint);
+    await watcher.refresh();
+
+    calls.length = 0;
+    journal.push({
+      seq: 2,
+      ts: at(2),
+      op: 'update',
+      issue_id: 'x',
+      issue: { status: 'open' },
+    });
+    fingerprint = 'b';
+    held = true;
+    const first = watcher.refresh();
+    const second = watcher.refresh();
+    release();
+    const [one, two] = await Promise.all([first, second]);
+
+    expect(calls).toEqual(['events tail', 'list --all']);
+    expect(two).toBe(one);
+    expect(one?.reopens).toEqual([
+      { issueId: 'x', ts: at(2), seq: 2, closedTs: at(1) },
+    ]);
+
+    // The settled refresh is over: the next change runs bd again.
+    calls.length = 0;
+    fingerprint = 'c';
+    await watcher.refresh();
+    expect(calls).toEqual(['events tail', 'events export', 'list --all']);
+  });
+
+  // @lat: [[usage-bd-attribution#Usage bd Attribution#Watcher keeps the snapshot when bd output is unchanged]]
+  it('returns the same snapshot object for unchanged output without a fingerprint', async () => {
+    let title = 'first';
+    const run: BdRunner = async (args) => {
+      if (args[0] === 'list') return JSON.stringify([issue('x', { title })]);
+      return '';
+    };
+    const watcher = createBdWatcher(root, run, () => '');
+
+    const first = await watcher.refresh();
+    expect(first?.issues).toHaveLength(1);
+    expect(await watcher.refresh()).toBe(first);
+
+    title = 'second';
+    const changed = await watcher.refresh();
+    expect(changed).not.toBe(first);
+    expect(changed?.issues[0].title).toBe('second');
+    expect(await watcher.refresh()).toBe(changed);
+  });
+
+  // @lat: [[usage-bd-attribution#Usage bd Attribution#The watcher follows the project database]]
+  it('reloads when the root .beads database changes and not when only BEADS_DIR changes', async () => {
+    const other = mkdtempSync(join(tmpdir(), 'usage-bd-other-'));
+    const keep = process.env.BEADS_DIR;
+    try {
+      const manifestIn = (beadsDir: string) =>
+        join(beadsDir, 'embeddeddolt', 'db', '.dolt', 'noms');
+      const project = join(root, '.beads');
+      mkdirSync(manifestIn(project), { recursive: true });
+      mkdirSync(manifestIn(other), { recursive: true });
+      writeFileSync(join(manifestIn(project), 'manifest'), 'p1');
+      writeFileSync(join(manifestIn(other), 'manifest'), 'o1');
+      process.env.BEADS_DIR = other;
+
+      let loads = 0;
+      const run: BdRunner = async (args) => {
+        if (args[0] === 'list') loads++;
+        return args[0] === 'list' ? JSON.stringify([issue('x')]) : '';
+      };
+      const watcher = createBdWatcher(root, run);
+      await watcher.refresh();
+      expect(loads).toBe(1);
+
+      await watcher.refresh();
+      writeFileSync(join(manifestIn(other), 'manifest'), 'o2');
+      await watcher.refresh();
+      expect(loads).toBe(1);
+
+      writeFileSync(join(manifestIn(project), 'manifest'), 'p2');
+      await watcher.refresh();
+      expect(loads).toBe(2);
+    } finally {
+      if (keep === undefined) delete process.env.BEADS_DIR;
+      else process.env.BEADS_DIR = keep;
+      rmSync(other, { recursive: true, force: true });
+    }
   });
 });

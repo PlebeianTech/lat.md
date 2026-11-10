@@ -1,6 +1,6 @@
 import type {
   AgentRow,
-  UsageSummary,
+  UsageOverview,
 } from '../../../../src/fork/usage/aggregate-types';
 import { BarList, type BarListItem } from '../charts/bar-list';
 import { EntityTable } from '../entity-table';
@@ -54,7 +54,7 @@ function savedPerSession(entry: Entry): number | null {
   );
 }
 
-function savingsLabel(summary: UsageSummary): string {
+function savingsLabel(summary: UsageOverview): string {
   const savings = summary.extensions?.savings as
     | { method_version?: unknown }
     | undefined;
@@ -96,7 +96,7 @@ function Charts({
   summary,
 }: {
   entries: Entry[];
-  summary: UsageSummary;
+  summary: UsageOverview;
 }) {
   const signal = (pick: (row: AgentRow) => number | null) => (entry: Entry) =>
     perSession(entry, pick);
@@ -116,9 +116,9 @@ function Charts({
         )}
       />
       <BarList
-        label="Search success (%)"
+        label="Search hit rate (%)"
         items={bars(entries, (entry) =>
-          ratio(entry, (row) => percent(row.signals.search_success)),
+          ratio(entry, (row) => percent(row.signals.search_hit_rate)),
         )}
       />
       <BarList
@@ -140,7 +140,7 @@ function AgentsTable({
   summary,
 }: {
   entries: Entry[];
-  summary: UsageSummary;
+  summary: UsageOverview;
 }) {
   const { filters } = useUsageFilters();
   const overviewFor = (agent: string) => {
@@ -173,9 +173,9 @@ function AgentsTable({
           numeric: true,
         },
         {
-          key: 'success',
-          header: 'Search success',
-          value: (e) => ratio(e, (r) => percent(r.signals.search_success)),
+          key: 'hit-rate',
+          header: 'Search hit rate',
+          value: (e) => ratio(e, (r) => percent(r.signals.search_hit_rate)),
           format: (v) => describePercent(Number(v)),
           numeric: true,
         },
@@ -204,7 +204,7 @@ function AgentsTable({
 }
 
 export function AgentsPage(_props: UsagePageProps) {
-  const { data, error, loading } = useUsageData<UsageSummary>('/api/usage');
+  const { data, error, loading } = useUsageData<UsageOverview>('/api/usage');
   const entries = data ? entriesOf(data.agents) : [];
   return (
     <section>

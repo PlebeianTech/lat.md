@@ -268,7 +268,7 @@ describe('lat_expand', () => {
     expect(event.result_ids).toEqual(['cli#CLI#search']);
     expect(event.result_count).toBe(1);
     expect(event.section_id).toBeNull();
-    expect(event.query).toBe('Look at [[cli#CLI#search]] here.');
+    expect(event.query).toBeNull();
   });
 });
 

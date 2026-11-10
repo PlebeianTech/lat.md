@@ -1,7 +1,9 @@
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -15,12 +17,20 @@ vi.mock('../src/fork/usage/graph-snapshot.js', async (original) => ({
   ...(await original<object>()),
   forgetSnapshots: forgotten,
 }));
+// Every test injects its bd watcher, except the one that checks what a live
+// server builds for itself.
+const createdWatcher = vi.hoisted(() => vi.fn());
+vi.mock('../src/fork/usage/bd-attribution.js', async (original) => ({
+  ...(await original<object>()),
+  createBdWatcher: createdWatcher,
+}));
 import { plainStyler } from '@plebeiantech/lat.md-core/context';
 import { startViewServer, type ViewServer } from '../src/view/server.js';
 import {
   checkUsageLive,
   configureUsageLive,
   registerUsageRoute,
+  shareDiscovery,
   stopUsageLive,
   usageLiveStatus,
 } from '../src/fork/usage/live.js';
@@ -73,6 +83,13 @@ function usage(fields: Partial<UsageEvent> = {}): UsageEvent {
   };
 }
 
+/** A reader that finds no events in any transcript. */
+const readNothing: SessionSource['read'] = async (_path, checkpoint) => ({
+  events: [],
+  checkpoint: checkpoint ?? { offset: 0 },
+  reason: null,
+});
+
 const PAGE =
   '<!doctype html><html><head><script src="./assets/usage.js"></script></head><body>usage</body></html>';
 
@@ -105,6 +122,7 @@ afterEach(async () => {
   for (const stream of streams.splice(0)) stream.destroy();
   stopUsageLive();
   forgotten.mockClear();
+  createdWatcher.mockReset();
   await server.close();
   configureUsageLive({});
   delete process.env.BEADS_DIR;
@@ -187,6 +205,26 @@ describe('usage live server', () => {
     expect(bad.json.error).toContain('Invalid from date');
   });
 
+  // @lat: [[usage-live#Usage Live#The session rows have their own route]]
+  it('serves the session rows from /api/usage/sessions, not /api/usage', async () => {
+    writeUsageEvent(root, usage({ ts: '2026-11-07T12:00:00Z' }));
+    writeUsageEvent(
+      root,
+      usage({ ts: '2026-11-08T13:00:00Z', session_id: 'other' }),
+    );
+    const overview = await getUsage();
+    expect(overview.json).not.toHaveProperty('sessions');
+    expect(overview.json.totals.commands).toBe(2);
+    const all = JSON.parse((await getText('/api/usage/sessions')).body);
+    expect(all.schema_version).toBe(USAGE_SCHEMA_VERSION);
+    expect(all.sessions.length).toBeGreaterThan(0);
+    expect(Object.keys(all).sort()).toEqual(['schema_version', 'sessions']);
+    const narrowed = JSON.parse(
+      (await getText('/api/usage/sessions?from=2026-11-08')).body,
+    );
+    expect(narrowed.sessions.length).toBeLessThan(all.sessions.length);
+  });
+
   // @lat: [[usage-live#Usage Live#A new event is pushed once and then read]]
   it('pushes one usage-change for an appended event and then serves it', async () => {
     writeUsageEvent(root, usage());
@@ -230,6 +268,196 @@ describe('usage live server', () => {
     await stream.until('event: usage-change');
   });
 
+  // @lat: [[usage-live#Usage Live#A burst of changes is one refresh]]
+  it('pushes once for a burst of appended events', async () => {
+    configureUsageLive({
+      sources: [],
+      bd: { refresh: async () => null },
+      contributions: [],
+      pollMs: 60_000,
+      heartbeatMs: 60_000,
+      debounceMs: 300,
+    });
+    writeUsageEvent(root, usage({ ts: at(-1) }));
+    await getUsage();
+    const stream = openStream();
+    await stream.until('event: ready');
+    for (let minute = 0; minute < 5; minute++) {
+      writeUsageEvent(root, usage({ ts: at(minute) }));
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    }
+    await stream.until('event: usage-change');
+    // A fixed settle time: nothing else may arrive for the same burst.
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(stream.count('usage-change')).toBe(1);
+    expect((await getUsage()).json.totals.commands).toBe(6);
+  });
+
+  // @lat: [[usage-live#Usage Live#Source discovery is reused between checks]]
+  it('discovers sessions again only for a new file or a poll', async () => {
+    const dir = join(root, 'sessions');
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'one.jsonl'), 'a\n');
+    const discover = vi.fn(async () =>
+      readdirSync(dir).map((name) => join(dir, name)),
+    );
+    configureUsageLive({
+      sources: [
+        {
+          agent: 'claude',
+          discover,
+          read: async (_path, checkpoint) => ({
+            events: [],
+            checkpoint: checkpoint ?? { offset: 0 },
+            reason: null,
+          }),
+        },
+      ],
+      bd: { refresh: async () => null },
+      contributions: [],
+      pollMs: 60_000,
+      heartbeatMs: 60_000,
+      debounceMs: 5,
+    });
+    writeUsageEvent(root, usage());
+    await getUsage();
+    const stream = openStream();
+    await stream.until('event: ready');
+    // A new watcher replays the creation of the directory it watches.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    // A change that adds no file costs no discover call, not even the refresh's.
+    const base = discover.mock.calls.length;
+    for (let change = 1; change <= 3; change++) {
+      writeUsageEvent(root, usage());
+      await vi.waitFor(
+        () =>
+          expect(stream.count('usage-change')).toBeGreaterThanOrEqual(change),
+        { timeout: 10_000 },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(discover.mock.calls.length - base).toBe(0);
+    const pushes = stream.count('usage-change');
+    writeFileSync(join(dir, 'two.jsonl'), 'b\n');
+    await vi.waitFor(() =>
+      expect(stream.count('usage-change')).toBeGreaterThan(pushes),
+    );
+  });
+
+  // @lat: [[usage-live#Usage Live#Requests after a change share one discovery]]
+  it('discovers each source once for every request that follows a change', async () => {
+    const dir = join(root, 'sessions');
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'one.jsonl'), 'a\n');
+    const claude = vi.fn(async () => [join(dir, 'one.jsonl')]);
+    const codex = vi.fn(async () => []);
+    configureUsageLive({
+      sources: [
+        { agent: 'claude', discover: claude, read: readNothing },
+        { agent: 'codex', discover: codex, read: readNothing },
+      ],
+      bd: { refresh: async () => null },
+      contributions: [],
+      pollMs: 60_000,
+      heartbeatMs: 60_000,
+      debounceMs: 5,
+    });
+    writeUsageEvent(root, usage());
+    await getUsage();
+    const stream = openStream();
+    await stream.until('event: ready');
+    // A new watcher replays the creation of the directory it watches.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const before = [claude.mock.calls.length, codex.mock.calls.length];
+    const checking = checkUsageLive(root);
+    const answers = await Promise.all(
+      Array.from({ length: 10 }, () => getUsage()),
+    );
+    await checking;
+    expect(answers.map((answer) => answer.status)).toEqual(Array(10).fill(200));
+    expect(claude.mock.calls.length - before[0]).toBe(1);
+    expect(codex.mock.calls.length - before[1]).toBe(1);
+  });
+
+  // @lat: [[usage-live#Usage Live#A poll finds a file in a store nobody watches]]
+  it('finds a session file in a new directory on the next poll', async () => {
+    const stores = join(root, 'stores');
+    mkdirSync(join(stores, 'a'), { recursive: true });
+    writeFileSync(join(stores, 'a', 'one.jsonl'), 'a\n');
+    configureUsageLive({
+      sources: [
+        {
+          agent: 'claude',
+          discover: async () =>
+            readdirSync(stores).flatMap((name) =>
+              readdirSync(join(stores, name)).map((file) =>
+                join(stores, name, file),
+              ),
+            ),
+          read: readNothing,
+        },
+      ],
+      bd: { refresh: async () => null },
+      contributions: [],
+      pollMs: 40,
+      heartbeatMs: 60_000,
+      debounceMs: 5,
+    });
+    writeUsageEvent(root, usage());
+    await getUsage();
+    const stream = openStream();
+    await stream.until('event: ready');
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const pushes = stream.count('usage-change');
+    mkdirSync(join(stores, 'b'));
+    writeFileSync(join(stores, 'b', 'two.jsonl'), 'b\n');
+    await vi.waitFor(
+      () => expect(stream.count('usage-change')).toBeGreaterThan(pushes),
+      { timeout: 10_000 },
+    );
+  });
+
+  // @lat: [[usage-live#Usage Live#Usage on again discovers afresh]]
+  it('discovers again once after usage is turned off and on', async () => {
+    const dir = join(root, 'sessions');
+    mkdirSync(dir);
+    const transcript = join(dir, 'one.jsonl');
+    writeFileSync(transcript, 'a\n');
+    const discover = vi.fn(async () =>
+      readdirSync(dir).map((name) => join(dir, name)),
+    );
+    configureUsageLive({
+      sources: [{ agent: 'claude', discover, read: readNothing }],
+      bd: { refresh: async () => null },
+      contributions: [],
+      pollMs: 60_000,
+      heartbeatMs: 60_000,
+      debounceMs: 5,
+    });
+    vi.stubEnv('LAT_USAGE', '1');
+    try {
+      await getUsage();
+      const stream = openStream();
+      await stream.until('event: ready');
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      vi.stubEnv('LAT_USAGE', '');
+      const pushes = stream.count('usage-change');
+      appendFileSync(transcript, 'b\n');
+      await vi.waitFor(
+        () => expect(stream.count('usage-change')).toBeGreaterThan(pushes),
+        { timeout: 10_000 },
+      );
+      vi.stubEnv('LAT_USAGE', '1');
+      writeFileSync(join(dir, 'two.jsonl'), 'b\n');
+      const base = discover.mock.calls.length;
+      await getUsage();
+      await getUsage();
+      expect(discover.mock.calls.length - base).toBe(1);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   // @lat: [[usage-live#Usage Live#Usage off reads no session store]]
   it('discovers no session store while usage is off', async () => {
     const discover = vi.fn(async () => []);
@@ -246,7 +474,9 @@ describe('usage live server', () => {
     expect(discover).not.toHaveBeenCalled();
   });
 
+  // @lat: [[usage-live#Usage Live#The change signature follows the resolved bd database]]
   it('pushes when the bd database changes', async () => {
+    mkdirSync(join(root, '.lat', 'usage'), { recursive: true });
     const manifest = join(root, 'beads', 'embeddeddolt', 'db', '.dolt', 'noms');
     mkdirSync(manifest, { recursive: true });
     writeFileSync(join(manifest, 'manifest'), '1');
@@ -258,8 +488,69 @@ describe('usage live server', () => {
     await stream.until('event: usage-change');
   });
 
+  // @lat: [[usage-live#Usage Live#The change signature follows the resolved bd database]]
+  it('pushes when the project .beads database changes, whatever BEADS_DIR names', async () => {
+    mkdirSync(join(root, '.lat', 'usage'), { recursive: true });
+    const manifest = join(
+      root,
+      '.beads',
+      'embeddeddolt',
+      'db',
+      '.dolt',
+      'noms',
+    );
+    mkdirSync(manifest, { recursive: true });
+    writeFileSync(join(manifest, 'manifest'), '1');
+    // A store the project does not use: a change there must not matter.
+    process.env.BEADS_DIR = join(root, 'elsewhere');
+    await getUsage();
+    const stream = openStream();
+    await stream.until('event: ready');
+    writeFileSync(join(manifest, 'manifest'), '12');
+    await stream.until('event: usage-change');
+  });
+
+  // @lat: [[usage-live#Usage Live#Usage off watches no bd database]]
+  it('pushes nothing when the project .beads database changes while usage is off', async () => {
+    const manifest = join(
+      root,
+      '.beads',
+      'embeddeddolt',
+      'db',
+      '.dolt',
+      'noms',
+    );
+    mkdirSync(manifest, { recursive: true });
+    writeFileSync(join(manifest, 'manifest'), '1');
+    await getUsage();
+    const stream = openStream();
+    await stream.until('event: ready');
+    writeFileSync(join(manifest, 'manifest'), '12');
+    await checkUsageLive(root);
+    const beats = () => stream.text().split(': heartbeat').length;
+    const before = beats();
+    // A heartbeat written after the check arrives after any push the check made.
+    await vi.waitFor(() => expect(beats()).toBeGreaterThan(before));
+    expect(stream.count('usage-change')).toBe(0);
+  });
+
+  // @lat: [[usage-live#Usage Live#The shared bd watcher is made for the project root]]
+  it('makes the bd watcher it builds for itself for the project root', async () => {
+    createdWatcher.mockReturnValue({ refresh: async () => null });
+    configureUsageLive({
+      sources: [],
+      contributions: [],
+      pollMs: 20,
+      heartbeatMs: 20,
+    });
+    await getUsage();
+    expect(createdWatcher).toHaveBeenCalledTimes(1);
+    expect(createdWatcher).toHaveBeenCalledWith(root);
+  });
+
   // @lat: [[usage-live#Usage Live#A failing refresh is pushed once]]
   it('pushes usage-error once and forgets snapshots once per head change', async () => {
+    mkdirSync(join(root, '.lat', 'usage'), { recursive: true });
     const reflog = join(root, '.git', 'logs');
     mkdirSync(reflog, { recursive: true });
     writeFileSync(join(reflog, 'HEAD'), 'a');
@@ -404,6 +695,32 @@ describe('usage live server', () => {
     writeUsageEvent(root, usage());
     await stays.until('event: usage-change');
     expect(gone.count('usage-change')).toBe(0);
+  });
+});
+
+describe('shareDiscovery', () => {
+  // @lat: [[usage-live#Usage Live#A walk in flight is shared and an invalidation is kept]]
+  it('shares a walk that is running and walks again after an invalidation', async () => {
+    const walks = new Map<SessionSource, Promise<string[]>>();
+    const finish: Array<(paths: string[]) => void> = [];
+    const discover = vi.fn(
+      () => new Promise<string[]>((resolve) => finish.push(resolve)),
+    );
+    const [shared] = shareDiscovery(
+      [{ agent: 'claude', discover, read: readNothing }],
+      walks,
+    );
+    const early = Array.from({ length: 10 }, () => shared.discover('/repo'));
+    expect(discover).toHaveBeenCalledTimes(1);
+    walks.clear();
+    const late = shared.discover('/repo');
+    expect(discover).toHaveBeenCalledTimes(2);
+    finish[0](['one']);
+    finish[1](['one', 'two']);
+    expect(await Promise.all(early)).toEqual(Array(10).fill(['one']));
+    expect(await late).toEqual(['one', 'two']);
+    expect(await shared.discover('/repo')).toEqual(['one', 'two']);
+    expect(discover).toHaveBeenCalledTimes(2);
   });
 });
 

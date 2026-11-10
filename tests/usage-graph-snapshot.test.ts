@@ -313,6 +313,7 @@ describe('usage graph snapshot', () => {
         ts: '2026-11-08T10:00:00.000Z',
       }),
     ]);
+    expect(existsSync(snapshotPath(head1))).toBe(true);
     const past = JSON.parse(
       readFileSync(snapshotPath(head1), 'utf-8'),
     ) as GraphSnapshot;
@@ -323,6 +324,71 @@ describe('usage graph snapshot', () => {
     ) as GraphSnapshot;
     expect(current.code_ref_edges).toHaveLength(1);
     expect(knowledge.snapshot!.git_head).toBe(head2);
+  });
+
+  // @lat: [[usage-graph-snapshot#Usage Graph Snapshot#A stored past head is not built again]]
+  it('reads a stored past head instead of building it again', async () => {
+    await knowledgeFor([usage({ git_head: head1, worktree: root })]);
+    expect(existsSync(snapshotPath(head1))).toBe(true);
+    const stored = JSON.parse(
+      readFileSync(snapshotPath(head1), 'utf-8'),
+    ) as GraphSnapshot;
+    stored.sections.push({
+      id: 'ghost#Ghost',
+      document: 'lat.md/ghost.md',
+      bytes: 1,
+      hash: 'x',
+    });
+    writeFileSync(snapshotPath(head1), JSON.stringify(stored));
+
+    forgetSnapshots();
+    const again = await snapshotAt(root, head1, [root]);
+    expect(again.snapshot!.sections.map((s) => s.id)).toContain('ghost#Ghost');
+    expect(again.snapshot!.code_ref_edges).toBeNull();
+  });
+
+  // @lat: [[usage-graph-snapshot#Usage Graph Snapshot#A clean worktree gives a stored past head its code-ref edges]]
+  it('builds a stored past head again only once a clean worktree is at it', async () => {
+    await knowledgeFor([usage({ git_head: head1, worktree: root })]);
+    expect(existsSync(snapshotPath(head1))).toBe(true);
+    const stored = JSON.parse(
+      readFileSync(snapshotPath(head1), 'utf-8'),
+    ) as GraphSnapshot;
+    stored.sections.push({
+      id: 'ghost#Ghost',
+      document: 'lat.md/ghost.md',
+      bytes: 1,
+      hash: 'x',
+    });
+    writeFileSync(snapshotPath(head1), JSON.stringify(stored));
+    const holder = realpathSync(mkdtempSync(join(tmpdir(), 'lat-usage-past-')));
+    const checkout = join(holder, 'head1');
+    try {
+      git('worktree', 'add', '--detach', checkout, head1);
+      writeFileSync(join(checkout, 'src/a.ts'), `${SOURCE}// uncommitted\n`);
+      forgetSnapshots();
+      const dirty = (await snapshotAt(root, head1, [checkout])).snapshot!;
+      expect(dirty.code_ref_edges).toBeNull();
+      expect(dirty.code_ref_edges_reason).toBe('not_captured');
+      expect(dirty.sections.map((s) => s.id)).toContain('ghost#Ghost');
+      expect(readFileSync(snapshotPath(head1), 'utf-8')).toBe(
+        JSON.stringify(stored),
+      );
+
+      writeFileSync(join(checkout, 'src/a.ts'), SOURCE);
+      forgetSnapshots();
+      const clean = (await snapshotAt(root, head1, [checkout])).snapshot!;
+      expect(clean.code_ref_edges).toEqual([
+        { file: 'src/a.ts', line: 1, section: 'lat.md/notes#Notes#Alpha' },
+      ]);
+      expect(clean.sections.map((s) => s.id)).not.toContain('ghost#Ghost');
+      const rewritten = JSON.parse(
+        readFileSync(snapshotPath(head1), 'utf-8'),
+      ) as GraphSnapshot;
+      expect(rewritten.code_ref_edges).toHaveLength(1);
+    } finally {
+      rmSync(holder, { recursive: true, force: true });
+    }
   });
 
   // @lat: [[usage-graph-snapshot#Usage Graph Snapshot#Symbol-ref edges are stored for past and current heads]]
@@ -393,7 +459,11 @@ describe('usage graph snapshot', () => {
     await knowledgeFor(
       [
         usage({ git_head: head1, ts: '2026-11-01T10:00:00.000Z' }),
-        usage({ git_head: head2, ts: '2026-11-08T10:00:00.000Z' }),
+        usage({
+          git_head: head2,
+          worktree: root,
+          ts: '2026-11-08T10:00:00.000Z',
+        }),
       ],
       { from: '2026-11-05' },
     );
@@ -462,6 +532,7 @@ describe('usage graph snapshot', () => {
     const result = await snapshotAt(root, head2, [root]);
     expect(result.snapshot!.code_ref_edges).toBeNull();
     expect(result.snapshot!.code_ref_edges_reason).toBe('dirty_worktree');
+    expect(existsSync(snapshotPath(head2))).toBe(false);
   });
 
   // @lat: [[usage-graph-snapshot#Usage Graph Snapshot#A worktree outside the repository is never run]]

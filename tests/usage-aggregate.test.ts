@@ -8,7 +8,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createAggregator,
   type Aggregator,
@@ -29,7 +29,11 @@ import type {
   SessionAgent,
   SessionSource,
 } from '../src/fork/usage/sources/types.js';
-import { addSessionEvent, emptyState } from '../src/fork/usage/state.js';
+import {
+  addSessionEvent,
+  addUsageEvent,
+  emptyState,
+} from '../src/fork/usage/state.js';
 import { writeUsageEvent } from '../src/fork/usage/writer.js';
 
 const T0 = Date.parse('2026-11-08T10:00:00Z');
@@ -407,6 +411,64 @@ describe('usage aggregate', () => {
     expect(computes).toBe(4);
   });
 
+  // @lat: [[usage-aggregate#Usage Aggregate#A memo computed across a reset is not cached]]
+  it('answers a memo caller across resets without caching the result', async () => {
+    const { aggregator } = await setup();
+    const gates: (() => void)[] = [];
+    let runs = 0;
+    const slow = () => {
+      const run = ++runs;
+      return new Promise<number>((resolve) => gates.push(() => resolve(run)));
+    };
+    const pending = aggregator.memo('slow', slow);
+    aggregator.invalidate();
+    aggregator.invalidate();
+    gates[0]();
+    expect(await pending).toBe(1);
+    expect(runs).toBe(1);
+    const later = aggregator.memo('slow', slow);
+    gates[1]();
+    expect(await later).toBe(2);
+  });
+
+  // @lat: [[usage-aggregate#Usage Aggregate#A summary ignores a refresh in progress]]
+  it('keeps the agent reasons of the data version a summary was built from', async () => {
+    const root = tempRoot();
+    writeLog(root, [usage({ ts: at(0) })]);
+    let reason: 'not_captured' | null = null;
+    const source: SessionSource = {
+      agent: 'claude',
+      discover: async () => ['/fake/claude.jsonl'],
+      read: async () => ({
+        events: [],
+        checkpoint: { offset: 0 },
+        reason,
+      }),
+    };
+    let gate: Promise<void> = Promise.resolve();
+    const aggregator = await createAggregator({
+      root,
+      sources: [source],
+      bd: { refresh: async () => (await gate, null) },
+      contributions: [],
+      now: () => Date.parse('2026-11-10T00:00:00Z'),
+    });
+    await aggregator.refresh();
+    reason = 'not_captured';
+    let release!: () => void;
+    gate = new Promise<void>((resolve) => (release = resolve));
+    // The refresh has read the new reason and now waits for bd.
+    const refreshing = aggregator.refresh();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const during = await aggregator.summary();
+    release();
+    await refreshing;
+    expect(row(during.agents, 'claude').reason).toBeNull();
+    expect(row((await aggregator.summary()).agents, 'claude').reason).toBe(
+      'not_captured',
+    );
+  });
+
   // @lat: [[usage-aggregate#Usage Aggregate#A restart resumes from state.json]]
   it('resumes from state.json and matches an uninterrupted run', async () => {
     const root = tempRoot();
@@ -602,6 +664,20 @@ describe('usage aggregate', () => {
     expect(kept[0].kind === 'token_usage' && kept[0].usage.output).toBe(253);
   });
 
+  // @lat: [[usage-aggregate#Usage Aggregate#An event id never collides with an object property]]
+  it('keeps events whose ids are __proto__ and constructor', () => {
+    const state = emptyState();
+    for (const id of ['__proto__', 'constructor']) {
+      const fromSession = { ...tokens('A', 1, { output: 5 }), event_id: id };
+      expect(addSessionEvent(state, 'claude', fromSession)).toBe(true);
+      expect(addSessionEvent(state, 'claude', fromSession)).toBe(false);
+      expect(addUsageEvent(state, usage({ event_id: id }))).toBe(true);
+      expect(addUsageEvent(state, usage({ event_id: id }))).toBe(false);
+    }
+    for (const stored of [state.sessions, state.usage])
+      expect(Object.keys(stored).sort()).toEqual(['__proto__', 'constructor']);
+  });
+
   // @lat: [[usage-aggregate#Usage Aggregate#All five agents are listed]]
   it('lists all five agents, with zero counts and reasons', async () => {
     const summary = await (await setup()).aggregator.summary();
@@ -628,6 +704,21 @@ describe('usage aggregate', () => {
     expect(row(summary.agents, 'pi').reason).toBe('not_captured');
     expect(claude.reason).toBeNull();
     expect(row(summary.agents, 'unknown').totals.commands).toBe(1);
+  });
+
+  // @lat: [[usage-aggregate#Usage Aggregate#An agent name never collides with an object property]]
+  it('lists agents named constructor, toString and __proto__ with no reason', async () => {
+    const names = ['constructor', 'toString', '__proto__'];
+    const { aggregator } = await setup({
+      usageEvents: names.map((agent) => usage({ agent })),
+      claudeEvents: [],
+      codexEvents: [],
+    });
+    const { agents } = await aggregator.summary();
+    for (const name of names) {
+      expect(row(agents, name).totals.commands).toBe(1);
+      expect(row(agents, name).reason).toBeNull();
+    }
   });
 
   // @lat: [[usage-aggregate#Usage Aggregate#Sessions keep children separate]]
@@ -763,6 +854,144 @@ describe('usage aggregate', () => {
     expect(row(summary.queries, 's0').reformulations).toBe(1);
     expect(row(summary.queries, 's1').reformulations).toBe(0);
     expect(row(summary.queries, 's3').reformulations).toBe(0);
+  });
+
+  // @lat: [[usage-aggregate#Usage Aggregate#A query row carries its opened ranks and reformulation targets]]
+  it('carries the opened ranks and reformulation targets on each query row', async () => {
+    const { aggregator } = await setup({
+      usageEvents: [
+        usage({
+          event_id: 'q1',
+          ts: at(0),
+          query: 'Alpha',
+          result_ids: ['d#x', 'd#y'],
+        }),
+        usage({
+          event_id: 'q1r1',
+          ts: at(0.1),
+          command: 'section',
+          section_id: 'd#y',
+        }),
+        usage({
+          event_id: 'q1r2',
+          ts: at(0.2),
+          command: 'section',
+          section_id: 'd#y',
+        }),
+        usage({ event_id: 'q2', ts: at(0.5), query: 'beta', result_ids: [] }),
+        usage({ event_id: 'q3', ts: at(0.6), query: null }),
+        usage({
+          event_id: 'q4',
+          ts: at(5),
+          query: 'alpha',
+          result_ids: ['d#x'],
+        }),
+        usage({ event_id: 'q5', ts: at(5.5), query: 'beta', result_ids: [] }),
+        // the latest search is beta's q5, which does not return d#x: no rank
+        usage({
+          event_id: 'q5r',
+          ts: at(5.6),
+          command: 'section',
+          section_id: 'd#x',
+        }),
+      ],
+      claudeEvents: [],
+      codexEvents: [],
+    });
+    const { queries } = await aggregator.summary();
+    const alpha = row(queries, 'alpha');
+    expect(alpha.facts.opened_ranks).toEqual({ 'd#y': [2, 2] });
+    expect(alpha.facts.reformulated_to).toEqual([{ query: 'beta', count: 2 }]);
+    const beta = row(queries, 'beta');
+    expect(beta.facts.opened_ranks).toEqual({});
+    expect(beta.facts.reformulated_to).toEqual([{ query: null, count: 1 }]);
+  });
+
+  // @lat: [[usage-aggregate#Usage Aggregate#A section id never collides with an object property]]
+  it('keeps section ids such as __proto__ and constructor as plain keys', async () => {
+    const { aggregator } = await setup({
+      usageEvents: [
+        usage({
+          event_id: 'p1',
+          ts: at(0),
+          query: 'planted',
+          result_ids: ['__proto__', 'constructor', 'toString'],
+        }),
+        usage({
+          event_id: 'p1r1',
+          ts: at(0.1),
+          command: 'section',
+          section_id: 'constructor',
+        }),
+        usage({
+          event_id: 'p1r2',
+          ts: at(0.2),
+          command: 'section',
+          section_id: '__proto__',
+        }),
+        usage({
+          event_id: 'p1r3',
+          ts: at(0.3),
+          command: 'section',
+          section_id: 'constructor',
+        }),
+      ],
+      claudeEvents: [],
+      codexEvents: [],
+    });
+    const { queries } = await aggregator.summary();
+    const planted = row(queries, 'planted');
+    expect(Object.entries(planted.facts.opened_ranks)).toEqual([
+      ['constructor', [2, 2]],
+      ['__proto__', [1]],
+    ]);
+    expect(Object.getPrototypeOf(planted.facts.opened_ranks)).toBe(
+      Object.prototype,
+    );
+    // The summary crosses the API as JSON; the own keys must survive it.
+    const sent = JSON.parse(JSON.stringify(planted.facts.opened_ranks));
+    expect(Object.hasOwn(sent, '__proto__')).toBe(true);
+    expect(Object.hasOwn(sent, 'constructor')).toBe(true);
+    expect(Object.hasOwn(sent, 'toString')).toBe(false);
+  });
+
+  // @lat: [[usage-aggregate#Usage Aggregate#Query facts pair reads over the whole log]]
+  it('pairs a read with the latest search of the whole log under a filter', async () => {
+    // One session: claude searches X (returns d#x), codex searches Y (returns
+    // nothing), claude reads d#x. The latest search before the read is Y, so
+    // the read follows nothing. A replay over the claude events alone would
+    // pair it with X and credit X with rank 1.
+    const { aggregator } = await setup({
+      usageEvents: [
+        usage({
+          event_id: 'f1',
+          ts: at(0),
+          query: 'xray',
+          result_ids: ['d#x'],
+        }),
+        usage({
+          event_id: 'f2',
+          ts: at(0.2),
+          agent: 'codex',
+          query: 'yankee',
+          result_ids: [],
+        }),
+        usage({
+          event_id: 'f3',
+          ts: at(0.4),
+          command: 'section',
+          section_id: 'd#x',
+        }),
+      ],
+      claudeEvents: [],
+      codexEvents: [],
+    });
+    const { queries } = await aggregator.summary({ agent: 'claude' });
+    expect(queries.map((q) => q.key)).toEqual(['xray']);
+    const xray = row(queries, 'xray');
+    expect(xray.facts.opened_ranks).toEqual({});
+    expect(xray.follow_through_share).toBe(0);
+    expect(xray.facts.reformulated_to).toEqual([{ query: 'yankee', count: 1 }]);
   });
 
   // @lat: [[usage-aggregate#Usage Aggregate#A read follows only the latest earlier search]]
@@ -945,18 +1174,62 @@ describe('usage aggregate', () => {
     expect(open.days).toEqual(['2026-11-08', '2026-11-09']);
   });
 
-  // @lat: [[usage-aggregate#Usage Aggregate#Each row carries four health signals]]
-  it('carries the four health signals on agent, session and issue rows', async () => {
+  // @lat: [[usage-aggregate#Usage Aggregate#Totals carry commands per session, search hit rate and follow-through]]
+  it('carries commands per session, search hit rate and follow-through on the previous range and each day', async () => {
+    const { aggregator } = await setup();
+    const summary = await aggregator.summary({
+      from: '2026-11-08',
+      to: '2026-11-09',
+    });
+    for (const totals of [
+      summary.totals,
+      summary.previous!,
+      ...summary.daily,
+    ]) {
+      const answered = totals.searches - totals.searches_unknown_results;
+      expect(totals.lat_commands_per_session).toEqual(
+        totals.sessions > 0 ? totals.commands / totals.sessions : null,
+      );
+      expect(totals.search_hit_rate).toEqual(
+        answered > 0
+          ? (answered - totals.zero_result_searches) / answered
+          : null,
+      );
+      expect(totals.follow_through_rate).toEqual(
+        totals.searches > 0 ? totals.followed_searches / totals.searches : null,
+      );
+    }
+    expect(summary.totals.lat_commands_per_session).toBe(
+      summary.signals.lat_commands_per_session,
+    );
+    expect(summary.totals.search_hit_rate).toBe(
+      summary.signals.search_hit_rate,
+    );
+    expect(summary.totals.follow_through_rate).toBe(
+      summary.signals.follow_through_rate,
+    );
+    expect(summary.daily.map((day) => day.lat_commands_per_session)).toEqual([
+      expect.any(Number),
+      expect.any(Number),
+    ]);
+  });
+
+  // @lat: [[usage-aggregate#Usage Aggregate#Each row carries five health signals]]
+  it('carries the five health signals on agent, session and issue rows', async () => {
     const summary = await (await setup()).aggregator.summary();
     const claude = row(summary.agents, 'claude').signals;
     expect(claude.lat_commands_per_session).toBe(3);
-    expect(claude.search_success).toBeCloseTo(2 / 3);
+    expect(claude.search_hit_rate).toBeCloseTo(2 / 3);
+    expect(claude.follow_through_rate).toBe(
+      row(summary.agents, 'claude').totals.follow_through_rate,
+    );
     expect(claude.bypass_rate).toBe(0.25);
     expect(claude.net_tokens_saved).toBeNull();
     expect(claude.injected_bytes).toEqual({ total: 500, known: 1, unknown: 0 });
     const codex = row(summary.agents, 'codex').signals;
     expect(codex.lat_commands_per_session).toBe(2);
-    expect(codex.search_success).toBeNull();
+    expect(codex.search_hit_rate).toBeNull();
+    expect(codex.follow_through_rate).toBe(1);
     expect(codex.bypass_rate).toBe(0);
     expect(row(summary.agents, 'pi').signals.bypass_rate).toBeNull();
     expect(
@@ -965,7 +1238,7 @@ describe('usage aggregate', () => {
     expect(
       row(summary.issues, 'lat-1.1').rolled_up.signals.net_tokens_saved,
     ).toBeNull();
-    expect(summary.unattributed.signals.search_success).toBeCloseTo(2 / 3);
+    expect(summary.unattributed.signals.search_hit_rate).toBeCloseTo(2 / 3);
   });
 
   // @lat: [[usage-aggregate#Usage Aggregate#Filters narrow the summary]]
