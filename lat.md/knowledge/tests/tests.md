@@ -36,6 +36,7 @@ Shared patterns for writing and organizing tests in this project.
 - [Fork Section Edges](fork-section-edges.md): Tests for \[\[packages/core/src/fork/section-edges.ts\]\], which classifies code reference roles and formats citation coordinates for section backlinks.
 - [Fork Stop Impact](fork-stop-impact.md): Tests for \[\[src/cli/fork-stop-impact.ts\]\], which intersects git diff line ranges with \`@lat:\` references and wiki links on Stop hook execution.
 - [Frontmatter Field Placement](frontmatter-placement.md) — Tests for \`parseFrontmatter\`'s validation of known \`lat\` fields written at the document root instead of nested under \`lat:\`, and the \`checkFrontmatter\` check that surfaces it via \`lat check\`.
+- [Gen GitHub Wiki Workflow Tests](gen-github-wiki-workflow.md) — Functional tests for wiki workflow template rendering and placeholder substitution.
 - [Graph Export](graph-export.md) — Functional and unit tests for \[\[cli#graph\]\] — exporting the knowledge graph and diffing it against git history.
 - [Hook](hook.md) — Functional tests for Claude, Codex, and Cursor lifecycle hooks. Hook subprocesses use fake Git output; \[\[src/cli/hook.ts#analyzeDiff\]\] also runs against temporary real repositories.
 - [Init](init.md) — Tests run non-interactive database flows through the built CLI in child processes; TTY-only menu branches use isolated mocks.
