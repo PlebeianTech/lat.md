@@ -354,6 +354,7 @@ export async function createAggregator(
 
   // @lat: [[usage-analytics#Usage Analytics#Opt-in and the usage directory]]
   async function refresh(): Promise<void> {
+    const hadModel = model !== null;
     if (usageEnabled(root) !== enabled) {
       // Off shows the empty state; on again resumes from the saved state.
       enabled = !enabled;
@@ -374,7 +375,7 @@ export async function createAggregator(
       snapshot = latest;
       model = buildModel(state, latest);
       reasons = { ...state.reasons };
-      invalidate();
+      if (hadModel) invalidate();
     }
   }
 

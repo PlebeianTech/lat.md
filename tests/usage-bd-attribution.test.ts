@@ -620,6 +620,11 @@ describe('usage bd attribution', () => {
     it('runs in the project root and lets bd find its database when there is neither', async () => {
       const run = createBdRunner(root, env);
       expect(await run(['list'])).toBe(`${realpathSync(root)}|unset\n`);
+
+      const runWithEmpty = createBdRunner(root, { ...env, BEADS_DIR: '' });
+      expect(await runWithEmpty(['list'])).toBe(
+        `${realpathSync(root)}|unset\n`,
+      );
     });
   });
 

@@ -463,7 +463,6 @@ describe('usage findings collection', () => {
         contributions: [],
         now: () => clock,
       });
-      await aggregator.refresh();
       let detects = 0;
       const counting = {
         name: 'counting-day',

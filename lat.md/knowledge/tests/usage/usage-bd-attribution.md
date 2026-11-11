@@ -79,7 +79,7 @@ When the project root has no `.beads/` directory and `BEADS_DIR` is set, the run
 
 ## Without a database setting bd searches from the project root
 
-With no project `.beads/` and no `BEADS_DIR`, the runner starts bd in the project root, and bd finds its own database from there.
+With no project `.beads/` and unset or empty `BEADS_DIR`, the runner starts bd in the project root with `BEADS_DIR` unset, and bd finds its own database from there.
 
 ## Discovered-from links
 

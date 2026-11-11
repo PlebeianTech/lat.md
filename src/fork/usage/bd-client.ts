@@ -57,7 +57,7 @@ export function createBdRunner(
         timeout: CALL_TIMEOUT_MS,
         maxBuffer: MAX_OUTPUT_BYTES,
         encoding: 'utf-8',
-        env: project ? withoutBeadsDir : env,
+        env: project || !beadsDir ? withoutBeadsDir : env,
         ...(project || !beadsDir ? { cwd: root } : {}),
       } as ExecFileOptions;
       const child = execFile('bd', args, options, (error, stdout) => {
