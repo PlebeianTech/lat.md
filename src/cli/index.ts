@@ -533,16 +533,26 @@ program
 program
   .command('gen')
   .description(
-    'Generate a file to stdout (agents.md, claude.md, cursor-rules.md)',
+    'Generate a file to stdout (agents.md, claude.md, cursor-rules.md, github-wiki-workflow)',
   )
   .argument(
     '<target>',
-    'file to generate: agents.md, claude.md, cursor-rules.md',
+    'file to generate: agents.md, claude.md, cursor-rules.md, github-wiki-workflow',
   )
-  .action(async (target: string) => {
-    const { genCmd } = await import('./gen.js');
-    await genCmd(target);
-  });
+  .option(
+    '--branch <name>',
+    'branch that triggers the workflow (github-wiki-workflow only; default: main)',
+  )
+  .option(
+    '--node-version <version>',
+    'Node.js version for the build job (github-wiki-workflow only; default: lts/*)',
+  )
+  .action(
+    async (target: string, opts: { branch?: string; nodeVersion?: string }) => {
+      const { genCmd } = await import('./gen.js');
+      await genCmd(target, opts);
+    },
+  );
 
 program
   .command('init')

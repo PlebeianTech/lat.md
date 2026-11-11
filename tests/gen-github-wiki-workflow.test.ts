@@ -1,10 +1,17 @@
-import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { describe, expect, it, vi } from 'vitest';
+import { readFileSync, mkdtempSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import { parse } from 'yaml';
 import {
   readGithubWikiWorkflowTemplate,
   renderGithubWikiWorkflow,
 } from '../src/fork/github-wiki-workflow.js';
+import { genCmd } from '../src/cli/gen.js';
+import { rmDirBestEffort } from './util.js';
 
 describe('github wiki workflow rendering', () => {
   // @lat: [[gen-github-wiki-workflow#Gen GitHub Wiki Workflow Tests#Workflow Template Rendering#Replaces placeholders and preserves action syntax]]
@@ -91,5 +98,130 @@ describe('github wiki workflow rendering', () => {
     );
     expect(installStep).toBeDefined();
     expect(installStep?.run).toContain(`${pkg.name}@${pkg.version}`);
+  });
+});
+
+const tsxLoader = pathToFileURL(
+  createRequire(import.meta.url).resolve('tsx'),
+).href;
+const repoRoot = join(import.meta.dirname, '..');
+
+async function captureStdout(action: () => Promise<void>): Promise<string> {
+  let output = '';
+  const spy = vi
+    .spyOn(process.stdout, 'write')
+    .mockImplementation((chunk: string | Uint8Array) => {
+      output += chunk.toString();
+      return true;
+    });
+  try {
+    await action();
+  } finally {
+    spy.mockRestore();
+  }
+  return output;
+}
+
+describe('gen github-wiki-workflow cli command', () => {
+  // @lat: [[gen-github-wiki-workflow#Gen GitHub Wiki Workflow Tests#CLI Command#Replaces placeholders and preserves action syntax through stdout]]
+  it('emits workflow without placeholders and preserves github actions syntax', async () => {
+    const stdout = await captureStdout(async () => {
+      await genCmd('github-wiki-workflow');
+    });
+    expect(stdout).not.toContain('{{BRANCH}}');
+    expect(stdout).not.toContain('{{NODE_VERSION}}');
+    expect(stdout).not.toContain('{{LAT_PACKAGE}}');
+    expect(stdout).not.toContain('{{LAT_VERSION}}');
+    expect(stdout).toContain('${{ secrets.GITHUB_TOKEN }}');
+  });
+
+  // @lat: [[gen-github-wiki-workflow#Gen GitHub Wiki Workflow Tests#CLI Command#Modifies workflow output with branch and node options]]
+  it('modifies emitted workflow when branch and nodeVersion options are provided', async () => {
+    const defaultOutput = await captureStdout(async () => {
+      await genCmd('github-wiki-workflow');
+    });
+
+    const branchOutput = await captureStdout(async () => {
+      await genCmd('github-wiki-workflow', { branch: 'release-branch' });
+    });
+    expect(branchOutput).not.toEqual(defaultOutput);
+    expect(branchOutput).toContain('release-branch');
+
+    const nodeVersionOutput = await captureStdout(async () => {
+      await genCmd('github-wiki-workflow', { nodeVersion: '22' });
+    });
+    expect(nodeVersionOutput).not.toEqual(defaultOutput);
+    expect(nodeVersionOutput).toContain('22');
+  });
+
+  // @lat: [[gen-github-wiki-workflow#Gen GitHub Wiki Workflow Tests#CLI Command#Preserves existing target behavior when options are supplied]]
+  it('ignores options on unrelated targets such as agents.md', async () => {
+    const baseOutput = await captureStdout(async () => {
+      await genCmd('agents.md');
+    });
+    const withOptionsOutput = await captureStdout(async () => {
+      await genCmd('agents.md', { branch: 'x', nodeVersion: '22' });
+    });
+    expect(withOptionsOutput).toEqual(baseOutput);
+  });
+
+  // @lat: [[gen-github-wiki-workflow#Gen GitHub Wiki Workflow Tests#CLI Command#Exits with error code and lists supported targets on unknown target]]
+  it('exits with status 1 and lists supported targets including github-wiki-workflow on unknown target', async () => {
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined as never));
+    let errorOutput = '';
+    const errorSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation((...args: unknown[]) => {
+        errorOutput += args.join(' ');
+      });
+    try {
+      await genCmd('nonsense');
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(errorOutput).toContain('github-wiki-workflow');
+      expect(errorOutput).toContain('Unknown target: nonsense.');
+    } finally {
+      exitSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  });
+
+  // @lat: [[gen-github-wiki-workflow#Gen GitHub Wiki Workflow Tests#CLI Command#Wires CLI flags through commander to workflow generation]]
+  it('wires cli flags through commander when spawned with tsx loader', () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'lat-gen-cli-test-'));
+    try {
+      const env = { ...process.env };
+      delete env.LAT_USAGE;
+      const result = spawnSync(
+        process.execPath,
+        [
+          '--import',
+          tsxLoader,
+          join(repoRoot, 'src/cli/index.ts'),
+          'gen',
+          'github-wiki-workflow',
+          '--branch',
+          'release',
+          '--node-version',
+          '22',
+        ],
+        {
+          cwd: tmpDir,
+          env,
+          encoding: 'utf-8',
+        },
+      );
+      expect(result.status).toBe(0);
+      expect(result.stdout).not.toContain('{{BRANCH}}');
+      expect(result.stdout).not.toContain('{{NODE_VERSION}}');
+      expect(result.stdout).not.toContain('{{LAT_PACKAGE}}');
+      expect(result.stdout).not.toContain('{{LAT_VERSION}}');
+      expect(result.stdout).toContain('release');
+      expect(result.stdout).toContain('22');
+      expect(result.stdout).toContain('${{ secrets.GITHUB_TOKEN }}');
+    } finally {
+      rmDirBestEffort(tmpDir);
+    }
   });
 });
