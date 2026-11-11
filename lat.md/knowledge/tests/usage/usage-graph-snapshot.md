@@ -73,6 +73,16 @@ Snapshots are loaded or built only for the git heads of events in the selected r
 
 A cache file that does not parse is deleted and the snapshot is built again. Cache files are written to a temporary file and renamed.
 
+## A cache file of the wrong shape is rebuilt
+
+A repository can commit a cache file, so a file that parses is still checked. A file of the wrong shape is deleted and the snapshot is built again.
+
+The wrong shapes are: not an object, no string `git_head`, or a list that is missing or holds an element with the wrong fields. The test uses a head that no worktree is at, so only this check can replace the file.
+
+## A snapshot the code wrote is read back
+
+A stored snapshot passes the shape check and is used as it is, with `code_ref_edges` null or a list, and with a section whose `bytes` is null.
+
 ## A symlinked cache directory is never used
 
 When `.lat/usage/graph-snapshots` is a symlink, the snapshot is built but no cache file is read, written or deleted through it.

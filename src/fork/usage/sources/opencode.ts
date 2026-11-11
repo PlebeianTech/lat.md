@@ -387,8 +387,14 @@ function readFrom(
   return { events, checkpoint: { offset: checkpointOffset }, reason: null };
 }
 
+function changeFiles(sessionPath: string): string[] {
+  const target = splitSessionPath(sessionPath);
+  return target ? [target.database, `${target.database}-wal`] : [sessionPath];
+}
+
 export const opencodeSource: SessionSource = {
   agent: 'opencode',
   discover,
   read,
+  changeFiles,
 };

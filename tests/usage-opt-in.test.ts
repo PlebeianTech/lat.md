@@ -501,6 +501,124 @@ describe('readers never follow a planted symlink', () => {
     expect(Object.keys(state.sessions)).toEqual(['t1']);
   });
 
+  const stored = (fields: object) => ({
+    agent: 'claude',
+    event: {
+      event_id: 'x',
+      session_id: 'A',
+      ts: '2026-11-08T10:00:00Z',
+      source: { path: '/fake/claude.jsonl', offset: 1 },
+      ...fields,
+    },
+  });
+  const editTool = {
+    name: 'Edit',
+    action: 'edit',
+    path: 'src/a.ts',
+    bytes: null,
+  };
+  const writeSessions = (sessions: object) =>
+    writeFileSync(
+      join(usageDir(root), 'state.json'),
+      JSON.stringify({ ...emptyState(), sessions }),
+    );
+
+  // @lat: [[usage-opt-in#Usage Opt-in#Loading state drops malformed content]]
+  it.each<[string, object]>([
+    ['an unknown kind', { kind: 'mystery' }],
+    ['a kind named like an object property', { kind: 'constructor' }],
+    ['no session id', { kind: 'session_start', session_id: undefined }],
+    ['a session id that is a number', { kind: 'session_start', session_id: 7 }],
+    ['no event id', { kind: 'session_start', event_id: undefined }],
+    [
+      'a parent session id that is an object',
+      { kind: 'session_start', parent_session_id: { a: 1 } },
+    ],
+    [
+      'a parent session id that is null',
+      { kind: 'session_start', parent_session_id: null },
+    ],
+    ['token_usage with no usage', { kind: 'token_usage' }],
+    ['token_usage with null usage', { kind: 'token_usage', usage: null }],
+    ['a counter that is text', { kind: 'token_usage', usage: { input: '10' } }],
+    [
+      'a cost that is text',
+      { kind: 'token_usage', usage: { reported_cost_usd: '1' } },
+    ],
+    ['tool_call with no tool', { kind: 'tool_call' }],
+    [
+      'a tool path that is a number',
+      { kind: 'tool_call', tool: { ...editTool, path: 7 } },
+    ],
+    [
+      'a tool with no path',
+      { kind: 'tool_call', tool: { ...editTool, path: undefined } },
+    ],
+    [
+      'tool_call with no source',
+      { kind: 'tool_call', tool: editTool, source: undefined },
+    ],
+    ['bypass_read with no path', { kind: 'bypass_read', bytes: null }],
+    ['session_name with no name', { kind: 'session_name' }],
+    ['model with no model', { kind: 'model' }],
+    [
+      'bd_command with no issue',
+      { kind: 'bd_command', verb: 'claim', issue_id: undefined },
+    ],
+    [
+      'bd_command with an unknown verb',
+      { kind: 'bd_command', verb: 'reopen', issue_id: 'lat-1' },
+    ],
+  ])('loading state drops %s, and a summary still works', async (_, fields) => {
+    fake.events = [];
+    mkdirSync(usageDir(root), { recursive: true });
+    writeSessions({ bad: stored(fields) });
+    const loaded = loadState(root);
+    const aggregator = await createAggregator({
+      root,
+      bd: { refresh: async () => null },
+    });
+    const summary = await aggregator.summary();
+    expect(summary.totals.tokens.messages).toBe(0);
+    for (const section of Object.values(summary.extensions))
+      expect(section).not.toHaveProperty('error');
+    expect(Object.keys(loaded.sessions)).toEqual([]);
+  });
+
+  // @lat: [[usage-opt-in#Usage Opt-in#Loading state drops malformed content]]
+  it('loading state keeps each valid kind, with its optional fields absent', () => {
+    mkdirSync(usageDir(root), { recursive: true });
+    const valid = {
+      start: stored({ kind: 'session_start' }),
+      child: stored({ kind: 'session_start', parent_session_id: 'P' }),
+      end: stored({ kind: 'session_end' }),
+      name: stored({ kind: 'session_name', name: 'A title' }),
+      model: stored({ kind: 'model', model: 'a-model' }),
+      edit: stored({ kind: 'tool_call', tool: editTool }),
+      shell: stored({
+        kind: 'tool_call',
+        tool: {
+          name: 'Bash',
+          action: 'shell',
+          path: null,
+          bytes: null,
+          shell: { exit_code: { value: null, reason: 'not_captured' } },
+        },
+      }),
+      tokens: stored(tokens('t')),
+      partial: stored({ kind: 'token_usage', usage: { input: 1 } }),
+      cost: stored({
+        kind: 'token_usage',
+        usage: { input: null, reported_cost_usd: 0.5 },
+      }),
+      bypass: stored({ kind: 'bypass_read', path: 'lat.md/a.md', bytes: null }),
+      claim: stored({ kind: 'bd_command', verb: 'claim', issue_id: 'lat-1' }),
+      close: stored({ kind: 'bd_command', verb: 'close', issue_id: 'lat-1' }),
+    };
+    writeSessions(valid);
+    expect(Object.keys(loadState(root).sessions)).toEqual(Object.keys(valid));
+  });
+
   // @lat: [[usage-opt-in#Usage Opt-in#The event log reads only regular files]]
   it('a symlinked events file is not ingested', () => {
     mkdirSync(usageDir(root), { recursive: true });

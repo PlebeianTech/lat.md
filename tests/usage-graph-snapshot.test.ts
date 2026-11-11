@@ -481,6 +481,108 @@ describe('usage graph snapshot', () => {
     expect(rewritten.git_head).toBe(head2);
   });
 
+  const section = { id: 's', document: 'd.md', bytes: 1, hash: 'h' };
+  const document = { path: 'd.md', bytes: 1 };
+  const edge = { file: 'src/a.ts', section: 's' };
+  const wellFormed = {
+    git_head: 'x',
+    sections: [section],
+    documents: [document],
+    code_ref_edges: [edge],
+    code_ref_edges_reason: null,
+    symbol_ref_edges: [edge],
+  };
+
+  // @lat: [[usage-graph-snapshot#Usage Graph Snapshot#A cache file of the wrong shape is rebuilt]]
+  it.each<[string, unknown]>([
+    ['only null code-ref edges', { code_ref_edges: null }],
+    ['an array', []],
+    ['a number', 5],
+    ['no git head', { ...wellFormed, git_head: undefined }],
+    ['no sections', { ...wellFormed, sections: undefined }],
+    ['a section that is a number', { ...wellFormed, sections: [5] }],
+    [
+      'a section id that is a number',
+      { ...wellFormed, sections: [{ ...section, id: 5 }] },
+    ],
+    [
+      'a section with no document',
+      { ...wellFormed, sections: [{ ...section, document: undefined }] },
+    ],
+    [
+      'a section with no hash',
+      { ...wellFormed, sections: [{ ...section, hash: undefined }] },
+    ],
+    [
+      'section bytes that are text',
+      { ...wellFormed, sections: [{ ...section, bytes: '1' }] },
+    ],
+    ['no documents', { ...wellFormed, documents: undefined }],
+    [
+      'a document path that is a number',
+      { ...wellFormed, documents: [{ ...document, path: 5 }] },
+    ],
+    [
+      'document bytes that are null',
+      { ...wellFormed, documents: [{ ...document, bytes: null }] },
+    ],
+    ['code-ref edges that are text', { ...wellFormed, code_ref_edges: 'x' }],
+    [
+      'a code-ref edge with no file',
+      { ...wellFormed, code_ref_edges: [{ section: 's' }] },
+    ],
+    ['no symbol-ref edges', { ...wellFormed, symbol_ref_edges: undefined }],
+    [
+      'a symbol-ref edge that is null',
+      { ...wellFormed, symbol_ref_edges: [null] },
+    ],
+  ])('rebuilds a cache file holding %s', async (_, payload) => {
+    mkdirSync(dirname(snapshotPath(head1)), { recursive: true });
+    writeFileSync(snapshotPath(head1), JSON.stringify(payload));
+    const knowledge = await knowledgeFor([
+      usage({ git_head: head1, worktree: root }),
+    ]);
+    expect(knowledge.snapshot!.git_head).toBe(head1);
+    expect(knowledge.never_read_sections.map((s) => s.id)).toContain(
+      'lat.md/notes#Notes#Beta',
+    );
+    const rewritten = JSON.parse(readFileSync(snapshotPath(head1), 'utf-8'));
+    expect(rewritten.git_head).toBe(head1);
+  });
+
+  // @lat: [[usage-graph-snapshot#Usage Graph Snapshot#A snapshot the code wrote is read back]]
+  it('reads back a stored snapshot with null or listed code-ref edges', async () => {
+    await knowledgeFor([
+      usage({
+        git_head: head1,
+        worktree: root,
+        ts: '2026-11-08T09:00:00.000Z',
+      }),
+      usage({
+        git_head: head2,
+        worktree: root,
+        ts: '2026-11-08T10:00:00.000Z',
+      }),
+    ]);
+    for (const head of [head1, head2]) {
+      const stored = JSON.parse(
+        readFileSync(snapshotPath(head), 'utf-8'),
+      ) as GraphSnapshot;
+      stored.sections.push({
+        id: 'ghost#Ghost',
+        document: 'lat.md/ghost.md',
+        bytes: null,
+        hash: 'x',
+      });
+      writeFileSync(snapshotPath(head), JSON.stringify(stored));
+      forgetSnapshots();
+      expect((await snapshotAt(root, head, [])).snapshot).toEqual(stored);
+    }
+    writeFileSync(snapshotPath(head2), JSON.stringify(wellFormed));
+    forgetSnapshots();
+    expect((await snapshotAt(root, head2, [])).snapshot).toEqual(wellFormed);
+  });
+
   // @lat: [[usage-graph-snapshot#Usage Graph Snapshot#A symlinked cache directory is never used]]
   it('neither reads, writes nor deletes in a symlinked graph-snapshots directory', async () => {
     const outside = join(root, 'outside');

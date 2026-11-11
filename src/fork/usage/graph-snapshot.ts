@@ -28,6 +28,7 @@ import {
   realUsageDirectory,
 } from './enabled.js';
 import { worktreeRoots } from './sources/worktrees.js';
+import { isPlainObject } from './validate.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -301,12 +302,49 @@ function removeFile(path: string): void {
   }
 }
 
+type Fields = Record<string, unknown>;
+
+function isListOf(value: unknown, valid: (item: Fields) => boolean): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every((item) => isPlainObject(item) && valid(item))
+  );
+}
+
+const validSection = (section: Fields) =>
+  typeof section.id === 'string' &&
+  typeof section.document === 'string' &&
+  typeof section.hash === 'string' &&
+  (section.bytes === null || Number.isFinite(section.bytes));
+
+const validDocument = (document: Fields) =>
+  typeof document.path === 'string' && Number.isFinite(document.bytes);
+
+const validEdge = (edge: Fields) =>
+  typeof edge.file === 'string' && typeof edge.section === 'string';
+
+/** Checks every field a consumer of a snapshot reads. */
+// @lat: [[usage-graph-snapshot#Usage Graph Snapshot#A cache file of the wrong shape is rebuilt]]
+function validSnapshot(value: unknown): value is GraphSnapshot {
+  return (
+    isPlainObject(value) &&
+    typeof value.git_head === 'string' &&
+    isListOf(value.sections, validSection) &&
+    isListOf(value.documents, validDocument) &&
+    (value.code_ref_edges === null ||
+      isListOf(value.code_ref_edges, validEdge)) &&
+    isListOf(value.symbol_ref_edges, validEdge)
+  );
+}
+
 /** A planted symlink, FIFO or device at the cache file is never read. */
 // @lat: [[usage-analytics#Usage Analytics#Opt-in and the usage directory]]
 function readCachedSnapshot(path: string): GraphSnapshot | null {
   if (!existsSync(path)) return null;
   try {
-    return JSON.parse(readRegularFile(path)) as GraphSnapshot;
+    const parsed: unknown = JSON.parse(readRegularFile(path));
+    if (!validSnapshot(parsed)) throw new Error('not a graph snapshot');
+    return parsed;
   } catch {
     removeFile(path);
     return null;

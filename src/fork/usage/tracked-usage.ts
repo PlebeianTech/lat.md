@@ -36,10 +36,12 @@ export function warnIfUsageTracked(root: string): boolean {
   return true;
 }
 
-const warnedRoots = new Set<string>();
+const checkedRoots = new Set<string>();
 
 export function warnOnceIfUsageTracked(root: string): void {
-  if (!warnedRoots.has(root) && warnIfUsageTracked(root)) warnedRoots.add(root);
+  if (checkedRoots.has(root) || realUsageDirectory(root) === null) return;
+  checkedRoots.add(root);
+  warnIfUsageTracked(root);
 }
 
 // @lat: [[usage-analytics#Usage Analytics#Opt-in and the usage directory]]

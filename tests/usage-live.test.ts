@@ -7,6 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request, type ClientRequest } from 'node:http';
@@ -268,6 +269,99 @@ describe('usage live server', () => {
     await stream.until('event: usage-change');
   });
 
+  // @lat: [[usage-live#Usage Live#A session path with no file follows its change files]]
+  it('pushes and discovers again when a change file of a virtual session changes', async () => {
+    const database = join(root, 'store', 'agent.db');
+    mkdirSync(join(root, '.lat', 'usage'), { recursive: true });
+    mkdirSync(join(root, 'store'));
+    writeFileSync(database, 'a');
+    const discover = vi.fn(async () => [
+      join(root, 'virtual', 'one'),
+      join(root, 'virtual', 'two'),
+    ]);
+    configureUsageLive({
+      sources: [
+        {
+          agent: 'opencode',
+          discover,
+          changeFiles: () => [database],
+          read: readNothing,
+        },
+      ],
+      bd: { refresh: async () => null },
+      contributions: [],
+      pollMs: 60_000,
+      heartbeatMs: 60_000,
+      debounceMs: 5,
+    });
+    await getUsage();
+    const stream = openStream();
+    await stream.until('event: ready');
+    // A new watcher replays the creation of the directory it watches.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const base = discover.mock.calls.length;
+    writeFileSync(database, 'ab');
+    await vi.waitFor(
+      () => expect(stream.count('usage-change')).toBeGreaterThan(0),
+      { timeout: 10_000 },
+    );
+    expect(discover.mock.calls.length).toBeGreaterThan(base);
+  });
+
+  // @lat: [[usage-live#Usage Live#Reading a WAL database starts no new discovery]]
+  it('stops discovering while only read-only opens touch a WAL database, and discovers again on a write', async () => {
+    const database = join(root, 'store', 'agent.db');
+    mkdirSync(join(root, '.lat', 'usage'), { recursive: true });
+    mkdirSync(join(root, 'store'));
+    const setup = new DatabaseSync(database);
+    setup.exec(
+      'PRAGMA journal_mode=WAL; CREATE TABLE t(a); INSERT INTO t VALUES (1);',
+    );
+    setup.close();
+    const discover = vi.fn(async () => {
+      const reader = new DatabaseSync(database, { readOnly: true });
+      reader.prepare('SELECT a FROM t').all();
+      reader.close();
+      return [join(root, 'virtual', 'one')];
+    });
+    configureUsageLive({
+      sources: [
+        {
+          agent: 'opencode',
+          discover,
+          changeFiles: () => [database, `${database}-wal`],
+          read: readNothing,
+        },
+      ],
+      bd: { refresh: async () => null },
+      contributions: [],
+      pollMs: 60_000,
+      heartbeatMs: 60_000,
+      debounceMs: 5,
+    });
+    await getUsage();
+    const stream = openStream();
+    await stream.until('event: ready');
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    await checkUsageLive(root);
+    await vi.waitFor(
+      async () => {
+        const before = discover.mock.calls.length;
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        expect(discover.mock.calls.length).toBe(before);
+      },
+      { timeout: 10_000 },
+    );
+    const base = discover.mock.calls.length;
+    const writer = new DatabaseSync(database);
+    writer.exec('INSERT INTO t VALUES (2)');
+    writer.close();
+    await vi.waitFor(
+      () => expect(discover.mock.calls.length).toBeGreaterThan(base),
+      { timeout: 10_000 },
+    );
+  });
+
   // @lat: [[usage-live#Usage Live#A burst of changes is one refresh]]
   it('pushes once for a burst of appended events', async () => {
     configureUsageLive({
@@ -342,6 +436,56 @@ describe('usage live server', () => {
     await vi.waitFor(() =>
       expect(stream.count('usage-change')).toBeGreaterThan(pushes),
     );
+  });
+
+  // @lat: [[usage-live#Usage Live#Source discovery is reused between checks]]
+  it('discovers once per poll for repeated writes to a file no source lists', async () => {
+    const dir = join(root, 'sessions');
+    mkdirSync(dir);
+    const transcript = join(dir, 'mine.jsonl');
+    writeFileSync(transcript, 'a\n');
+    const discover = vi.fn(async () => [transcript]);
+    const intervals = vi.spyOn(globalThis, 'setInterval');
+    configureUsageLive({
+      sources: [{ agent: 'codex', discover, read: readNothing }],
+      bd: { refresh: async () => null },
+      contributions: [],
+      pollMs: 60_000,
+      heartbeatMs: 59_000,
+      debounceMs: 5,
+    });
+    writeUsageEvent(root, usage());
+    await getUsage();
+    const stream = openStream();
+    await stream.until('event: ready');
+    const poll = intervals.mock.calls.find(
+      ([, ms]) => ms === 60_000,
+    )![0] as () => void;
+    intervals.mockRestore();
+    // A new watcher replays the creation of the directory it watches.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const writeUnlisted = async (name: string) => {
+      const pushes = stream.count('usage-change');
+      appendFileSync(join(dir, name), 'x\n');
+      appendFileSync(transcript, 'x\n');
+      await vi.waitFor(
+        () => expect(stream.count('usage-change')).toBeGreaterThan(pushes),
+        { timeout: 10_000 },
+      );
+    };
+    const base = discover.mock.calls.length;
+    for (let write = 0; write < 5; write++) await writeUnlisted('other.jsonl');
+    expect(discover.mock.calls.length - base).toBe(1);
+    await writeUnlisted('another.jsonl');
+    expect(discover.mock.calls.length - base).toBe(2);
+    poll();
+    await vi.waitFor(() => expect(discover.mock.calls.length - base).toBe(3), {
+      timeout: 10_000,
+    });
+    await writeUnlisted('other.jsonl');
+    expect(discover.mock.calls.length - base).toBe(4);
+    await writeUnlisted('other.jsonl');
+    expect(discover.mock.calls.length - base).toBe(4);
   });
 
   // @lat: [[usage-live#Usage Live#Requests after a change share one discovery]]

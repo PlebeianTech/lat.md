@@ -14,7 +14,11 @@ import {
   realUsageDirectory,
 } from './enabled.js';
 import type { Checkpoint } from './sources/types.js';
-import { plausibleTs, validUsageEvent } from './validate.js';
+import {
+  isPlainObject,
+  validSessionEvent,
+  validUsageEvent,
+} from './validate.js';
 
 export const USAGE_STATE_VERSION = 2;
 
@@ -106,16 +110,11 @@ export function statePath(root: string): string {
   return join(root, '.lat', 'usage', 'state.json');
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function validStoredSession(entry: unknown): boolean {
   return (
     isPlainObject(entry) &&
     typeof entry.agent === 'string' &&
-    isPlainObject(entry.event) &&
-    plausibleTs(entry.event.ts)
+    validSessionEvent(entry.event)
   );
 }
 
@@ -131,7 +130,7 @@ function filterValues<T>(
 /**
  * A missing, unreadable, foreign or malformed state file starts from nothing,
  * and so does one that is not a regular file inside a real `.lat/usage`
- * directory. Stored events pass the same checks ingest applies to new ones.
+ * directory. A stored event that fails its validity check is dropped.
  */
 // @lat: [[usage-analytics#Usage Analytics#Opt-in and the usage directory]]
 export function loadState(root: string): UsageState {

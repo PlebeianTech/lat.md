@@ -91,6 +91,10 @@ A `state.json` with version 2 but no maps, such as `{"version":2}`, loads as an 
 
 A stored usage event dated 3000-01-01 and a stored session event with no plausible ts are dropped on load. Valid stored events are kept.
 
+A stored session event is dropped on load when its fields would break a summary: an unknown `kind`, no `session_id` or `event_id`, a `parent_session_id` that is present but not a string, a `token_usage` with no `usage`, a null `usage` or a counter that is text, a `tool_call` with no `tool`, no `source` or a tool path that is not a string or null, and the other kinds without their own fields. For each one, an aggregator summary over that state does not throw and no summary section is an error.
+
+A valid event of each kind is kept, also when optional fields such as a token counter or the reported cost are absent.
+
 ## The event log reads only regular files
 
 A symlinked events file is not ingested. A regular events file at the same path is.

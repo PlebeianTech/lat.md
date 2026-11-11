@@ -27,6 +27,8 @@ export interface SessionSource {
   /** Session transcript paths for a repo root, including its worktrees. */
   discover(repoRoot: string): Promise<string[]>;
   read(sessionPath: string, checkpoint: Checkpoint | null): Promise<ReadResult>;
+  // @lat: [[usage-live#Usage Live#A session path with no file follows its change files]]
+  changeFiles?(sessionPath: string): string[];
 }
 
 export function notCapturedSource(agent: SessionAgent): SessionSource {

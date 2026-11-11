@@ -146,6 +146,14 @@ describe('opencode session reader', () => {
     ]);
   });
 
+  // @lat: [[usage-source-opencode#Usage Source OpenCode#Session paths and the checkpoint cursor]]
+  it('names the database and its write-ahead log as the change files', () => {
+    expect(opencodeSource.changeFiles?.(sessionPath('ses_main'))).toEqual([
+      database,
+      `${database}-wal`,
+    ]);
+  });
+
   // @lat: [[usage-source-opencode#Usage Source OpenCode#Discovery matches sessions by directory]]
   it('discovers sessions inside the repo or a worktree', async () => {
     const git = (...args: string[]) =>

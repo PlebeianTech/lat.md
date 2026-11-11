@@ -1,3 +1,4 @@
+import { TOKEN_COUNTERS } from './aggregate-types.js';
 import { USAGE_SCHEMA_VERSION, type UsageEvent } from './schema.js';
 
 type FieldType = 'string' | 'number' | 'boolean';
@@ -43,6 +44,73 @@ export function plausibleTs(ts: unknown): boolean {
 function hasType(value: unknown, type: string): boolean {
   if (value === null) return type.endsWith('?');
   return typeof value === type.replace('?', '');
+}
+
+export function isPlainObject(
+  value: unknown,
+): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Absent and null both mean unknown. */
+function validCount(value: unknown): boolean {
+  return value === null || value === undefined || Number.isFinite(value);
+}
+
+function validTokenUsage(usage: unknown): boolean {
+  return (
+    isPlainObject(usage) &&
+    [...TOKEN_COUNTERS, 'reported_cost_usd'].every((field) =>
+      validCount(usage[field]),
+    )
+  );
+}
+
+function validToolCall(tool: unknown, source: unknown): boolean {
+  return (
+    isPlainObject(tool) &&
+    hasType(tool.path, 'string?') &&
+    isPlainObject(source) &&
+    typeof source.path === 'string'
+  );
+}
+
+function validKindFields(event: Record<string, unknown>): boolean {
+  switch (event.kind) {
+    case 'session_start':
+    case 'session_end':
+      return true;
+    case 'session_name':
+      return typeof event.name === 'string';
+    case 'model':
+      return typeof event.model === 'string';
+    case 'tool_call':
+      return validToolCall(event.tool, event.source);
+    case 'token_usage':
+      return validTokenUsage(event.usage);
+    case 'bypass_read':
+      return typeof event.path === 'string';
+    case 'bd_command':
+      return (
+        typeof event.issue_id === 'string' &&
+        (event.verb === 'claim' || event.verb === 'close')
+      );
+    default:
+      return false;
+  }
+}
+
+// @lat: [[usage-analytics#Usage Analytics#Usage event#Usage event fields]]
+export function validSessionEvent(event: unknown): boolean {
+  return (
+    isPlainObject(event) &&
+    typeof event.event_id === 'string' &&
+    typeof event.session_id === 'string' &&
+    (event.parent_session_id === undefined ||
+      typeof event.parent_session_id === 'string') &&
+    plausibleTs(event.ts) &&
+    validKindFields(event)
+  );
 }
 
 /**

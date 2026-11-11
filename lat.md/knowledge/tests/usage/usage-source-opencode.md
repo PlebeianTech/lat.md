@@ -15,6 +15,8 @@ The format is the OpenCode SQLite store at `opencode/opencode.db` under `XDG_DAT
 
 A session path is the database path, a `#`, and the session id, because one database holds every session.
 
+A session path is not a real file, so the change files of a session are the database and its `-wal` file. SQLite in WAL mode writes to the `-wal` file first, so the database alone can stay unchanged.
+
 Event ids hash that path with the creation time in milliseconds of the message that produced the event, plus the event kind and its index within that message.
 
 The checkpoint offset is also a message creation time: the first message not yet read. Messages at or after it are unread. A tail assistant message that has not completed is held back whole, so its tokens and tool calls are counted once, when it finishes.

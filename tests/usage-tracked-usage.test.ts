@@ -191,6 +191,61 @@ describe('lat ui warns once per project root', () => {
       await server.close();
     }
   });
+
+  async function withDashboard(
+    run: (requestUsage: () => Promise<unknown>) => Promise<void>,
+  ): Promise<void> {
+    const clientDir = join(root, 'client');
+    mkdirSync(clientDir);
+    writeFileSync(join(clientDir, 'usage.html'), '<!doctype html><p>u</p>');
+    configureUsageLive({
+      sources: [],
+      bd: { refresh: async () => null },
+      contributions: [],
+      pollMs: 20,
+      heartbeatMs: 20,
+    });
+    const server = await startViewServer(
+      {
+        projectRoot: root,
+        latDir: join(root, 'lat.md'),
+        mode: 'cli',
+        styler: plainStyler,
+      },
+      { port: 0, watch: false, git: false, clientDir },
+    );
+    try {
+      await run(async () => (await fetch(server.url + 'api/usage')).json());
+    } finally {
+      stopUsageLive();
+      configureUsageLive({});
+      await server.close();
+    }
+  }
+
+  it('does not check a root again on a restart when nothing was tracked', async () => {
+    git('init', '-q');
+    mkdirSync(join(root, '.lat', 'usage'), { recursive: true });
+    await withDashboard(async (requestUsage) => {
+      await requestUsage();
+      expect(occurrences(stderr, WARNING_FIX)).toBe(0);
+      trackUsageFile();
+      stopUsageLive(root);
+      await requestUsage();
+      expect(occurrences(stderr, WARNING_FIX)).toBe(0);
+    });
+  });
+
+  it('checks a root on a restart once its usage directory exists', async () => {
+    await withDashboard(async (requestUsage) => {
+      await requestUsage();
+      expect(occurrences(stderr, WARNING_FIX)).toBe(0);
+      trackUsageFile();
+      stopUsageLive(root);
+      await requestUsage();
+      expect(occurrences(stderr, WARNING_FIX)).toBe(1);
+    });
+  });
 });
 
 const ignoreFile = () => join(root, '.gitignore');

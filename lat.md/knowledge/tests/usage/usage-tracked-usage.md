@@ -21,6 +21,10 @@ When git lists nothing, when the root is not in a repository, and when git is no
 
 When the live state of a project root starts, the dashboard server prints the same warning on stderr. Later requests and a restart of that root's live state print nothing more.
 
+The root is checked once per process, also when nothing was tracked. A root checked while nothing was tracked prints no warning on a restart of its live state, even if a usage file is tracked by then.
+
+A root with no usage directory runs no git and is not yet counted as checked. If the directory exists and a usage file is tracked at the next restart of its live state, the warning prints once.
+
 ## Enable adds the usage directory to .gitignore
 
 `lat usage enable` creates `<root>/.gitignore` when missing, or appends a short comment line and `.lat/usage/`. It does this on the already-enabled path too, and once for two runs.

@@ -7,10 +7,6 @@
  *
  *   registerUsageRoute('/api/usage/example', exampleHandler);
  *
- * The handler gets `{ root, url, filters, aggregator, bd }` (filters parsed
- * from the query string by parseUsageFilters) and returns a JSON-serializable
- * value. The aggregator is refreshed before every handler call. A handler that
- * reads the raw event index passes it `bd`, the one bd watcher of the root.
  * Nothing else in this file changes for a route; the handler lives in its
  * owner's file.
  *
@@ -73,6 +69,7 @@ import { sessionSources } from './sources/index.js';
 import type { SessionSource } from './sources/types.js';
 import { warnOnceIfUsageTracked } from './tracked-usage.js';
 
+// @lat: [[usage-live#Usage Live#Routes register through registerUsageRoute]]
 export interface UsageRouteContext {
   root: string;
   url: URL;
@@ -133,6 +130,8 @@ interface Live {
   debounce: NodeJS.Timeout | null;
   /** Session transcripts found by the last discovery; null before the first. */
   discovered: Set<string> | null;
+  changeFiles: Set<string>;
+  rechecked: Set<string>;
   // @lat: [[usage-live#Usage Live#Requests after a change share one discovery]]
   walks: Map<SessionSource, Promise<string[]>>;
   sources: SessionSource[];
@@ -197,6 +196,16 @@ function headFingerprint(root: string): string {
   }
 }
 
+// @lat: [[usage-live#Usage Live#Source discovery is reused between checks]]
+function needsDiscovery(live: Live, path: string | null): boolean {
+  if (path === null) return true;
+  if (live.discovered?.has(path)) return false;
+  if (live.changeFiles.has(path)) return true;
+  if (live.rechecked.has(path)) return false;
+  live.rechecked.add(path);
+  return true;
+}
+
 function watchDirectories(live: Live, wanted: Map<string, RegExp | null>) {
   for (const [dir, watcher] of live.watchers)
     if (!wanted.has(dir)) {
@@ -207,11 +216,12 @@ function watchDirectories(live: Live, wanted: Map<string, RegExp | null>) {
     if (live.watchers.has(dir)) continue;
     try {
       const watcher = watch(dir, { persistent: false }, (_event, name) => {
+        // @lat: [[usage-live#Usage Live#Reading a WAL database starts no new discovery]]
+        if (name?.toString().endsWith('-shm')) return;
         if (only === null || !name || only.test(name.toString())) {
-          // A file nobody has listed yet may be a new transcript.
           if (
             only === null &&
-            (!name || !live.discovered?.has(join(dir, name.toString())))
+            needsDiscovery(live, name ? join(dir, name.toString()) : null)
           )
             live.walks.clear();
           trigger(live);
@@ -239,19 +249,27 @@ async function observe(live: Live) {
   }
   // Usage off: read no session store, as aggregate.refresh and the event index.
   // Discovery walks the agents' stores, so every caller shares one walk of each.
+  const changeFiles = new Set<string>();
   if (!usageEnabled(root)) {
     live.walks.clear();
     live.discovered = null;
   } else {
     const found: string[] = [];
-    for (const source of live.sources)
-      found.push(...(await source.discover(root)));
+    for (const source of live.sources) {
+      const paths = await source.discover(root);
+      found.push(...paths);
+      // @lat: [[usage-live#Usage Live#A session path with no file follows its change files]]
+      for (const path of paths)
+        for (const file of source.changeFiles?.(path) ?? [path])
+          changeFiles.add(file);
+    }
     live.discovered = new Set(found);
     parts.push(beadsDirFingerprint(resolveBeadsDir(root)));
   }
-  for (const path of live.discovered ?? []) {
-    parts.push(stat(path));
-    wanted.set(dirname(path), null);
+  live.changeFiles = changeFiles;
+  for (const file of changeFiles) {
+    parts.push(stat(file));
+    wanted.set(dirname(file), null);
   }
   const head = headFingerprint(root);
   parts.push(head);
@@ -356,6 +374,8 @@ function startLive(root: string): Live {
     scheduled: false,
     debounce: null,
     discovered: null,
+    changeFiles: new Set(),
+    rechecked: new Set(),
     walks,
     sources,
     stopped: false,
@@ -370,6 +390,7 @@ function startLive(root: string): Live {
       setInterval(() => {
         // The poll is the safety net for a store directory nobody watches yet.
         live.walks.clear();
+        live.rechecked.clear();
         trigger(live);
       }, options.pollMs ?? 5_000),
       setInterval(

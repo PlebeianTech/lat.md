@@ -7,11 +7,15 @@ lat:
 
 Tests in `tests/usage-live.test.ts` for `src/fork/usage/live.ts` and its one dispatch line in `src/view/server.ts`.
 
-They start a real `lat ui` server on a temporary project root with a fixture `usage.html` in a temporary client directory, fake session sources and a stubbed bd watcher. None reads a real agent store or the live bd database, and none asserts on elapsed time, except the burst test, which waits a fixed interval to see that no second push comes. Each triggers a change, then awaits the push.
+They start a real `lat ui` server on a temporary project root with a fixture `usage.html` in a temporary client directory, fake session sources and a stubbed bd watcher. None reads a real agent store or the live bd database, and none asserts on elapsed time, except the burst test, which waits a fixed interval to see that no second push comes, and the WAL database test, which waits for an interval with no `discover` call. Each triggers a change, then awaits the push.
 
 ## Routes register through registerUsageRoute
 
-A handler registered with `registerUsageRoute` is served under its path as JSON, and receives the request's parsed filters, the project root and the aggregator.
+A handler registered with `registerUsageRoute` is served under its path as JSON. It receives `{ root, url, filters, aggregator, bd, sources }` and returns a value that JSON can serialize.
+
+The filters are parsed from the query string by `parseUsageFilters`. The aggregator is refreshed before every handler call.
+
+`bd` is the one bd watcher of the root and `sources` are the sources that share one discovery. Both are unset for MCP. A handler that reads the raw event index passes it `bd` and `sources`.
 
 `/api/usage` is registered the same way, so a later issue adds a route with one line.
 
@@ -29,6 +33,20 @@ After an event is appended to the log, the event stream sends exactly one `usage
 
 The stream opens with a `ready` event that carries a server-lifetime id, and sends heartbeat comments.
 
+## A session path with no file follows its change files
+
+The optional `changeFiles` member of a session source returns the real files whose changes mean a session changed. It must not throw. Without it, the session path itself is that file.
+
+A change to such a file, in a directory only that file brings into the watch, pushes `usage-change` and runs discovery again, because a database write can be a new session.
+
+## Reading a WAL database starts no new discovery
+
+When no other connection is open, each read-only open of a SQLite database in WAL mode creates its `-shm` file again. The watcher ignores a file name that ends in `-shm`, so one discovery does not start the next.
+
+OpenCode's `discover` opens its database this way. A real write reaches the database or its `-wal` file, so those files still start a new discovery.
+
+The test uses a real WAL database with no other connection. It runs one check after the watcher starts, so that a read-only open happens while the watcher listens. The count of `discover` calls must then stop growing. A write from a second connection must then start a new discovery after that connection closes. On macOS the watcher reports no event while a connection holds the file open, so a write from a connection that stays open is found by the next poll.
+
 ## A burst of changes is one refresh
 
 Several events appended within the debounce interval make one check, one `usage-change` push and one refresh, not one per file event.
@@ -36,6 +54,15 @@ Several events appended within the debounce interval make one check, one `usage-
 ## Source discovery is reused between checks
 
 A check caused by a file event reuses the session files found earlier, and so does the refresh after it: a change that adds no file calls `discover` on no source. A new file in a watched store directory is found at once, and a poll looks again.
+
+A store directory can be shared. Codex keeps the rollouts of all projects in the same dated directories, so another project's active session can write there many times. What a watcher event in a store directory does depends on the file it names:
+
+- A file that discovery listed starts no new discovery.
+- A change file that discovery did not list, such as OpenCode's database or its `-wal` file, starts a new discovery on every event, because a database write can be a new session.
+- Any other file starts a new discovery the first time it is seen after a poll, because it may be a new transcript. More events for that file start none until the next poll. A file that becomes a transcript only after its first write is found by the next poll.
+- An event with no file name starts a new discovery.
+
+The test writes to an unlisted file and then to a listed transcript, and waits for the push. Watcher events arrive in order, so the event for the unlisted file has been handled by then. Repeated writes to one unlisted file must cost one `discover` call in total, and a second unlisted file one more. The test then runs the poll callback by hand. The poll discovers once, and the next write to the first file discovers once again.
 
 ## Requests after a change share one discovery
 
