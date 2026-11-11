@@ -195,13 +195,14 @@ Implementation: [[packages/core/src/cli/expand.ts]]
 
 Generate a file to stdout from a built-in template.
 
-Usage: `lat gen <target>`
+Usage: `lat gen <target> [--branch <name>] [--node-version <version>]`
 
 Supported targets:
 
 - `agents.md` — generate an `AGENTS.md` with instructions for coding agents on how to use `lat.md` in the project
 - `claude.md` — alias for `agents.md`
 - `cursor-rules.md` — generate Cursor rules for `.cursor/rules/lat.md`
+- `github-wiki-workflow`: generate a GitHub Actions workflow that publishes Diátaxis documentation to the repository wiki (only this target reads `--branch` and `--node-version`)
 - `pi-extension.ts` — generate the Pi extension template (tools + lifecycle hooks)
 - `skill.md` — generate the Agent Skills spec `SKILL.md` for the `lat-md` skill (authoring guide for `lat.md/` files)
 
@@ -552,6 +553,8 @@ Build and publish Diátaxis documentation to GitHub Wiki repositories.
 Usage: `lat wiki build [output] [--repo <owner/repo-or-url>] [--ref <ref>]` and `lat wiki publish [--remote <remote-or-url>] [--repo <owner/repo-or-url>] [--ref <ref>] [--message <text>] [--dry-run]`.
 
 The build subcommand invokes [[src/cli/wiki.ts#wikiBuildCommand]], which catalogs Diátaxis documents using [[src/wiki/catalog.ts#buildWikiCatalog]], rewrites references via [[src/wiki/transform.ts#transformWikiCatalog]], and renders wiki pages to disk with [[src/wiki/render.ts#writeWikiBundle]]. The publish subcommand invokes [[src/cli/wiki.ts#wikiPublishCommand]] and commits and pushes the rendered bundle to the companion `.wiki.git` repository using [[src/wiki/publish.ts#publishWiki]].
+
+The command `lat gen github-wiki-workflow` prints a GitHub Actions workflow that runs this publishing in CI; the project commits the printed file, so no code from another repository runs and the write token stays in the project's own workflow. The command accepts `--branch <name>` (default `main`) and `--node-version <version>` (default `lts/*`). It fills the package name and version from the running `lat` so the file pins that release. Two jobs separate privileges: a read-only build job installs `lat` with `npm --ignore-scripts` and runs `lat wiki build`; a publish job with write permission runs `git` only. Implementation: [[src/fork/github-wiki-workflow.ts#renderGithubWikiWorkflow]].
 
 ## impact
 
