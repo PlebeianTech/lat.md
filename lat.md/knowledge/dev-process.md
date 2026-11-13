@@ -63,6 +63,8 @@ pnpm exec lat check
 
 Keep pull requests focused and explain user-visible behavior and rationale. Do not commit generated `dist/`, `model/`, `wasm-dist/`, `.cargo-tools/`, or Cargo `target/` artifacts. Version bumps are reserved for maintainer-led releases.
 
+Upstream requires a Changeset on every PR (`pnpm changeset`). The fork does not version or release through Changesets; see [[fork-publishing#Publishing]].
+
 ## Development Commands
 
 The root scripts provide focused checks and builds as well as the complete CI-equivalent workflow.
@@ -114,6 +116,12 @@ CI runs `pnpm buildall`, the `vitest` suite, and `lat check` on `ubuntu-latest`.
 The separate graph-validation workflow installs and builds the workspace, then runs `lat check` through the checkout's built CLI. This lets unreleased parser and validation behavior verify the repository without third-party actions or the last npm release.
 
 Cross-platform correctness relies on two conventions: stored paths are always POSIX ([[packages/core/src/path.ts#toPosix]]), and a repo-root `.gitattributes` (`eol=lf`) keeps Windows checkouts from rewriting line endings and breaking the markdown roundtrip. Functional init tests run the built CLI and database seeding in child processes so native database handles close before temp cleanup. Lower-level tests that retain handles or spawn a fake `git` use [[tests/util.ts#rmDirBestEffort]].
+
+### Release automation tests
+
+[[tests/changesets.test.ts]] exercises changeset enforcement and actual Changesets versioning in temporary Git repositories, including dependency propagation and public changelog generation.
+
+Coverage rejects missing notes despite pre-existing pending changesets, unexplained empty files, invalid bump types, and unknown packages. Real versioning must bump an exact workspace dependent, preserve the workspace protocol, and pass the release-only exception. Source changes cannot use that exception, and consuming a release note requires its package bump. Public changelog synchronization preserves earlier releases, adds section descriptions, and is idempotent.
 
 ## Site Development
 

@@ -5,9 +5,113 @@ lat:
 
 # Hook
 
-Functional tests for Claude, Codex, and Cursor lifecycle hooks. Hook subprocesses use fake Git output; [[src/cli/hook.ts#analyzeDiff]] also runs against temporary real repositories.
+Git and agent integration tests verify staged validation, manual-commit exclusions, conservative installation, and migration from completion hooks.
 
-The fake `git` dispatches on the subcommand, so one helper controls both the tracked diff and untracked-file list. Real repositories verify native Git ignore and unborn-branch behavior. Tests live in `tests/hook.test.ts`.
+Tests use real temporary Git repositories and invoke the source CLI, including actual commits with Git-provided indexes and linked worktrees. Implementations live in [[tests/git-hook.test.ts]] and [[tests/hook.test.ts]].
+
+The Git-hook suite yields to the event loop between tests so synchronous subprocess calls do not starve Vitest's reporting messages on slower runners.
+
+## Legacy stop hooks are silent
+
+In opted-in projects, Claude, Codex, and Cursor stop commands exit successfully without reading stdin or validating broken projects, so stale settings do not interrupt agents.
+
+## Prompt hooks do not expand references
+
+Claude and Codex prompt hooks retain search guidance without expanding wiki links, requesting manual expansion, or asking users to repair unresolved prompt references.
+
+## Codex hook setup preserves non-lat hooks
+
+Syncing Codex hooks installs the selected workflow while preserving unrelated handlers and metadata. Stable setup includes Stop validation; opted-in projects retain only prompt context.
+
+## Local JavaScript hook commands retain Node
+
+Local compiled JavaScript entry points retain the Node launcher in generated prompt hooks, so non-executable compiler output remains usable.
+
+## Agent detection protects manual commits
+
+Package detection recognizes agent commands while broad Claude IDE markers alone skip enforcement. Explicit agent identity and the Claude child marker enable validation; manual commits skip even broken staged docs.
+
+## Validates the index without touching work
+
+An initial commit validates staged blobs, rejects staged errors even when working files are fixed, and preserves both the original index bytes and unstaged edits.
+
+## Uses Git commit indexes
+
+Real commit-all and path-specific commits validate correctly in both modes. Staged mode checks Git's supplied index; working-tree mode checks the project directory despite temporary commit index overrides.
+
+## Working-tree validation resolves local targets
+
+Working-tree mode resolves symbols in ignored nested checkouts and links to untracked or ignored files just like regular validation. Staged mode rejects those absent targets, and neither mode modifies the real index or source contents.
+
+## Working-tree validation uses current file contents
+
+Unstaged source repairs can satisfy working-tree validation, while unstaged documentation errors still block it even with the review bypass. Validation leaves the real index unchanged.
+
+## Validation mode comes from staged configuration
+
+The mode defaults to staged validation until an explicit working-tree choice is staged. Unstaged configuration cannot change that choice, and invalid modes fail even with the review bypass.
+
+## Checks deletions and nested projects
+
+Nested Lat projects are discovered from the index in both modes; deleting a referenced source file fails validation in the owning project.
+
+## Contains staged symlinks
+
+A staged link escaping the exported tree is rejected before validation can read outside the snapshot.
+
+## Accepts contained symlinks under aliased temporary directories
+
+A temporary directory with a symlink ancestor accepts staged links whose targets stay inside the snapshot, covering macOS temporary paths and equivalent aliases on other systems.
+
+## Excludes fixture projects using staged configuration
+
+Both modes honor staged exclusions for deliberately broken fixtures; unstaged exclusions have no effect. Directory boundaries preserve similarly named siblings, and ancestor projects still validate their own graph and source references.
+
+## Rejects invalid project exclusions
+
+Malformed exclusion lists, absolute paths, and dot components fail validation instead of silently skipping projects or broadening the configured scope.
+
+## Installs only owned Git hooks
+
+Fresh hooks install and refresh idempotently. Existing custom hooks and edited Lat hooks remain unchanged, with integration instructions instead of replacement.
+
+[[src/cli/git-hook-install.ts#installGitHook]] repairs missing executable bits on Unix. Windows treats matching hook content as already configured because Unix executable bits are unavailable there; repeated setup must not rewrite that hook.
+
+## Preserves hook managers and custom paths
+
+On Git versions before configuration hooks, Husky, pre-commit, Lefthook, and custom hooksPath configurations receive integration instructions without writing a competing Git hook.
+
+## Detects configuration hook support
+
+Git 2.54 and newer select named repository hooks, including Windows and Apple version strings. Older or unrecognized versions retain the legacy launcher path.
+
+## Migrates owned hooks to repository configuration
+
+Unchanged legacy launchers migrate to a named local hook without duplicate events. Repeat setup and runtime updates are idempotent; edited legacy or configured launchers remain untouched.
+
+## Preserves configured hook overrides
+
+Conflicting, disabled, inherited, duplicate-event, and incomplete user configurations are preserved with integration guidance instead of being overwritten or silently re-enabled.
+
+## Configured hooks coexist with existing workflows
+
+Named Lat hooks preserve existing hook managers, custom hooksPath, scripts, and unrelated configured hooks. On supported Git, real commits run existing hooks and honor their failures.
+
+## Shares hooks across worktrees
+
+Linked worktrees share legacy and configured hooks, but validation reads the committing worktree and does not capture the installation directory. Real commits reject broken staged documentation through either installation format.
+
+## Recognizes aliased Git directories
+
+On case-insensitive filesystems, setup through differently cased paths recognizes the existing hook without rewriting configuration. Native path resolution also normalizes Windows short names when comparing shared launcher paths.
+
+## Migrates lifecycle hooks without collateral changes
+
+Migration removes Lat commands within mixed hook entries while retaining unrelated commands, event matchers, and Cursor prompt handlers.
+
+## Missing runtime does not strand commits
+
+If an installed runtime disappears, the launcher permits commits and prints a repair instruction instead of leaving the repository unusable.
 
 ## Exits silently when check passes and no diff
 
@@ -57,18 +161,6 @@ When Cursor needs more work at stop time, the hook returns a `followup_message` 
 
 When Codex needs more work at stop time, the hook returns the same guarded `decision: "block"` continuation payload used for Claude.
 
-## Prompt hooks do not expand references
-
-Claude and Codex prompt hooks retain search guidance without expanding wiki links, requesting manual expansion, or asking users to repair unresolved prompt references.
-
-## Codex hook setup preserves non-lat hooks
-
-Syncing `.codex/hooks.json` removes stale lat-owned entries, installs current prompt and stop commands, and preserves unrelated hook metadata and event handlers.
-
-## Local JavaScript hook commands retain Node
-
-When init runs from a local compiled JavaScript entry point, generated hook commands invoke it through the same Node executable so non-executable `tsc` output works without changing file permissions.
-
 ## Blocks on a Diátaxis mode error at stop time
 
 `checkAllCommand` counts Diátaxis mode errors in its total, so the Stop hook's status check has to count them too.
@@ -101,3 +193,27 @@ The integration fixture nests the Lat project inside a larger worktree, verifies
 ## Counts untracked files before the first commit
 
 When `HEAD` does not exist yet, tracked diff analysis may fail but untracked `lat.md/` and supported source files still contribute their complete line counts.
+
+## Prompt guidance follows the selected workflow
+
+Prompt hooks read each project's saved experiment choices and describe completion checks by default or staged commit checks when opted in.
+
+## Git validation requires explicit opt-in
+
+Missing or disabled project choices make the Git hook skip even broken staged graphs. Linked worktrees retain independent opt-ins despite sharing the installed launcher.
+
+## Staged code review requires acknowledgment
+
+In both validation modes, an initial agent commit with enough staged code stops for review even when Lat changes are staged. Only an explicit retry with bypass value `1` succeeds; other values do not acknowledge review.
+
+## Review reminders use only staged code churn
+
+Suggestions ignore untracked code, unstaged edits, documentation-only changes, and small staged edits. Staged additions and deletions count, unusual filenames remain intact, and validation failures take precedence over review reminders.
+
+## Review reminders respect project scope
+
+Suggestions count only source changes within affected opted-in projects and outside excluded fixture subtrees. A root project’s opt-out prevents unrelated root changes from triggering reminders for an opted-in nested project.
+
+## Review bypass preserves validation and other hooks
+
+Real Git commits with the review bypass still reject validation errors and run other Git hooks in both modes. The flag acknowledges semantic review without weakening structural validation or unrelated checks.

@@ -21,6 +21,7 @@ import {
   plainStyler,
   type CmdContext,
 } from '@plebeiantech/lat.md-core/context';
+import { createSharingPolicy, isLoopbackHost } from './sharing.js';
 import { sectionCommand } from '@plebeiantech/lat.md-core/cli/section';
 import {
   DEFAULT_VIEW_LOGO_TEXT,
@@ -189,10 +190,11 @@ async function sendClientShell(
   path: string,
   headOnly: boolean,
   entry: string,
+  shared = false,
 ): Promise<void> {
   try {
     const html = rewriteClientAssetUrls(await readFile(path, 'utf8'), '/');
-    const config = `<meta name="lat-live-entry" content="${encodeURIComponent(entry)}">`;
+    const config = `<meta name="lat-live-entry" content="${encodeURIComponent(entry)}">${shared ? '<meta name="lat-shared-view" content="true">' : ''}`;
     const body = html.includes('</head>')
       ? html.replace('</head>', `${config}</head>`)
       : `${config}${html}`;
@@ -210,6 +212,7 @@ export async function createViewApp(
   options: ViewServerOptions = {},
 ): Promise<ViewApp> {
   const host = options.host ?? DEFAULT_HOST;
+  const shared = !isLoopbackHost(host);
   const clientDir = options.clientDir ?? defaultClientDir;
   const logoText = options.logoText ?? DEFAULT_VIEW_LOGO_TEXT;
   const store = await createViewStore(ctx.latDir, ctx.projectRoot, {
@@ -217,6 +220,10 @@ export async function createViewApp(
     gitPollMs: options.gitPollMs,
     watch: options.watch,
     externalCa: options.externalCa,
+    sharingPolicy: shared
+      ? () =>
+          createSharingPolicy(ctx.latDir, ctx.projectRoot, options.externalCa)
+      : undefined,
   });
   try {
     validateDocumentRoutes(store.getIndex().files);
@@ -253,6 +260,19 @@ export async function createViewApp(
       const method = req.method ?? 'GET';
       const headOnly = method === 'HEAD';
       const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+      if (shared) {
+        if (!['GET', 'HEAD'].includes(method)) {
+          res.setHeader('Allow', 'GET, HEAD');
+          sendJson(res, 405, { error: 'Shared UI is read-only' }, headOnly);
+          return;
+        }
+        // These operations read the private project-wide index outside the view store.
+        if (url.pathname === '/api/section' || url.pathname === '/api/search') {
+          sendJson(res, 404, { error: 'Not available in shared UI' }, headOnly);
+          return;
+        }
+        await store.ready();
+      }
       const documentEdit =
         method === 'PATCH' && url.pathname === '/api/document';
       if (method !== 'GET' && !headOnly && !documentEdit) {
@@ -279,6 +299,7 @@ export async function createViewApp(
           join(clientDir, 'index.html'),
           headOnly,
           entry,
+          shared,
         );
         return;
       }
@@ -595,6 +616,7 @@ export async function createViewApp(
           join(clientDir, 'index.html'),
           headOnly,
           index.entry,
+          shared,
         );
         return;
       }
@@ -628,7 +650,7 @@ export async function createViewApp(
   };
 }
 
-/** Start the loopback server used by `lat ui`. */
+/** Start the `lat ui` server, defaulting to loopback. */
 export async function startViewServer(
   ctx: CmdContext,
   options: ViewServerOptions = {},

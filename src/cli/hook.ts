@@ -36,6 +36,7 @@ import {
 } from './comment-reminder.js';
 import { handlePreToolUse } from './comment-guard.js';
 import { handleAntigravityHook } from '../fork/antigravity-hook.js';
+import { isExperimentEnabled } from './experiments.js';
 
 function outputPromptSubmit(context: string): void {
   process.stdout.write(
@@ -159,7 +160,9 @@ async function handleUserPromptSubmit(): Promise<void> {
     'Use `lat section` to read the full content of relevant matches.',
     'Do not read files, write code, or run commands until you have searched.',
     '',
-    'Remember: `lat.md/` must stay in sync with meaningful codebase state. If you change implemented behavior, architecture, or tests, update the relevant current-state sections and run `lat check` before finishing. Plans may be drafted in `lat.md/` alongside implementation, with the intent that by commit time they describe what was implemented. Otherwise, keep proposals, hypothetical designs, and future work outside `lat.md/` unless the user explicitly requests them there. Do not use `lat.md/` as a journal/changelog or add notes for insignificant details.',
+    isExperimentEnabled('commit-hooks')
+      ? 'Remember: `lat.md/` must stay in sync with meaningful codebase state. Update relevant current-state sections and stage documentation with the implementation before committing. Agent commits are validated by `lat hook git-pre-commit`. Validation checks staged content by default, or the working tree when `lat.git-pre-commit.validation` is set to `working-tree`. Fix validation errors before retrying. The hook may also stop a commit to request a review of Lat coverage. After reviewing, you may retry with `LAT_BYPASS_COMMIT_HOOK=1 git commit ...` if no documentation update is needed or the changes are already covered. If coverage is missing, update and stage the relevant documentation first, then retry with the flag. This flag skips only the review reminder; validation and other Git hooks still run. Keep proposals and future work outside `lat.md/` unless explicitly requested there. Do not add journal/changelog notes or insignificant details.'
+      : 'Remember: `lat.md/` must stay in sync with meaningful codebase state. If you change implemented behavior, architecture, or tests, update the relevant current-state sections and run `lat check` before finishing. Plans may be drafted in `lat.md/` alongside implementation, with the intent that by commit time they describe what was implemented. Otherwise, keep proposals, hypothetical designs, and future work outside `lat.md/` unless the user explicitly requests them there. Do not use `lat.md/` as a journal/changelog or add notes for insignificant details.',
   );
 
   const latDir = findLatticeDir();
@@ -559,7 +562,18 @@ async function handleCursorStop(): Promise<void> {
   outputCursorStop(reason);
 }
 
-export async function hookCmd(agent: string, event: string): Promise<void> {
+export async function hookCmd(agent: string, event?: string): Promise<void> {
+  if (agent === 'git-pre-commit' && event === undefined) {
+    const { gitPreCommit } = await import('./git-hook.js');
+    process.exitCode = await gitPreCommit();
+    return;
+  }
+  if (
+    isExperimentEnabled('commit-hooks') &&
+    (((agent === 'claude' || agent === 'codex') && event === 'Stop') ||
+      (agent === 'cursor' && event === 'stop'))
+  )
+    return;
   switch (agent) {
     case 'claude':
       switch (event) {
@@ -614,7 +628,7 @@ export async function hookCmd(agent: string, event: string): Promise<void> {
       }
     case 'antigravity':
     case 'gemini':
-      await handleAntigravityHook(event);
+      await handleAntigravityHook(event ?? '');
       return;
     default:
       console.error(

@@ -38,3 +38,59 @@ Review whether the knowledge diff describes the behavior you want, then follow i
 Check that new constraints are justified, changed behavior is explicit, and important test expectations have matching references. [[ui|Lat UI]] lets you explore these relationships without navigating files manually.
 
 The integration directs the agent to run `lat check` before finishing, and supported completion hooks also run validation and flag possible documentation gaps. Review the meaning of the changes yourself: passing checks confirms structure and references, while you and the agent assess whether the knowledge matches the intended behavior.
+
+## Experimental commit hooks
+
+Run `lat init --experimental` to choose experimental features for this project. The checklist explains each experiment and starts with your saved choices.
+
+Enable **Replace end-of-turn checks with Git commit checks** to validate staged content when an agent commits. Setup removes Lat completion hooks, refreshes installed integrations, and installs the Git hook or explains how to integrate with your existing hook manager. Prompt context remains enabled; ordinary manual commits skip validation.
+
+After validation passes, substantial staged code changes stop the commit with a request to review Lat coverage. If no update is needed or the changes are already covered, the agent may retry with `LAT_BYPASS_COMMIT_HOOK=1 git commit ...`. If coverage is missing, update and stage it first, then retry with the flag. This acknowledges the review for that invocation only; structural validation and other Git hooks still run.
+
+Choices are stored locally in `lat.md/.cache/experiments.json`. Normal `lat init` runs preserve them. Rerun `lat init --experimental` and uncheck the experiment to restore completion checks. Choosing experiments requires an interactive terminal. Deleting the cache resets the choices; rerun init afterward to synchronize installed integrations.
+
+The cache is already excluded by the `.cache` rule in the scaffolded `lat.md/.gitignore`. Experiment setup does not add a duplicate cache rule to the repository's root `.gitignore`.
+
+## Existing Git hooks
+
+
+When the commit-hooks experiment is enabled, `lat init` preserves custom hooks and hook managers, and reports whether commit validation was installed or needs integration.
+
+When init reports integration required, add `lat hook git-pre-commit` to your existing pre-commit workflow after commands that modify and stage files. Preserve failures from earlier commands. For Husky, edit `.husky/pre-commit`; for other managers, use their configuration rather than their generated Git hook.
+
+Lat does not change `core.hooksPath`. New clones need their own hook setup, and automatic merge commits require separate pre-merge-commit integration. Agent detection can be lost across remote or custom execution tools; this is a workflow check, not a security boundary.
+
+## Pre-commit validation mode
+
+The commit-hooks experiment checks staged file versions by default. Projects that rely on ignored checkouts or other local-only link targets can choose working-tree validation.
+
+Add this setting to the YAML frontmatter at the top of the Git repository's `lat.md/lat.md`:
+
+```yaml
+---
+lat:
+  git-pre-commit:
+    validation: working-tree
+---
+```
+
+Stage the configuration file for the setting to take effect. Use `staged`, or omit the setting, to retain strict validation of the commit's contents. The setting applies to all affected opted-in projects in the repository.
+
+In `working-tree` mode, the hook runs the regular `lat check` in each affected project's directory. It can resolve local targets and sees unstaged edits, so a passing check describes the files on disk rather than necessarily the versions being committed. In both modes, validation errors block commits even with `LAT_BYPASS_COMMIT_HOOK=1`; that flag skips only the documentation review reminder.
+
+## Fixture projects
+
+The commit-hooks experiment can exclude intentionally invalid test graphs using the root document's frontmatter.
+
+Add this configuration to the Git repository's `lat.md/lat.md` and stage it with the fixtures:
+
+```yaml
+---
+lat:
+  git-pre-commit:
+    exclude-projects:
+      - tests/cases
+---
+```
+
+Paths are literal repository-relative directories using forward slashes, without a trailing slash or globs. Each exclusion covers projects at or beneath that directory. The hook reads the staged setting; ancestor and sibling projects still validate, and explicit `lat check` commands remain available for any fixture.

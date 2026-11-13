@@ -1,6 +1,6 @@
 {
   "name": "@plebeiantech/lat.md",
-  "version": "0.13.4-fork.4",
+  "version": "0.13.9-fork.1",
   "description": "A knowledge graph for your codebase, written in markdown",
   "type": "module",
   "packageManager": "pnpm@10.30.2",
@@ -57,7 +57,10 @@
     "build:core": "pnpm --filter @plebeiantech/lat.md-core build",
     "build:action-test": "pnpm build:core && node scripts/build-action-test.mjs",
     "test:core": "node --test scripts/test-core-distribution.js",
-    "test:action": "node --test scripts/test-check-action.js"
+    "test:action": "node --test scripts/test-check-action.js",
+    "changeset": "changeset",
+    "changeset:check": "node scripts/check-changesets.mjs",
+    "release:version": "changeset version && pnpm install --lockfile-only && node scripts/sync-changelog.mjs"
   },
   "devDependencies": {
     "@codemirror/commands": "^6.11.0",
@@ -105,9 +108,11 @@
     "micromark-extension-gfm-table": "^2.1.1",
     "mdast-util-gfm-table": "^2.0.0",
     "remark-math": "^6.0.0",
-    "@folder/xdg": "^4.0.1"
+    "@folder/xdg": "^4.0.1",
+    "@changesets/cli": "^3.0.3"
   },
   "dependencies": {
+    "@vercel/detect-agent": "^1.2.7",
     "@asciidoctor/core": "4.0.6",
     "@lat.md/embed": "workspace:*",
     "@lat.md/embed-minilm-fp16": "workspace:*",

@@ -208,13 +208,15 @@ Supported targets:
 
 Output is written to stdout so it can be redirected: `lat gen agents.md > AGENTS.md`.
 
+Generation follows the current or `--dir` project's saved [[cli#init#Experiments|experiment choices]]. Stable templates retain end-of-task validation; templates in [[templates/experimental]] describe commit-time validation.
+
 Implementation: [[src/cli/gen.ts]]
 
 ## init
 
 Interactive setup wizard. Walks the user through initializing lat.md in a project, with per-agent configuration for multiple coding tools.
 
-Usage: `lat init [dir]`
+Usage: `lat init [dir] [--experimental]`
 
 Steps:
 
@@ -239,28 +241,57 @@ At the very start, before any steps, init prints the ASCII `lat.md` logo (cyan, 
 
 ### Claude Code
 
-Sets up shared `AGENTS.md` instructions and two agent hooks for the Claude Code coding agent.
+Sets up shared instructions and prompt plus completion hooks by default. The [[cli#init#Experiments|commit-hooks experiment]] keeps prompt context and moves validation to Git.
 
 - `AGENTS.md` — created in the shared step using marker-based append mode, preserving user content outside the managed markers. Init does not create or update `CLAUDE.md`; existing files are left untouched.
-- Hooks synced in `.claude/settings.json` — on every run, all existing lat-owned hook entries are removed, then fresh entries are added for both events. Detection uses three heuristics: `/\blat\b/` in the command string, `hook claude ` substring (catches any install path), or command starting with the current binary path. Non-lat hooks are preserved. Both hooks call [[cli#hook]]:
+- [[src/cli/init.ts#syncLatHooks]] refreshes Lat commands in `.claude/settings.json` while preserving unrelated commands and metadata, including mixed entries. The stable workflow installs both events; the commit-hooks experiment installs only prompt context. Both hooks call [[cli#hook]]:
   - `UserPromptSubmit` → `lat hook claude UserPromptSubmit` — injects lat.md workflow reminders, auto-resolves `[[refs]]` in the prompt
   - `Stop` → `lat hook claude Stop` — reminds the agent to update `lat.md/` before finishing
 - `.claude/skills/lat-md/SKILL.md` — skill spec generated from `templates/skill/SKILL.md`. Teaches the agent how to author and maintain `lat.md/` files. Claude Code discovers it automatically from `.claude/skills/`.
 - `.claude` directory added to `.gitignore` (settings contain local absolute paths in hook commands)
 - [[cli#mcp]] server registered in `.mcp.json` at the project root (added to `.gitignore` since it contains absolute paths)
 
+### Experiments
+
+[[src/cli/experiments.ts#EXPERIMENTS]] lists individually selectable experiments. `lat init --experimental` explains each one and opens a checklist using the project's saved choices.
+
+The first experiment, `commit-hooks`, moves validation from agent completion to staged Git commits. It is disabled by default. Ordinary `lat init` preserves choices; rerun with `--experimental` and uncheck an experiment to disable it. Noninteractive experimental selection is rejected rather than implicitly accepting or clearing choices. Canceling before setup leaves previous choices intact.
+
+[[src/cli/experiments.ts#writeExperiments]] atomically writes confirmed booleans to the local `lat.md/.cache/experiments.json`, with `version: 1` and an `experiments` mapping. Unknown IDs are preserved for future experiments. [[src/cli/experiments.ts#readExperiments]] rejects malformed or unsupported settings without overwriting them; missing settings disable all experiments.
+
+[[src/cli/experiments.ts#isExperimentEnabled]] reads the active project's choices each time, so hook invocations and generated templates do not depend on shell variables or process-global state. Explicit init targets use their own choices. Deleting the cache resets experiments; rerun init to synchronize installed integrations afterward. Existing custom instructions and hooks retain their normal ownership protections.
+
+### Git hook installation
+
+
+[[src/cli/git-hook-install.ts#installGitHook]] installs agent-only commit validation when the project has enabled the commit-hooks experiment, preserving existing hook ownership and configuration.
+
+[[src/cli/git-hook-install.ts#supportsConfiguredHooks]] selects repository configuration hooks on Git 2.54 and newer. Init registers `hook.lat-md.command` and its `pre-commit` event in local Git config, pointing to a separate launcher in the common Git directory. Existing scripts, hook managers, and `core.hooksPath` remain intact. Named hooks run before traditional scripts; workflows that stage files in those scripts must run `lat hook git-pre-commit` again after staging to validate the final index.
+
+On older or unrecognized Git versions, init uses the default `hooks/pre-commit` launcher. Custom or edited hooks, hook managers, and any configured hooksPath receive integration instructions instead of automatic installation. Neither path redirects hooksPath, appends to unknown scripts, or changes global hooks.
+
+Launchers use [[src/cli/agent-invocation.ts#resolveLatInvocation]] to capture the installed runtime without an npm download at commit time, resolving the active worktree at execution time. Missing runtime or entrypoint permits the commit and prints a repair instruction. Common Git directories support linked worktrees and nested project initialization; non-Git projects skip installation.
+
+A content hash identifies unmodified Lat launchers for idempotent refresh. Upgrading to configuration hooks removes an unchanged legacy Lat script only after registering its replacement. Edited Lat launchers and conflicting, inherited, or disabled `hook.lat-md` configuration remain untouched and require manual integration. Unrelated named hooks are preserved.
+
+[[src/cli/git-hook-install.ts#installGitHook]] uses native filesystem resolution for the common Git directory so case differences, symlink aliases, and Windows short names do not make worktrees disagree about the configured launcher path.
+
+Init removes legacy Lat stop handlers from existing Claude, Codex, and Cursor settings, even for agents not selected again. Existing Pi/OpenCode plugins are refreshed through the normal generated-file ownership and overwrite rules; user-modified plugins remain subject to those rules. Generated instructions move validation from every response to commit time. The stable initialization version is unchanged, so existing projects are not prompted to migrate to an experiment.
+
+Disabling the experiment restores installed completion integrations, including previously configured agents not selected again. The shared Git launcher remains installed and skips projects without a saved opt-in, preserving enabled projects in other worktrees.
+
 ### Initialization write boundaries
 
 Setup validates project destinations before reading or writing them, rejecting escaping or dangling symlinks in files and ancestor directories.
 
-The shared [[packages/core/src/project-write.ts]] guard covers generated instructions, skills, plugins, hooks, MCP settings, ignore files, local preferences, and init metadata. Writes replace validated files atomically and preserve existing in-project symlinks and user-edit prompts. This protects against repository-planted paths; it does not promise isolation from a same-user process racing filesystem changes.
+The shared [[packages/core/src/project-write.ts]] guard covers generated instructions, skills, plugins, hooks, MCP settings, ignore files, local preferences, experiment choices, and init metadata. Git launchers use the Git-discovered common metadata directory as their boundary. Writes replace validated files atomically and preserve existing in-project symlinks and user-edit prompts. This protects against repository-planted paths; it does not promise isolation from a same-user process racing filesystem changes.
 
 ### Pi
 
 Sets up a Pi extension that registers lat tools as native Pi tools and hooks into the agent lifecycle.
 
 - `AGENTS.md` — shared instruction file (created in the shared step)
-- `.pi/extensions/lat.ts` — TypeScript extension generated from `templates/pi-extension.ts` with an executable and prefix argument array injected. `resolveLatInvocation()` in `init.ts` runs local `.js` builds through their Node executable, captures `node <execArgv> <script>` for `.ts` source files run via tsx, and invokes executable wrappers or standalone binaries directly. Registers six tools (`lat_search`, `lat_section`, `lat_locate`, `lat_check`, `lat_expand`, `lat_refs`) that invoke the CLI without a shell, preserving queries as literal arguments. Each tool provides a `renderCall` method so the Pi TUI displays the query/parameters inline in the tool call header (e.g. `lat search "query text"`). The `lat_search` and `lat_section` tools also provide a `renderResult` method that shows a collapsed preview (first 4 lines) by default and renders the full output as styled markdown (via pi's `Markdown` component and `getMarkdownTheme()`) when expanded via Ctrl+O (`expandTools` keybinding). Registers custom message renderers for `lat-reminder` and `lat-check` that show a collapsed one-liner by default and expand to full markdown-rendered content on Ctrl+O. Hooks into `before_agent_start` (injects a visible search reminder via `customType` message with `display: true`) and `agent_end` (runs `lat check` + diff analysis, sends a visible follow-up message if something needs fixing).
+- `.pi/extensions/lat.ts` — TypeScript extension generated from `templates/pi-extension.ts` with an executable and prefix argument array injected. [[src/cli/agent-invocation.ts#resolveLatInvocation]] runs local `.js` builds through their Node executable, captures `node <execArgv> <script>` for `.ts` source files run via tsx, and invokes executable wrappers or standalone binaries directly. Registers six tools (`lat_search`, `lat_section`, `lat_locate`, `lat_check`, `lat_expand`, `lat_refs`) that invoke the CLI without a shell, preserving queries as literal arguments. Each tool provides a `renderCall` method so the Pi TUI displays the query/parameters inline in the tool call header (e.g. `lat search "query text"`). The `lat_search` and `lat_section` tools also provide a `renderResult` method that shows a collapsed preview (first 4 lines) by default and renders the full output as styled markdown (via pi's `Markdown` component and `getMarkdownTheme()`) when expanded via Ctrl+O (`expandTools` keybinding). Registers custom message renderers for `lat-reminder` and `lat-check` that show a collapsed one-liner by default and expand to full markdown-rendered content on Ctrl+O. Hooks into `before_agent_start` (injects a visible search reminder via `customType` message with `display: true`) and `agent_end` (runs `lat check` + diff analysis, sends a visible follow-up message if something needs fixing).
 - `.pi/skills/lat-md/SKILL.md` — skill spec generated from `templates/skill/SKILL.md`. Teaches the agent how to author and maintain `lat.md/` files (section structure, wiki links, code refs, test specs). Pi discovers it automatically from the `.pi/skills/` directory.
 - `.pi` directory added to `.gitignore` (extension and skills contain local paths)
 
@@ -354,13 +385,14 @@ Implementation: [[packages/core/src/config.ts]]
 
 Handle agent hook events. Called by agent hooks configured during `lat init`, not directly by users.
 
-Usage: `lat hook <agent> <event>`
+Usage: `lat hook <agent> <event>` or `lat hook git-pre-commit`.
 
 Currently supports:
 
 - `claude` with `UserPromptSubmit`, `PreToolUse`, `Stop`, and `PostToolUse`
 - `codex` with `UserPromptSubmit`, `Stop`, and `PostToolUse`
 - `cursor` with `stop` and `postToolUse`
+- `git-pre-commit` for opted-in projects
 
 ### UserPromptSubmit
 
@@ -372,7 +404,43 @@ Reads the hook input from stdin (Claude JSON with `user_prompt` or Codex JSON wi
 4. [[knowledge-federation#Knowledge Federation]] enriches tagged documents selected by prompt wiki references or search matches. Reference-based federation works without a search index; prompt references are not automatically expanded.
 5. [[src/cli/fork-coverage-preflight.ts#findUngroundedPromptFiles]] inspects source file paths mentioned in the prompt against `lat.md/` wiki links and in-file `@lat:` comments, and [[src/cli/fork-coverage-preflight.ts#formatCoverageGapNotice]] appends a coverage notice when ungrounded files are found.
 
+### git-pre-commit
+
+[[src/cli/git-hook.ts#gitPreCommit]] validates affected opted-in Lat projects for detected agents. Validation defaults to staged contents, with an optional working-tree mode; substantial staged code churn also requests a coverage review.
+
+[[src/cli/git-hook.ts#isAgentCommit]] uses `@vercel/detect-agent`. Claude and Cowork additionally need an explicit `AI_AGENT` identity or the child-session marker, because broad Claude IDE markers can appear in manual terminals. Unknown identities skip checks. This is a workflow guardrail, not tamper-proof enforcement.
+
+Each project's opt-in comes from its local experiment settings in the committing worktree; those settings are not copied into the staged snapshot. A shared launcher skips projects with missing or disabled choices. The hook honors Git's supplied index, including temporary indexes for path-specific commits, and discovers affected root and nested projects from staged paths. In the default staged mode, [[src/cli/git-hook.ts#exportIndex]] streams raw blobs into a temporary tree without checkout filters, stashing, or modifying the working tree or index. Gitlinks become empty directories; submodule working files and unstaged or untracked files are not copied. Containment compares canonical paths so an aliased temporary directory accepts internal symlinks. Escaping or dangling staged symlinks fail validation.
+
+Each affected project runs the full checker in a subprocess with Git repository-local environment variables cleared. Staged mode supplies a staged-file inventory, reports original project paths, and asks the agent to stage fixes before retrying. Its temporary tree and external checkout caches are removed afterward. External references use staged canonical configuration without ignored local overrides, so staged checks may require retrieval on a cold snapshot.
+
+[[src/cli/git-hook.ts#requestDocumentationReview]] stops an otherwise valid commit when staged source additions and deletions total at least [[src/cli/git-hook.ts#REVIEW_CODE_LINES|the review threshold]] across affected opted-in projects. Its message asks the agent to review whether important behavior, architecture, and test changes are covered in Lat.
+
+After review, the agent may retry the original commit command with `LAT_BYPASS_COMMIT_HOOK=1` when no documentation update is needed or coverage is already sufficient. If coverage is missing, the agent updates and stages the relevant documentation before retrying with that flag. Only the exact value `1` skips the review reminder; validation in either mode and other Git hooks still run. Nothing is persisted between attempts.
+
+The review heuristic uses Git’s active index, including initial and partial commits. It ignores unstaged and untracked work, binary diffs, documentation paths, and excluded fixture subtrees. Existing Lat edits do not suppress it: line counts cannot establish semantic coverage. Validation failures take precedence and are reported without the review reminder. Failure to read the heuristic diff is ignored.
+
+Only commits invoking this hook are covered; automatic merge commits need separate pre-merge-commit wiring. Generated instructions describe the scoped environment flag for review acknowledgment instead of Git’s general `--no-verify` bypass.
+
+#### Validation mode
+
+[[src/cli/git-hook.ts#readHookConfig]] reads the repository-wide validation mode from the staged root document. The default is `staged`; `working-tree` opts into checking files as they exist on disk.
+
+Set `lat.git-pre-commit.validation: working-tree` in the Git repository's `lat.md/lat.md` frontmatter and stage that file. The mode applies to all affected opted-in projects, including nested ones. Unknown or malformed values fail validation; an unstaged configuration edit cannot change the selected mode.
+
+Working-tree mode invokes the regular full checker in each affected project's directory without exporting an index snapshot or replacing its caches. Ignored checkouts, untracked link targets, local external-source overrides, and unstaged edits have the same visibility as an ordinary `lat check`. Validation may therefore pass for unstaged repairs or fail for unstaged errors; it does not certify the committed file versions. The review reminder still counts only staged code churn. See [[lat-workflow#Pre-commit validation mode]] for configuration syntax.
+
+#### Excluded fixture projects
+
+[[src/cli/git-hook.ts#readHookConfig]] reads repository-wide project exclusions from the staged root document, allowing deliberately invalid fixtures without disabling validation of real projects.
+
+The Git repository's `lat.md/lat.md` frontmatter may set `lat.git-pre-commit.exclude-projects` to a list of repository-relative directory paths. Each path excludes that project and all descendant projects from automatic hook discovery. Paths use forward slashes, with no leading or trailing slash, empty components, `.` or `..` components, or glob syntax. Malformed settings fail the hook.
+
+Only the staged configuration applies in either validation mode; unstaged exclusion edits cannot suppress errors. Exclusions do not remove files from validation inputs, suppress checks in ancestor projects, or change explicit `lat check` behavior. This repository excludes `tests/cases` because it contains intentionally invalid graphs. See [[lat-workflow#Fixture projects]] for configuration syntax.
+
 ### Stop
+
+The default workflow validates at completion. Projects that enable the commit-hooks experiment treat Claude/Codex Stop and Cursor stop commands as silent no-ops, including stale installed handlers.
 
 Conditionally continues Claude or Codex — only when something is actually wrong. Both agents use the same `decision: "block"` response and `stop_hook_active` loop guard.
 

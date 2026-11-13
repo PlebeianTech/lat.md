@@ -2,6 +2,61 @@
 
 Features, behavior changes, and bug fixes for each Lat release, newest first. Patch releases have their own entries; unreleased changes describe functionality already implemented on this branch.
 
+## 0.13.8
+
+External-source reads avoid repeated Git checks on unrelated local checkouts, speeding up validation when several sources use local overrides.
+
+- Before and after reading an external file, verify only that source's checkout. Initial configuration loading still validates all sources. This optimization applies automatically with no configuration changes. [#224](https://github.com/vercel-labs/lat.md/pull/224)
+- Update the bundled core dependency to `@lat.md/core` 0.1.4.
+
+## 0.13.7
+
+Experimental pre-commit validation can check the working tree when documentation depends on ignored checkouts or other local-only files.
+
+- Set `lat.git-pre-commit.validation` to `working-tree` in the YAML frontmatter of the repository's `lat.md/lat.md` and stage that file. The hook then runs the regular checker in each affected project's directory.
+- The other enum value, `staged`, remains the default. In both modes, `LAT_BYPASS_COMMIT_HOOK=1` skips only the documentation review reminder; validation errors still block the commit.
+
+## 0.13.6
+
+Experimental agent commit checks now use repository-configured hooks on Git 2.54 and newer.
+
+- Preserve existing hook scripts, hook managers, and custom hook paths while registering Lat separately. Older Git versions retain the existing installer. [#221](https://github.com/vercel-labs/lat.md/pull/221)
+- Migrate unchanged Lat-owned hooks automatically, preserving edited launchers and user configuration. Normalize filesystem aliases so linked worktrees recognize the shared hook on Windows and macOS.
+
+## 0.13.5
+
+This release adds opt-in staged commit checks for agents and improves table readability.
+
+### Patch Changes
+
+Experimental agent workflows and document display improvements in this release.
+
+- d04a8f2: Give document and search-preview table columns a minimum width so text stays readable when adjacent columns contain long content.
+- 6c27475: Add `lat init --experimental` to choose experimental features per project. Setup explains each feature and saves choices in `lat.md/.cache/experiments.json`; ordinary init preserves them, and rerunning the experiment checklist lets you disable them.
+
+  The opt-in commit-hooks experiment moves agent validation from end-of-turn callbacks to Git pre-commit checks of staged content. Completion-hook behavior remains the default. Custom hooks and hook managers are preserved with integration instructions.
+
+  The hook supports partial commits, linked worktrees, and internal symlinks under aliased temporary directories. Configure `lat.git-pre-commit.exclude-projects` in the repository's root `lat.md/lat.md` frontmatter to exclude intentionally invalid fixture projects.
+
+  Agent commits with substantial staged code churn stop for a review of Lat coverage. After reviewing, agents can retry with `LAT_BYPASS_COMMIT_HOOK=1` when no update is needed or the changes are already covered, including by newly staged documentation. The flag skips only the review reminder; staged validation and other Git hooks still run.
+
+## 0.13.4
+
+This release adds read-only network sharing with Git diffs for public, linked project files.
+
+### Patch Changes
+
+Network sharing options and access restrictions in this release.
+
+- 271595d: Add `--host <address>` to `lat ui` and `lat ui run`. Use `--host 0.0.0.0` to
+  listen on all IPv4 interfaces; the default remains `127.0.0.1`.
+
+  Network listeners use read-only sharing restricted to public vault Markdown and
+  explicitly linked public files. Hidden, ignored, untracked, and unlinked project
+  files remain private. Git diffs and change indicators remain available for shared
+  Markdown. Editing, search, and section-command output are available only in the
+  private loopback UI.
+
 ## 0.13.3
 
 This patch fixes code references to section headings containing brackets.

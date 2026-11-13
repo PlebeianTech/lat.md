@@ -142,13 +142,13 @@ describe('gen github-wiki-workflow cli command', () => {
     });
 
     const branchOutput = await captureStdout(async () => {
-      await genCmd('github-wiki-workflow', { branch: 'release-branch' });
+      await genCmd('github-wiki-workflow', undefined, { branch: 'release-branch' });
     });
     expect(branchOutput).not.toEqual(defaultOutput);
     expect(branchOutput).toContain('release-branch');
 
     const nodeVersionOutput = await captureStdout(async () => {
-      await genCmd('github-wiki-workflow', { nodeVersion: '22' });
+      await genCmd('github-wiki-workflow', undefined, { nodeVersion: '22' });
     });
     expect(nodeVersionOutput).not.toEqual(defaultOutput);
     expect(nodeVersionOutput).toContain('22');
@@ -160,7 +160,7 @@ describe('gen github-wiki-workflow cli command', () => {
       await genCmd('agents.md');
     });
     const withOptionsOutput = await captureStdout(async () => {
-      await genCmd('agents.md', { branch: 'x', nodeVersion: '22' });
+      await genCmd('agents.md', undefined, { branch: 'x', nodeVersion: '22' });
     });
     expect(withOptionsOutput).toEqual(baseOutput);
   });

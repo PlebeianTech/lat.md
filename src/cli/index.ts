@@ -24,6 +24,7 @@ function parsePort(value: string): number {
 
 type UiRunOptions = {
   git: boolean;
+  host?: string;
   logoText?: string;
   port?: number;
 };
@@ -41,6 +42,7 @@ function configureUiRun(command: Command): Command {
   return command
     .option('--logo-text <text>', 'top-left logo text')
     .option('--no-git', 'disable Git working-tree integration')
+    .option('--host <address>', 'server listen address (default: 127.0.0.1)')
     .option(
       '--port <number>',
       'server port (default: 4242; explicit ports are strict)',
@@ -152,6 +154,7 @@ async function runUi(opts: UiRunOptions): Promise<void> {
   handleResult(
     await uiCommand(ctx, {
       git: opts.git,
+      host: opts.host ?? ui.opts<UiRunOptions>().host,
       logoText: opts.logoText,
       port: opts.port,
     }),
@@ -550,7 +553,7 @@ program
   .action(
     async (target: string, opts: { branch?: string; nodeVersion?: string }) => {
       const { genCmd } = await import('./gen.js');
-      await genCmd(target, opts);
+      await genCmd(target, program.opts().dir, opts);
     },
   );
 
@@ -558,20 +561,20 @@ program
   .command('init')
   .description('Initialize a lat.md directory')
   .argument('[dir]', 'target directory (default: cwd)')
-  .action(async (dir?: string) => {
-    const { initCmd } = await import('./init.js');
-    await initCmd(dir);
-  });
+  .option('--experimental', 'choose experimental features for this project')
+  .action(
+    async (dir: string | undefined, options: { experimental?: boolean }) => {
+      const { initCmd } = await import('./init.js');
+      await initCmd(dir, options);
+    },
+  );
 
 program
   .command('hook')
-  .description('Handle agent hook events (called by agent hooks, not directly)')
-  .argument('<agent>', 'agent name (claude, cursor)')
-  .argument(
-    '<event>',
-    'hook event (claude: UserPromptSubmit|Stop, cursor: stop)',
-  )
-  .action(async (agent: string, event: string) => {
+  .description('Handle Git and agent hooks')
+  .argument('<hook>', 'git-pre-commit or agent name (claude, codex, cursor)')
+  .argument('[event]', 'agent event (UserPromptSubmit, Stop, or stop)')
+  .action(async (agent: string, event?: string) => {
     const { hookCmd } = await import('./hook.js');
     await hookCmd(agent, event);
   });
