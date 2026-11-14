@@ -9,7 +9,10 @@ import {
   unlinkSync,
 } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { projectWritePath, writeProjectFile } from '@plebeiantech/lat.md-core/project-write';
+import {
+  projectWritePath,
+  writeProjectFile,
+} from '@plebeiantech/lat.md-core/project-write';
 import type { AgentInvocation } from './agent-invocation.js';
 
 const MARKER = '# lat git-pre-commit v1 sha256=';

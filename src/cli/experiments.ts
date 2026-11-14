@@ -1,7 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { findProjectRoot } from '@plebeiantech/lat.md-core/project-discovery';
-import { projectWritePath, writeProjectFile } from '@plebeiantech/lat.md-core/project-write';
+import {
+  projectWritePath,
+  writeProjectFile,
+} from '@plebeiantech/lat.md-core/project-write';
 
 /** Available experiments are opt-in and independently selectable. */
 export const EXPERIMENTS = [

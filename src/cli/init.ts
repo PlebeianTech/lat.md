@@ -6,7 +6,10 @@ import {
   writeExperiments,
 } from './experiments.js';
 import { agentInvocation, resolveLatInvocation } from './agent-invocation.js';
-import { projectWritePath, writeProjectFile } from '@plebeiantech/lat.md-core/project-write';
+import {
+  projectWritePath,
+  writeProjectFile,
+} from '@plebeiantech/lat.md-core/project-write';
 import { existsSync, cpSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
@@ -775,9 +778,7 @@ function syncCursorPostToolUseHook(root: string, style: LatCommandStyle): void {
   settings.hooks ??= {};
   const kept = (
     Array.isArray(settings.hooks.postToolUse) ? settings.hooks.postToolUse : []
-  ).filter(
-    (entry: { command?: unknown }) => !isLatHookCommand(entry?.command),
-  );
+  ).filter((entry: { command?: unknown }) => !isLatHookCommand(entry?.command));
   kept.push({ command: latHookCommand(style, 'cursor', 'postToolUse') });
   settings.hooks.postToolUse = kept;
   writeProjectFile(root, path, JSON.stringify(settings, null, 2) + '\n');

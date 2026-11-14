@@ -142,7 +142,9 @@ describe('gen github-wiki-workflow cli command', () => {
     });
 
     const branchOutput = await captureStdout(async () => {
-      await genCmd('github-wiki-workflow', undefined, { branch: 'release-branch' });
+      await genCmd('github-wiki-workflow', undefined, {
+        branch: 'release-branch',
+      });
     });
     expect(branchOutput).not.toEqual(defaultOutput);
     expect(branchOutput).toContain('release-branch');
@@ -169,7 +171,7 @@ describe('gen github-wiki-workflow cli command', () => {
   it('exits with status 1 and lists supported targets including github-wiki-workflow on unknown target', async () => {
     const exitSpy = vi
       .spyOn(process, 'exit')
-      .mockImplementation((() => undefined as never));
+      .mockImplementation(() => undefined as never);
     let errorOutput = '';
     const errorSpy = vi
       .spyOn(console, 'error')
