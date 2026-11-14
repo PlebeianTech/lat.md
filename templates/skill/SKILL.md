@@ -12,10 +12,6 @@ This skill covers the syntax, structure rules, and conventions for writing `lat.
 
 Project-specific lat documentation belongs in `lat.md/`. Do not modify this generated skill or a generated `AGENTS.md` to record project guidance: both are owned by lat tooling and may be replaced by a later `lat init`.
 
-<!-- lat:index:begin -->
-- [lat.md Authoring Guide](SKILL.md) — This skill covers the syntax, structure rules, and conventions for writing \`lat.md/\` files. Load it whenever you need to create or edit sections in the \`lat.md/\` directory.
-<!-- lat:index:end -->
-
 ## What belongs in lat.md
 
 `lat.md/` files describe **what** the project does and **why** — domain concepts, key design decisions, business logic, and test specifications. They do NOT duplicate source code. Think of each section as an anchor that source code references back to.

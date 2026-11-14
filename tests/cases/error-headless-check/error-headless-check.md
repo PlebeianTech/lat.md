@@ -1,5 +1,5 @@
 error-headless-check directory index.
 
 <!-- lat:index:begin -->
-- [links](links/links.md) — links directory index.
+- [links](links) — Fixture directory passed to `lat check` as an explicit path.
 <!-- lat:index:end -->

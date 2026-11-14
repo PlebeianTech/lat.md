@@ -2,10 +2,7 @@
 
 Sub overview paragraph.
 
-<!-- lat:index:begin -->
-- [Other](other.md) — Other overview.
-- [Page](page.md) — Page overview.
-<!-- lat:index:end -->
+- [Page](page.md) — a page
 - [External docs](https://example.com/docs) — hand-written external reference
 
 ## Hand-written notes
