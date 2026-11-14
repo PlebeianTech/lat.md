@@ -1,4 +1,5 @@
 Project index.
 
-- [[notes]] — General project notes
-- [[gone]] — This file does not exist
+<!-- lat:index:begin -->
+- [Notes](notes.md) — Some notes here.
+<!-- lat:index:end -->

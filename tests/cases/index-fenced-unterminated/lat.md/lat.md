@@ -7,3 +7,19 @@ Project index.
 - [[notes]] — Notes overview.
 - [[gone]] — This file does not exist
 <!-- lat:index:end -->
+
+<!-- lat:index:begin -->
+- [Notes](notes.md) — Some notes here.
+<!-- lat:index:end -->
+
+<!-- lat:index:begin -->
+- [Notes](notes.md) — Some notes here.
+<!-- lat:index:end -->
+
+<!-- lat:index:begin -->
+- [Notes](notes.md) — Some notes here.
+<!-- lat:index:end -->
+
+<!-- lat:index:begin -->
+- [Notes](notes.md) — Some notes here.
+<!-- lat:index:end -->

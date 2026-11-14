@@ -1,0 +1,112 @@
+cases directory index.
+
+<!-- lat:index:begin -->
+- [basic project](basic-project/basic-project.md) — basic-project directory index.
+- [bracketed path refs](bracketed-path-refs/bracketed-path-refs.md) — bracketed-path-refs directory index.
+- [check index fix subcommand](check-index-fix-subcommand/check-index-fix-subcommand.md) — check-index-fix-subcommand directory index.
+- [coderefs ignore substring](coderefs-ignore-substring/coderefs-ignore-substring.md) — coderefs-ignore-substring directory index.
+- [dart code ref](dart-code-ref/dart-code-ref.md) — dart-code-ref directory index.
+- [error ambiguous short ref](error-ambiguous-short-ref/error-ambiguous-short-ref.md) — error-ambiguous-short-ref directory index.
+- [error bad nested refs](error-bad-nested-refs/error-bad-nested-refs.md) — error-bad-nested-refs directory index.
+- [error bare heading ref](error-bare-heading-ref/error-bare-heading-ref.md) — error-bare-heading-ref directory index.
+- [error broken links](error-broken-links/error-broken-links.md) — error-broken-links directory index.
+- [error dangling code ref](error-dangling-code-ref/error-dangling-code-ref.md) — error-dangling-code-ref directory index.
+- [error headless check](error-headless-check/error-headless-check.md) — error-headless-check directory index.
+- [error long body](error-long-body/error-long-body.md) — error-long-body directory index.
+- [error md links](error-md-links/error-md-links.md) — error-md-links directory index.
+- [error missing body](error-missing-body/error-missing-body.md) — error-missing-body directory index.
+- [error missing index](error-missing-index/error-missing-index.md) — error-missing-index directory index.
+- [error missing subdir index](error-missing-subdir-index/error-missing-subdir-index.md) — error-missing-subdir-index directory index.
+- [error non md file](error-non-md-file/error-non-md-file.md) — error-non-md-file directory index.
+- [error require code mention](error-require-code-mention/error-require-code-mention.md) — error-require-code-mention directory index.
+- [error source ref bad file](error-source-ref-bad-file/error-source-ref-bad-file.md) — error-source-ref-bad-file directory index.
+- [error source ref c missing](error-source-ref-c-missing/error-source-ref-c-missing.md) — error-source-ref-c-missing directory index.
+- [error source ref dart missing](error-source-ref-dart-missing/error-source-ref-dart-missing.md) — error-source-ref-dart-missing directory index.
+- [error source ref go missing](error-source-ref-go-missing/error-source-ref-go-missing.md) — error-source-ref-go-missing directory index.
+- [error source ref java missing](error-source-ref-java-missing/error-source-ref-java-missing.md) — error-source-ref-java-missing directory index.
+- [error source ref py missing](error-source-ref-py-missing/error-source-ref-py-missing.md) — error-source-ref-py-missing directory index.
+- [error source ref rb missing](error-source-ref-rb-missing/error-source-ref-rb-missing.md) — error-source-ref-rb-missing directory index.
+- [error source ref rs missing](error-source-ref-rs-missing/error-source-ref-rs-missing.md) — error-source-ref-rs-missing directory index.
+- [error source ref ts missing](error-source-ref-ts-missing/error-source-ref-ts-missing.md) — error-source-ref-ts-missing directory index.
+- [error source ref unsupported ext](error-source-ref-unsupported-ext/error-source-ref-unsupported-ext.md) — error-source-ref-unsupported-ext directory index.
+- [error stale index](error-stale-index/error-stale-index.md) — error-stale-index directory index.
+- [error stale subdir index](error-stale-subdir-index/error-stale-subdir-index.md) — error-stale-subdir-index directory index.
+- [frontmatter root malformed](frontmatter-root-malformed/frontmatter-root-malformed.md) — frontmatter-root-malformed directory index.
+- [frontmatter root misplaced](frontmatter-root-misplaced/frontmatter-root-misplaced.md) — frontmatter-root-misplaced directory index.
+- [frontmatter root nested](frontmatter-root-nested/frontmatter-root-nested.md) — frontmatter-root-nested directory index.
+- [frontmatter root unknown key](frontmatter-root-unknown-key/frontmatter-root-unknown-key.md) — frontmatter-root-unknown-key directory index.
+- [full ref](full-ref/full-ref.md) — full-ref directory index.
+- [gitignore filtering](gitignore-filtering/gitignore-filtering.md) — gitignore-filtering directory index.
+- [graph basic](graph-basic/graph-basic.md) — graph-basic directory index.
+- [graph untrusted title](graph-untrusted-title/graph-untrusted-title.md) — graph-untrusted-title directory index.
+- [headless check](headless-check/headless-check.md) — headless-check directory index.
+- [hook clean](hook-clean/hook-clean.md) — hook-clean directory index.
+- [index entries ambiguous colon](index-entries-ambiguous-colon/index-entries-ambiguous-colon.md) — index-entries-ambiguous-colon directory index.
+- [index entries dest shapes](index-entries-dest-shapes/index-entries-dest-shapes.md) — index-entries-dest-shapes directory index.
+- [index entries mixed](index-entries-mixed/index-entries-mixed.md) — index-entries-mixed directory index.
+- [index fenced example](index-fenced-example/index-fenced-example.md) — index-fenced-example directory index.
+- [index fenced longfence](index-fenced-longfence/index-fenced-longfence.md) — index-fenced-longfence directory index.
+- [index fenced real stale](index-fenced-real-stale/index-fenced-real-stale.md) — index-fenced-real-stale directory index.
+- [index fenced tilde](index-fenced-tilde/index-fenced-tilde.md) — index-fenced-tilde directory index.
+- [index fenced unterminated](index-fenced-unterminated/index-fenced-unterminated.md) — index-fenced-unterminated directory index.
+- [index fix missing](index-fix-missing/index-fix-missing.md) — index-fix-missing directory index.
+- [index fix percent filename](index-fix-percent-filename/index-fix-percent-filename.md) — index-fix-percent-filename directory index.
+- [index fix subdir](index-fix-subdir/index-fix-subdir.md) — index-fix-subdir directory index.
+- [index fix title injection](index-fix-title-injection/index-fix-title-injection.md) — index-fix-title-injection directory index.
+- [index guard symlink](index-guard-symlink/index-guard-symlink.md) — index-guard-symlink directory index.
+- [index splice above](index-splice-above/index-splice-above.md) — index-splice-above directory index.
+- [index splice below](index-splice-below/index-splice-below.md) — index-splice-below directory index.
+- [index splice external link](index-splice-external-link/index-splice-external-link.md) — index-splice-external-link directory index.
+- [index splice idempotent](index-splice-idempotent/index-splice-idempotent.md) — index-splice-idempotent directory index.
+- [index splice malformed markers](index-splice-malformed-markers/index-splice-malformed-markers.md) — index-splice-malformed-markers directory index.
+- [literal example code ref](literal-example-code-ref/literal-example-code-ref.md) — literal-example-code-ref directory index.
+- [mode all fail](mode-all-fail/mode-all-fail.md) — mode-all-fail directory index.
+- [mode dir implied](mode-dir-implied/mode-dir-implied.md) — mode-dir-implied directory index.
+- [mode explanation imperative](mode-explanation-imperative/mode-explanation-imperative.md) — mode-explanation-imperative directory index.
+- [mode flat declared](mode-flat-declared/mode-flat-declared.md) — mode-flat-declared directory index.
+- [mode howto steps](mode-howto-steps/mode-howto-steps.md) — mode-howto-steps directory index.
+- [mode mismatch](mode-mismatch/mode-mismatch.md) — mode-mismatch directory index.
+- [mode non string list](mode-non-string-list/mode-non-string-list.md) — mode-non-string-list directory index.
+- [mode none](mode-none/mode-none.md) — mode-none directory index.
+- [mode null](mode-null/mode-null.md) — mode-null directory index.
+- [mode proto dir](mode-proto-dir/mode-proto-dir.md) — mode-proto-dir directory index.
+- [mode reference prose](mode-reference-prose/mode-reference-prose.md) — mode-reference-prose directory index.
+- [mode reference table](mode-reference-table/mode-reference-table.md) — mode-reference-table directory index.
+- [mode subcommand fail](mode-subcommand-fail/mode-subcommand-fail.md) — mode-subcommand-fail directory index.
+- [mode subcommand pass](mode-subcommand-pass/mode-subcommand-pass.md) — mode-subcommand-pass directory index.
+- [mode tutorial](mode-tutorial/mode-tutorial.md) — mode-tutorial directory index.
+- [mode unknown](mode-unknown/mode-unknown.md) — mode-unknown directory index.
+- [python code ref](python-code-ref/python-code-ref.md) — python-code-ref directory index.
+- [rag](rag/rag.md) — rag directory index.
+- [repository path refs](repository-path-refs/repository-path-refs.md) — repository-path-refs directory index.
+- [section nested](section-nested/section-nested.md) — section-nested directory index.
+- [short ref](short-ref/short-ref.md) — short-ref directory index.
+- [source ref c valid](source-ref-c-valid/source-ref-c-valid.md) — source-ref-c-valid directory index.
+- [source ref dart valid](source-ref-dart-valid/source-ref-dart-valid.md) — source-ref-dart-valid directory index.
+- [source ref erb valid](source-ref-erb-valid/source-ref-erb-valid.md) — source-ref-erb-valid directory index.
+- [source ref go valid](source-ref-go-valid/source-ref-go-valid.md) — source-ref-go-valid directory index.
+- [source ref java valid](source-ref-java-valid/source-ref-java-valid.md) — source-ref-java-valid directory index.
+- [source ref js valid](source-ref-js-valid/source-ref-js-valid.md) — source-ref-js-valid directory index.
+- [source ref jsx valid](source-ref-jsx-valid/source-ref-jsx-valid.md) — source-ref-jsx-valid directory index.
+- [source ref php](source-ref-php/source-ref-php.md) — source-ref-php directory index.
+- [source ref py valid](source-ref-py-valid/source-ref-py-valid.md) — source-ref-py-valid directory index.
+- [source ref rake valid](source-ref-rake-valid/source-ref-rake-valid.md) — source-ref-rake-valid directory index.
+- [source ref rb valid](source-ref-rb-valid/source-ref-rb-valid.md) — source-ref-rb-valid directory index.
+- [source ref rs valid](source-ref-rs-valid/source-ref-rs-valid.md) — source-ref-rs-valid directory index.
+- [source ref ts valid](source-ref-ts-valid/source-ref-ts-valid.md) — source-ref-ts-valid directory index.
+- [status agent extracted](status-agent-extracted/status-agent-extracted.md) — status-agent-extracted directory index.
+- [status no hash](status-no-hash/status-no-hash.md) — status-no-hash directory index.
+- [status none](status-none/status-none.md) — status-none directory index.
+- [status reviewed](status-reviewed/status-reviewed.md) — status-reviewed directory index.
+- [status stale](status-stale/status-stale.md) — status-stale directory index.
+- [status unknown](status-unknown/status-unknown.md) — status-unknown directory index.
+- [tags basic](tags-basic/tags-basic.md) — tags-basic directory index.
+- [tags basic empty](tags-basic-empty/tags-basic-empty.md) — tags-basic-empty directory index.
+- [untrusted text](untrusted-text/untrusted-text.md) — untrusted-text directory index.
+- [valid index](valid-index/valid-index.md) — valid-index directory index.
+- [valid links](valid-links/valid-links.md) — valid-links directory index.
+- [valid md links](valid-md-links/valid-md-links.md) — valid-md-links directory index.
+- [valid nested refs](valid-nested-refs/valid-nested-refs.md) — valid-nested-refs directory index.
+- [valid subdir index](valid-subdir-index/valid-subdir-index.md) — valid-subdir-index directory index.
+- [view project](view-project/view-project.md) — view-project directory index.
+<!-- lat:index:end -->

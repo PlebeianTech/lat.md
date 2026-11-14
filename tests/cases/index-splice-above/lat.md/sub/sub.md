@@ -6,4 +6,7 @@ Sub overview paragraph.
 
 Hand-written preamble that must survive above the generated list.
 
-- [Page](page.md) — a page
+<!-- lat:index:begin -->
+- [Other](other.md) — Other overview.
+- [Page](page.md) — Page overview.
+<!-- lat:index:end -->

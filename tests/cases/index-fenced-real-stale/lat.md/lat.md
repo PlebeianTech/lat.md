@@ -7,6 +7,5 @@ Write entries like this:
 ```
 
 <!-- lat:index:begin -->
-- [[notes]] — Notes overview.
-- [[gone]] — This file does not exist
+- [Notes](notes.md) — Some notes here.
 <!-- lat:index:end -->
