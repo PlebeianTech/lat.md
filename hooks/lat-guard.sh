@@ -89,10 +89,11 @@ if [ "${1:-}" = "hook" ] && [ -n "${2:-}" ] && [ -n "${3:-}" ]; then
 fi
 
 # Walk up for a lat.md/ directory, the same way the CLI locates one itself.
+# A lat.md that holds .git is a repository named lat.md, not a docs directory.
 lat_root=""
 dir="$START"
 while [ -n "$dir" ] && [ "$dir" != "/" ]; do
-  if [ -d "$dir/lat.md" ]; then
+  if [ -d "$dir/lat.md" ] && [ ! -e "$dir/lat.md/.git" ]; then
     lat_root="$dir"
     break
   fi
