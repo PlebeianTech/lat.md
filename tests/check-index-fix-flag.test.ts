@@ -174,6 +174,27 @@ describe('index-fix-title-injection', () => {
   });
 });
 
+describe('index-fix-html-summary', () => {
+  // @lat: [[check-index#check --fix regenerates index files#Escapes angle brackets in a title and summary]]
+  it('escapes angle brackets in a title and summary', async () => {
+    await withTmpCopy('index-fix-html-summary', async (lat) => {
+      await checkIndex(lat, undefined, { fix: true });
+
+      const { readFile } = await import('node:fs/promises');
+      const content = await readFile(join(lat, 'lat.md'), 'utf-8');
+      const entryLine = content.split('\n').find((l) => l.startsWith('- ['))!;
+
+      expect(entryLine).toBeDefined();
+      expect(entryLine).toContain('\\<b\\>');
+      expect(entryLine).toContain('\\<!-- hidden');
+      expect(entryLine).not.toMatch(/(?<!\\)</);
+
+      const errors = await checkIndex(lat);
+      expect(errors).toHaveLength(0);
+    });
+  });
+});
+
 describe('index-fix-percent-filename', () => {
   // @lat: [[check-index#check --fix regenerates index files#Links to a file whose name contains a percent-encoded paren]]
   it('links to a file whose name already contains a percent-encoded paren', async () => {
