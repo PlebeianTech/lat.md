@@ -15,7 +15,7 @@ import { isLatticeLocalDest } from './link-scheme.js';
  * harmless-looking link. Backslash-escaping is CommonMark's own answer: each
  * of these renders as the literal character.
  */
-const MD_LABEL_SPECIALS = /([\\[\]()`])/g;
+const MD_LABEL_SPECIALS = /([\\[\]()`<>])/g;
 
 export function mdEscapeLabel(value: string): string {
   return value.replace(MD_LABEL_SPECIALS, '\\$1');

@@ -62,6 +62,10 @@ Running `lat check --fix` against a tree with a missing index file, then a plain
 
 A document title containing `]` and `(` produces exactly one Markdown link on its generated index line, with those characters backslash-escaped rather than closing and reopening the link.
 
+### Escapes angle brackets in a title and summary
+
+A document whose title contains `<b>` and whose summary contains an unclosed `<!--` produces a generated index line where every `<` and `>` is backslash-escaped, so no raw HTML reaches the index file, and a plain check then reports no errors.
+
 ### Links to a file whose name contains a percent-encoded paren
 
 A generated index entry for a file whose name already contains a percent-encoded parenthesis produces a link destination that round-trips: percent-decoding it resolves back to the real file on disk.
