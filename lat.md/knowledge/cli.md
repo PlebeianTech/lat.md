@@ -539,7 +539,7 @@ Key resolution is unchanged ([[packages/core/src/config.ts#getLlmKey]], priority
 `LAT_LLM_KEY_FILE` → `LAT_LLM_KEY_HELPER` → `llm_key` config). The key prefix picks the hosted
 provider (detected in `@lat.md/embed`):
 
-- (no key) — **local** `@lat.md/embed-minilm-fp16` (all-MiniLM-L6-v2, 384 dims, name `local:minilm-l6-v2`)
+- (no key) — **local** [[multi-qa-search-model|multi-qa-MiniLM-L6-cos-v1]] (384 dims, name `local:multi-qa-minilm-l6-cos-v1`), with the bundled `@lat.md/embed-minilm-fp16` (all-MiniLM-L6-v2, 384 dims, name `local:minilm-l6-v2`) as its fallback
 - `sk-...` — OpenAI (`text-embedding-3-small`, 1536 dims)
 - `vck_...` — Vercel AI Gateway (`openai/text-embedding-3-small`, 1536 dims)
 - `sk-ant-...` — Anthropic (not supported, errors with guidance)

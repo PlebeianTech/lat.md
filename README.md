@@ -132,7 +132,7 @@ lat mcp                         # start MCP server for editor integration
 
 ## Configuration
 
-Semantic search (`lat search`) works **offline by default** — no API key required. It uses a bundled local embedding model (all-MiniLM-L6-v2, compiled to WebAssembly; no native binaries, no network).
+Semantic search (`lat search`) needs **no API key**. It runs a local embedding model compiled to WebAssembly, with no native binaries. The default model, multi-qa-MiniLM-L6-cos-v1, is downloaded once from Hugging Face on first use. Offline, lat uses the bundled all-MiniLM-L6-v2 instead.
 
 To use higher-quality hosted embeddings instead, provide an OpenAI (`sk-...`) or Vercel AI Gateway (`vck_...`) API key, resolved in order:
 
