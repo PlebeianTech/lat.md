@@ -1,4 +1,5 @@
 import { runIndex } from '../cli/search.js';
+import { useBundledModelForFreshIndexes } from '../fork/multi-qa-search-model.js';
 import type { MarkdownProjectAnalysis } from '@plebeiantech/lat.md-core/project-analysis';
 
 export type ServerIndexRequest = {
@@ -9,6 +10,7 @@ export type ServerIndexRequest = {
 
 process.once('message', async (request: ServerIndexRequest) => {
   try {
+    useBundledModelForFreshIndexes();
     await runIndex(request.latDir, undefined, request.project, {
       cacheDir: request.cacheDir,
     });

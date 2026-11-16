@@ -57,7 +57,7 @@ src/cli/ui-build.ts	Imports @plebeiantech/lat.md-core package instead of unpubli
 src/cli/ui.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/mcp/server.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core. Also carries one import and one `registerForkMcp(server)` line that registers the fork's usage tap on the MCP server; the tap lives in src/fork/usage/.
 src/search/chunks.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
-src/search/embedder.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
+src/search/embedder.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core. Also routes every local model choice through `localEmbedderForIndex` and passes the index's stored model to the search engine factory, so the fork's downloaded default model and the per-index choice live in src/fork/multi-qa-search-model.ts.
 src/search/index.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/search/query.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/search/types.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
@@ -77,7 +77,7 @@ src/view/search-result.ts	Imports @plebeiantech/lat.md-core package instead of u
 src/view/search.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/view/server-build.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/view/server-deployment.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
-src/view/server-index-worker.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
+src/view/server-index-worker.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core. Also carries one import and one `useBundledModelForFreshIndexes()` line: the server build ships the bundled MiniLM beside its index, so that index must not be built with the fork's downloaded default model.
 src/view/server.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core. Also carries one import and one `handleUsage` line that serves the fork's usage dashboard routes; the handler lives in src/fork/usage/.
 src/view/sharing.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/view/source-target.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
@@ -124,4 +124,4 @@ view/src/MarkdownContent.tsx	Adds Ruby and Rake language badge mapping in web UI
 view/src/SearchResultCard.tsx	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 view/src/navigation.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 view/vite.config.ts	A second Vite entry for the fork usage dashboard has nowhere else to be declared. Without it the CI upstream guard fails.
-vitest.config.ts	Registers the fork pool options so jsdom tests keep a working localStorage on Node 25 and later.
+vitest.config.ts	Registers the fork pool options so jsdom tests keep a working localStorage on Node 25 and later. Also registers the fork test environment, which keeps the suite on the bundled search model so no test downloads weights.
