@@ -42,6 +42,8 @@ Lat hashes the cached files again on every load, which takes about 40 ms. A cach
 
 A fresh index that cannot get the model uses the bundled MiniLM, and lat says so once on stderr in one sentence. No network, an HTTP error and a bad hash all take this path.
 
+So does a file that has not arrived within [[src/fork/multi-qa-search-model.ts#modelDownloadTimeoutMilliseconds]], ten minutes: a line of 1.2 megabits per second still delivers the 91 MB weights in that time, and a stalled connection cannot hang a search.
+
 The index then records MiniLM, so every later search uses MiniLM without another download attempt. Once the network is back, `lat reindex` moves the index to multi-qa.
 
 ## Staying on the bundled model

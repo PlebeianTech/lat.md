@@ -48,6 +48,9 @@ export const multiQaModel: PinnedModel = {
 
 export const bundledModelEnvironmentVariable = 'LAT_BUNDLED_EMBEDDING_MODEL';
 
+// @lat: [[multi-qa-search-model#Multi-QA Search Model#When the download fails]]
+export const modelDownloadTimeoutMilliseconds = 10 * 60 * 1000;
+
 let processUsesBundledModel = false;
 let fallbackWarningShown = false;
 let downloadNoticeShown = false;
@@ -108,7 +111,9 @@ async function downloadVerifiedFile(
   cacheDirectory: string,
 ): Promise<void> {
   const url = `https://huggingface.co/${model.repository}/resolve/${model.commit}/${file.name}`;
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(modelDownloadTimeoutMilliseconds),
+  });
   if (!response.ok) throw new Error(`${url} answered HTTP ${response.status}`);
   announceDownloadOnce(model, cacheDirectory);
   const bytes = new Uint8Array(await response.arrayBuffer());

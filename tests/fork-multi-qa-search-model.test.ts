@@ -72,6 +72,15 @@ function serveNothing(): void {
   fetchMock.mockRejectedValue(new TypeError('fetch failed'));
 }
 
+function stallUntilAborted(): void {
+  fetchMock.mockImplementation(
+    (_url: string, init: { signal: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(init.signal.reason));
+      }),
+  );
+}
+
 function fillCache(directory: string, contents: Record<string, string>): void {
   mkdirSync(directory, { recursive: true });
   for (const [name, content] of Object.entries(contents))
@@ -216,6 +225,31 @@ describe('multi-qa search model', () => {
     );
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatch(/^[^\n]+\n$/);
+  });
+
+  // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#A stalled download times out like offline]]
+  it('treats a stalled download as offline once the timeout passes', async () => {
+    const {
+      embedderForIndex,
+      modelDownloadTimeoutMilliseconds,
+      ReindexRequiredError,
+    } = await loadModules();
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const timeout = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockImplementation(() => realTimeout(10));
+    stallUntilAborted();
+
+    const freshIndexEmbedder = await embedderForIndex(null, latDir);
+
+    expect(freshIndexEmbedder.name).toBe(miniLmEmbedderName);
+    expect(timeout).toHaveBeenCalledWith(modelDownloadTimeoutMilliseconds);
+    expect(
+      stderrLines().filter((line) => line.includes('all-MiniLM-L6-v2')),
+    ).toHaveLength(1);
+    await expect(
+      embedderForIndex(multiQaStoredModel, latDir),
+    ).rejects.toBeInstanceOf(ReindexRequiredError);
   });
 
   // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#A stored MiniLM index keeps MiniLM]]

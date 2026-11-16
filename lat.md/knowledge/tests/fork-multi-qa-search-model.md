@@ -31,6 +31,10 @@ When a downloaded file does not match its pinned SHA-256, nothing is stored at t
 
 When `fetch` fails, a fresh index and `lat reindex` both get the bundled MiniLM. Two failures in one process write one warning, and the warning is one line.
 
+## A stalled download times out like offline
+
+When `fetch` never answers, the request is aborted after [[src/fork/multi-qa-search-model.ts#modelDownloadTimeoutMilliseconds]]. A fresh index then gets the bundled MiniLM with one warning, and an index that records multi-qa rejects with [[src/search/embedder.ts#ReindexRequiredError]]. The test shortens the timeout, so it does not wait.
+
 ## A stored MiniLM index keeps MiniLM
 
 An index that records `local:minilm-l6-v2:384` resolves MiniLM through [[src/search/embedder.ts#embedderForIndex]] with no network call and nothing on stderr, so existing indexes keep working.
