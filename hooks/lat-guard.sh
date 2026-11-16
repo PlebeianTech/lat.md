@@ -88,14 +88,21 @@ if [ "${1:-}" = "hook" ] && [ -n "${2:-}" ] && [ -n "${3:-}" ]; then
   done
 fi
 
-# Walk up for a lat.md/ directory, the same way the CLI locates one itself.
-# A lat.md that holds .git is a repository named lat.md, not a docs directory.
+# Walk up for a lat.md/ directory. This guard skips a lat.md that holds .git,
+# because that is a repository, not docs. The CLI's own lookup (findLatticeDir)
+# does not skip it, so lat run by hand from a parent of such a repository still
+# treats the repository as docs.
 lat_root=""
+skipped_repo=""
 dir="$START"
 while [ -n "$dir" ] && [ "$dir" != "/" ]; do
-  if [ -d "$dir/lat.md" ] && [ ! -e "$dir/lat.md/.git" ]; then
-    lat_root="$dir"
-    break
+  if [ -d "$dir/lat.md" ]; then
+    if [ -e "$dir/lat.md/.git" ]; then
+      skipped_repo=1
+    else
+      lat_root="$dir"
+      break
+    fi
   fi
   parent=$(dirname "$dir")
   [ "$parent" = "$dir" ] && break
@@ -124,6 +131,10 @@ if [ -n "$lat_root" ]; then
   fi
   exec "$LAT_BIN" "$@"
 fi
+
+# A skipped repository means `lat init` would write into that checkout, so say
+# nothing rather than send the agent there.
+[ -z "$skipped_repo" ] || exit 0
 
 # No lat.md/ anywhere above the project root. Tell the agent to create one,
 # but only on UserPromptSubmit — the other events have no channel to say it

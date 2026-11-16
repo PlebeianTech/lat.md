@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -65,14 +66,21 @@ describe('lat-guard.sh with a nested repository', () => {
   // @lat: [[tests/fork-guard-nested-repo#Fork Guard Nested Repo#A plain lat.md directory is still indexed]]
   it('still writes the missing index for a plain lat.md directory', () => {
     const project = makeProject({ nestedRepo: false });
-    const before = listFiles(project);
     runGuard(project, ['check', 'index', '--fix']);
-    expect(listFiles(project)).not.toEqual(before);
+    expect(existsSync(join(project, 'lat.md', 'other', 'other.md'))).toBe(true);
   });
 
-  // @lat: [[tests/fork-guard-nested-repo#Fork Guard Nested Repo#A nested repository gets the init notice]]
-  it('prints the init notice when lat.md is a git repository', () => {
+  // @lat: [[tests/fork-guard-nested-repo#Fork Guard Nested Repo#A nested repository gets no init notice]]
+  it('prints nothing on UserPromptSubmit when lat.md is a git repository', () => {
     const project = makeProject({ nestedRepo: true });
+    const result = runGuard(project, ['hook', 'claude', 'UserPromptSubmit']);
+    expect(result.stdout).toBe('');
+  });
+
+  // @lat: [[tests/fork-guard-nested-repo#Fork Guard Nested Repo#A project with no lat.md still gets the init notice]]
+  it('prints the init notice when there is no lat.md anywhere', () => {
+    const project = mkdtempSync(join(tmpdir(), 'lat-guard-empty-'));
+    projects.push(project);
     const result = runGuard(project, ['hook', 'claude', 'UserPromptSubmit']);
     expect(result.stdout).toContain('has no `lat.md/` directory');
   });

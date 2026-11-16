@@ -15,6 +15,10 @@ With a `lat.md/` that holds `.git`, `check index --fix` writes nothing anywhere 
 
 With a `lat.md/` that holds no `.git`, `check index --fix` still writes its missing index, so the skip rule has not disabled the hook.
 
-## A nested repository gets the init notice
+## A nested repository gets no init notice
 
-With a `lat.md/` that holds `.git`, `hook claude UserPromptSubmit` prints the notice telling the agent to run `init`.
+With a `lat.md/` that holds `.git`, `hook claude UserPromptSubmit` prints nothing, because following the notice would run `init` inside the nested repository.
+
+## A project with no lat.md still gets the init notice
+
+With no `lat.md/` anywhere above the project, `hook claude UserPromptSubmit` still prints the notice telling the agent to run `init`.
