@@ -47,11 +47,11 @@ src/cli/gen.ts	Registration point for gen targets; each fork target is one impor
 src/cli/git-hook-install.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/cli/git-hook.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/cli/hook.ts	Hook event dispatch. Each fork-owned handler is an import plus one case in the switch.
-src/cli/index.ts	Commander's command table. A fork-added subcommand has nowhere else to be registered.
+src/cli/index.ts	Commander's command table. A fork-added subcommand or flag has nowhere else to be registered, including `lat search --rerank`, whose URL parser lives in src/fork/decision-model-rerank.ts.
 src/cli/init-preferences.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/cli/init.ts	Writes the hook wiring and generated files `lat init` installs, which the fork extends. Changing what init installs means changing the installer.
 src/cli/reindex.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
-src/cli/search.ts	Knowledge federation has to join the result set where upstream builds it; there is no fork-owned call site downstream of it.
+src/cli/search.ts	Knowledge federation has to join the result set where upstream builds it; there is no fork-owned call site downstream of it. The `--rerank` hook widens the candidate count and reorders matches before formatting, with the logic in src/fork/decision-model-rerank.ts.
 src/cli/ui-build-server.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/cli/ui-build.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/cli/ui.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.

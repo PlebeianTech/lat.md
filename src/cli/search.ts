@@ -53,6 +53,10 @@ import {
   provenanceNote,
   formatProvenanceNote,
 } from '@plebeiantech/lat.md-core/cli/check-status';
+import {
+  rerankCandidateCount,
+  rerankSearchMatches,
+} from '../fork/decision-model-rerank.js';
 
 export type SearchResult = {
   query: string;
@@ -335,6 +339,7 @@ export async function searchCommand(
     debug?: boolean;
     minSimilarity?: number;
     preview?: 'passage' | 'intro' | 'both';
+    rerank?: string;
   },
   progress?: IndexProgress,
 ): Promise<CmdResult> {
@@ -346,10 +351,20 @@ export async function searchCommand(
     }
 
     const project = await commandProjectAnalysis(ctx);
-    const result = await runSearch(ctx.latDir, query, opts.limit, progress, {
-      project,
-      minSimilarity: opts.minSimilarity,
-    });
+    const result = await runSearch(
+      ctx.latDir,
+      query,
+      rerankCandidateCount(opts.limit, opts.rerank),
+      progress,
+      { project, minSimilarity: opts.minSimilarity },
+    );
+    result.matches = await rerankSearchMatches(
+      ctx.projectRoot,
+      query,
+      result.matches,
+      opts.limit,
+      opts.rerank,
+    );
 
     if (result.matches.length === 0) {
       return { output: 'No results found.' };

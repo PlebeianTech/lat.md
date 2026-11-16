@@ -27,6 +27,7 @@ Shared patterns for writing and organizing tests in this project.
 - [Expand](expand.md) — Tests for the \`lat expand\` command that resolves \`\[\[refs\]\]\` and appends context blocks.
 - [External Sources](external-tests.md) — External-source tests verify pinned remote content is resolved reproducibly and safely across every Lat interface.
 - [Fork Coverage Preflight](fork-coverage-preflight.md): Tests for \[\[src/cli/fork-coverage-preflight.ts\]\], which surfaces ungrounded prompt file paths during UserPromptSubmit preflight execution.
+- [Fork Decision Model Rerank](fork-decision-model-rerank.md) — Tests in \[\[tests/fork-decision-model-rerank.test.ts\]\] for \[\[src/fork/decision-model-rerank.ts\]\], which reorders \`lat search\` results with a decision model. \`fetch\` is mocked, so no test reaches the network.
 - [Fork Graph Edge Roles](fork-graph-edge-roles.md): Tests for graph export edge classification in \[\[src/graph-export.ts\]\], which assigns optional semantic roles to knowledge graph edges.
 - [Fork Grounding Eval](fork-grounding-eval.md): Evaluation suite in \[\[tests/fork-grounding-eval.test.ts\]\] verifying prompt search budget reduction, file coverage preflight precision and recall, diff impact section recall, and MCP backlink workflow signal quality.
 - [Fork Guard Nested Repo](fork-guard-nested-repo.md) — Tests in \[\[tests/fork-guard-nested-repo.test.ts\]\] for \[\[hooks/lat-guard.sh\]\], which must not treat a git repository named \`lat.md\` as a docs directory.

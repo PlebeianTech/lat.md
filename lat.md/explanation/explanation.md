@@ -6,6 +6,7 @@ Each document here answers a "why", not a "how". The steps that follow from a de
 
 <!-- lat:index:begin -->
 - [Antigravity and Gemini Support](antigravity.md) — How this fork supports Google Antigravity and Gemini CLI agents alongside Claude Code, using non-intrusive lifecycle hooks and unified conventions.
+- [Decision Model Rerank](decision-model-rerank.md) — \`lat search --rerank <url>\` asks a decision model whether each candidate section answers the query, and orders the results by its answer. Without the flag, search is unchanged.
 - [Fork](fork.md) — How this fork of \[vercel-labs/lat.md\]\(https://github.com/vercel-labs/lat.md\) diverges from upstream, and the rules that keep those divergences cheap to carry.
 - [Knowledge Federation](knowledge-federation.md) — Looks up related knowledge from external stores when a tagged section is surfaced to an agent, and folds the results into the \[\[cli#hook#UserPromptSubmit\]\] payload. Driven by the \[\[markdown#Frontmatter#tags\]\] field. Entry point: \[\[src/knowledge/index.ts#federateTags\]\].
 - [Multi-QA Search Model](multi-qa-search-model.md) — Local search embeds with \`sentence-transformers/multi-qa-MiniLM-L6-cos-v1\`, downloaded on first use. The bundled all-MiniLM-L6-v2 stays as the fallback and as the model every older index keeps.
