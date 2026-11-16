@@ -503,13 +503,15 @@ Implementation: [[src/mcp/server.ts]], tool descriptions in [[src/mcp/fork-tool-
 
 Hybrid lexical and semantic search returns ranked sections with matching source passages. Local embeddings work offline; hosted models remain available through the existing backend selection rules.
 
-Usage: `lat search [query] [--limit <n>] [--min-similarity <score>] [--preview passage|intro|both] [--debug]`.
+Usage: `lat search [query] [--limit <n>] [--min-similarity <score>] [--preview passage|intro|both] [--debug] [--rerank <url>]`.
 
 With no query, search builds or updates the index. With a query it checks document freshness before retrieval. Unchanged projects reuse their published index without embedding or copying a generation. Read-only prompt hooks never build or migrate.
 
 The semantic minimum defaults to 0.20 ([[src/search/search.ts#DEFAULT_MIN_SIMILARITY]]). Lexical evidence qualifies independently. The limit defaults to five ([[src/search/search.ts#DEFAULT_SEARCH_LIMIT]]); the UI requests ten. Empty queries return no matches and oversized embedding queries fail explicitly.
 
 Passage previews are the default. `--preview intro` restores introduction previews; `both` displays both without changing ranking. `--debug` includes hybrid rank score, channel ranks and contributions, cosine similarity, and candidate-budget diagnostics. Hybrid scores are not confidence values.
+
+`--rerank <url>` reorders the results with a decision model at that URL and falls back to search order when it fails; see [[decision-model-rerank]] for the request format.
 
 CLI and MCP share [[src/cli/search.ts#runSearch]]. The MCP argument is `minSimilarity`; the old threshold option is removed. [[src/search/query.ts#openIndexedSearchSession]] owns one published database generation and embedder for repeated runtime queries.
 

@@ -17,7 +17,7 @@
 AGENTS.md	Upstream's agent instruction file. Carries the generated `%% lat-fork:begin %%` conventions block appended by `writeForkInstructions`.
 README.md	Install and usage text names the scoped package and the fork's release assets. Upstream's README cannot describe a package it does not publish. Also states that the default local search model is downloaded on first use, because upstream's sentence promised a bundled model and no network.
 lat.md/knowledge/architecture-analysis.md	Documents Ruby in supported source analysis languages.
-lat.md/knowledge/cli.md	Upstream's CLI reference. Fork-added subcommands and flags have to be documented where a reader looks them up, and `lat check` validates the wiki links into them. The key-resolution list also names the fork's default local model and links its fork-owned document.
+lat.md/knowledge/cli.md	Upstream's CLI reference. Fork-added subcommands and flags have to be documented where a reader looks them up, and `lat check` validates the wiki links into them. The key-resolution list also names the fork's default local model and links its fork-owned document. The search entry names `--rerank` and links its fork-owned document.
 lat.md/knowledge/dev-process.md	Upstream's development process doc, extended with the fork's own testing and CI conventions and linked to lat.md/fork.md.
 lat.md/knowledge/external-sources.md	Documents .erb, .rake, and .rb support in external default-file-extension.
 lat.md/knowledge/markdown.md	Upstream's markdown-conventions doc. The fork's index-entry link scheme is a markdown convention and belongs in it rather than in a second competing document.
