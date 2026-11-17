@@ -25,6 +25,8 @@ The checkpoint offset is also a message creation time: the first message not yet
 
 Discovery lists the sessions whose directory is inside the repo root or one of its worktrees, including subagent sessions. Sessions started elsewhere are left out. A missing database discovers nothing.
 
+The test builds its worktree with git under an empty global and system config, so a developer's global git hooks never run inside it.
+
 ## Session lifecycle, name and model
 
 A read from offset zero opens with a session start taken from the session row, carries the model whenever it changes and carries the session title unless it is the default placeholder.

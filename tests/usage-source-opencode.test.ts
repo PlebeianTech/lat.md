@@ -160,7 +160,14 @@ describe('opencode session reader', () => {
       execFileSync(
         'git',
         ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args],
-        { stdio: 'ignore' },
+        {
+          stdio: 'ignore',
+          env: {
+            ...process.env,
+            GIT_CONFIG_GLOBAL: '/dev/null',
+            GIT_CONFIG_SYSTEM: '/dev/null',
+          },
+        },
       );
     rmSync(join(repo, '.git'), { recursive: true });
     git('init', '-q');
