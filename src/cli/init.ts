@@ -49,6 +49,7 @@ import { checklistMenu } from './checklist-menu.js';
 import { writeForkInstructions } from './fork-instructions.js';
 import { offerRequireMode, writeForkScaffold } from './fork-scaffold.js';
 import { setupAntigravity } from '../fork/antigravity-init.js';
+import { downloadDefaultSearchModel } from '../fork/multi-qa-search-model.js';
 import { readInitAgents, writeInitAgents } from './init-preferences.js';
 
 async function confirm(
@@ -1243,7 +1244,7 @@ async function setupEmbeddingsForInit(
     console.log(
       '  An embedding API key is configured. Choose whether this repo should use',
     );
-    console.log('  the bundled offline model or hosted embeddings.');
+    console.log('  the local model (no API key) or hosted embeddings.');
     console.log('');
 
     const defaultIndex = existingBackend
@@ -1255,7 +1256,7 @@ async function setupEmbeddingsForInit(
         : 1;
     const selected = await selectMenu(
       [
-        { label: 'Local — bundled, offline (recommended)', value: 'local' },
+        { label: 'Local — no API key (recommended)', value: 'local' },
         { label: 'Hosted — use LAT_LLM_KEY', value: 'remote' },
       ],
       'Embedding backend',
@@ -1282,11 +1283,13 @@ async function setupEmbeddingsForInit(
       '  relevant documentation by meaning, not just keywords. This repo is configured',
     );
     console.log(
-      '  to use the bundled local model — fully offline, with no API key required.',
+      '  to use the local model. It needs no API key, and lat init downloads it if this repo needs it;',
     );
+    console.log('  offline, it falls back to the bundled MiniLM model.');
   } else {
     backend = existingBackend ?? (key ? 'remote' : 'local');
   }
+  if (backend === 'local') await downloadDefaultSearchModel(storedModel);
 
   if (configuredNow && backend === 'local' && !key) {
     console.log('');

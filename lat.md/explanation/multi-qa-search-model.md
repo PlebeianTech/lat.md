@@ -1,6 +1,6 @@
 # Multi-QA Search Model
 
-Local search embeds with `sentence-transformers/multi-qa-MiniLM-L6-cos-v1`, downloaded on first use. The bundled all-MiniLM-L6-v2 stays as the fallback and as the model every older index keeps.
+Local search embeds with `sentence-transformers/multi-qa-MiniLM-L6-cos-v1`, downloaded by `lat init` or on first use. The bundled all-MiniLM-L6-v2 stays as the fallback and as the model every older index keeps.
 
 People ask `lat search` questions, and this model was trained on question and answer pairs. On a real 172-page tree it ranked the right section first for 9 of 32 plain-English questions. MiniLM managed 5.
 
@@ -38,6 +38,14 @@ Each file is written under a temporary name and then renamed. A rename is atomic
 
 Lat hashes the cached files again on every load, which takes about 40 ms. A cached file that fails the check is downloaded again.
 
+## lat init fetches the model
+
+When `lat init` runs on a repo that uses the local backend, [[src/fork/multi-qa-search-model.ts#downloadDefaultSearchModel]] downloads the model at once, so the first search finds it in the cache.
+
+Agent tool runners such as [[templates/opencode-plugin.ts]] and [[templates/pi-extension.ts]] stop `lat` after 30 seconds and discard the error. On a slow line a first-use download inside `lat search` would never finish, and every agent search would return nothing.
+
+Re-running `lat init` fetches the model again when the cache is gone. When the existing index records MiniLM, `lat init` skips the download, because that index keeps MiniLM. A failed download prints one warning and `lat init` carries on. The first-use download in `lat search` stays as the backup. `LAT_BUNDLED_EMBEDDING_MODEL=1` skips this download too.
+
 ## When the download fails
 
 A fresh index that cannot get the model uses the bundled MiniLM, and lat says so once on stderr in one sentence. No network, an HTTP error and a bad hash all take this path.
@@ -55,3 +63,9 @@ Two callers must never download, and both keep fresh indexes on the bundled Mini
 The environment variable `LAT_BUNDLED_EMBEDDING_MODEL=1` does the same for any process. The test suite sets it through [[src/fork/vitest-pool-options.ts#forkTestEnvironment]], so no test reaches the network. A machine with no network access can set it to skip the attempt and the warning.
 
 Neither switch changes an index that already records multi-qa. Test spec: [[tests/fork-multi-qa-search-model]].
+
+## Hooks never download
+
+Prompt hooks search an existing index read-only and must answer within seconds, so a 91 MB download does not fit in one.
+
+[[src/cli/hook.ts#hookCmd]] calls [[src/fork/multi-qa-search-model.ts#neverDownloadModelInThisProcess]] first, so the switch covers every agent's hooks, Antigravity and Gemini included. An index that records multi-qa but has no verified cache then raises [[src/search/embedder.ts#ReindexRequiredError]], and the hook skips search enrichment. A hook never builds a fresh index, so the switch changes nothing else.

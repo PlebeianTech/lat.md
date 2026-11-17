@@ -52,12 +52,18 @@ export const bundledModelEnvironmentVariable = 'LAT_BUNDLED_EMBEDDING_MODEL';
 export const modelDownloadTimeoutMilliseconds = 10 * 60 * 1000;
 
 let processUsesBundledModel = false;
+let processMayDownloadModel = true;
 let fallbackWarningShown = false;
 let downloadNoticeShown = false;
 
 // @lat: [[multi-qa-search-model#Multi-QA Search Model#Staying on the bundled model]]
 export function useBundledModelForFreshIndexes(): void {
   processUsesBundledModel = true;
+}
+
+// @lat: [[multi-qa-search-model#Multi-QA Search Model#Hooks never download]]
+export function neverDownloadModelInThisProcess(): void {
+  processMayDownloadModel = false;
 }
 
 function bundledModelRequested(): boolean {
@@ -137,8 +143,10 @@ export async function ensurePinnedModel(
   const cacheDirectory = pinnedModelCacheDirectory(model);
   for (const file of [model.weights, model.tokenizer, model.config]) {
     const cachedPath = join(cacheDirectory, file.name);
-    if (!(await cachedFileIsVerified(cachedPath, file.sha256)))
-      await downloadVerifiedFile(model, file, cacheDirectory);
+    if (await cachedFileIsVerified(cachedPath, file.sha256)) continue;
+    if (!processMayDownloadModel)
+      throw new Error(`${cachedPath} is missing or corrupt`);
+    await downloadVerifiedFile(model, file, cacheDirectory);
   }
   return {
     id: model.id,
@@ -150,6 +158,10 @@ export async function ensurePinnedModel(
     tokenizerPath: join(cacheDirectory, model.tokenizer.name),
     configPath: join(cacheDirectory, model.config.name),
   };
+}
+
+function storedModelKey(model: { id: string; dimensions: number }): string {
+  return `local:${model.id}:${model.dimensions}`;
 }
 
 function failureReason(error: unknown): string {
@@ -165,6 +177,24 @@ function warnAboutFallbackOnce(model: PinnedModel, error: unknown): void {
   );
 }
 
+// @lat: [[multi-qa-search-model#Multi-QA Search Model#lat init fetches the model]]
+export async function downloadDefaultSearchModel(
+  storedModel?: string | null,
+  model: PinnedModel = multiQaModel,
+): Promise<void> {
+  if (bundledModelRequested() || !processMayDownloadModel) return;
+  const indexKeepsAnotherLocalModel =
+    storedModel?.startsWith('local:') && storedModel !== storedModelKey(model);
+  if (indexKeepsAnotherLocalModel) return;
+  try {
+    await ensurePinnedModel(model);
+  } catch (error) {
+    process.stderr.write(
+      `lat: could not download the ${model.displayName} search model (${failureReason(error)}). 'lat search' tries again on first use and falls back to the bundled all-MiniLM-L6-v2 model if that fails too.\n`,
+    );
+  }
+}
+
 // @lat: [[multi-qa-search-model#Multi-QA Search Model#Which model an index uses]]
 export async function localEmbedderForIndex(
   storedModel?: string | null,
@@ -173,7 +203,7 @@ export async function localEmbedderForIndex(
   const bundledEmbedder = () =>
     createEmbedder({ model: bundledMiniLmManifest });
 
-  if (storedModel === `local:${model.id}:${model.dimensions}`) {
+  if (storedModel === storedModelKey(model)) {
     try {
       return await createEmbedder({ model: await ensurePinnedModel(model) });
     } catch (error) {

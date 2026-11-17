@@ -19,6 +19,7 @@ import {
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import { Readable } from 'node:stream';
 
 const miniLmEmbedderName = 'local:minilm-l6-v2';
 const miniLmStoredModel = 'local:minilm-l6-v2:384';
@@ -276,6 +277,57 @@ describe('multi-qa search model', () => {
     ).rejects.toBeInstanceOf(ReindexRequiredError);
   });
 
+  // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#A hook process never downloads]]
+  it('requires a reindex instead of downloading in a hook process', async () => {
+    const {
+      embedderForIndex,
+      neverDownloadModelInThisProcess,
+      ReindexRequiredError,
+    } = await loadModules();
+    serveFiles(fakeFileContents);
+    neverDownloadModelInThisProcess();
+
+    await expect(
+      embedderForIndex(multiQaStoredModel, latDir),
+    ).rejects.toBeInstanceOf(ReindexRequiredError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#The prompt hook turns downloads off]]
+  it('never downloads when the prompt hook searches a multi-qa index', async () => {
+    const { openDb, ensureMeta, setStoredModel, closeDb } =
+      await import('../src/search/db.js');
+    const { LEXICAL_VERSION } = await import('../src/search/lexical.js');
+    const { hookCmd } = await import('../src/cli/hook.js');
+    serveFiles(fakeFileContents);
+    writeFileSync(
+      join(latDir, 'notes.md'),
+      '# Notes\n\nA short note about search.\n',
+    );
+    const db = openDb(latDir);
+    try {
+      await ensureMeta(db);
+      await setStoredModel(db, multiQaStoredModel);
+      await db.execute({
+        sql: 'INSERT OR REPLACE INTO meta VALUES (?,?)',
+        args: ['lexical_version', LEXICAL_VERSION],
+      });
+    } finally {
+      await closeDb(db);
+    }
+    vi.spyOn(process, 'cwd').mockReturnValue(join(latDir, '..'));
+    vi.spyOn(process, 'stdin', 'get').mockReturnValue(
+      Readable.from([
+        Buffer.from(JSON.stringify({ prompt: 'how does search work' })),
+      ]) as unknown as typeof process.stdin,
+    );
+    vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+    await hookCmd('claude', 'UserPromptSubmit');
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#A stored MiniLM index keeps MiniLM]]
   it('keeps MiniLM for an index that records MiniLM', async () => {
     const { embedderForIndex } = await loadModules();
@@ -358,4 +410,114 @@ describe('multi-qa search model', () => {
     expect(embedder.name).toBe(miniLmEmbedderName);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#lat init downloads the model]]
+  it('downloads the model for lat init', async () => {
+    const {
+      downloadDefaultSearchModel,
+      pinnedModelCacheDirectory,
+      fakeMultiQaModel,
+    } = await loadModules();
+    serveFiles(fakeFileContents);
+
+    await downloadDefaultSearchModel(null, fakeMultiQaModel);
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(
+      readdirSync(pinnedModelCacheDirectory(fakeMultiQaModel)).sort(),
+    ).toEqual(['config.json', 'model.safetensors', 'tokenizer.json']);
+  });
+
+  // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#lat init skips the download for a MiniLM index]]
+  it('skips the lat init download for an index that records MiniLM', async () => {
+    const { downloadDefaultSearchModel, fakeMultiQaModel } =
+      await loadModules();
+    serveFiles(fakeFileContents);
+
+    await downloadDefaultSearchModel(miniLmStoredModel, fakeMultiQaModel);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(stderrWrite).not.toHaveBeenCalled();
+  });
+
+  // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#lat init downloads for a multi-qa index]]
+  it('downloads the model for lat init when the index records multi-qa', async () => {
+    const { downloadDefaultSearchModel, fakeMultiQaModel } =
+      await loadModules();
+    serveFiles(fakeFileContents);
+
+    await downloadDefaultSearchModel(multiQaStoredModel, fakeMultiQaModel);
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#lat init skips the download for the bundled model]]
+  it('skips the lat init download when the bundled model is requested', async () => {
+    const { downloadDefaultSearchModel, fakeMultiQaModel } =
+      await loadModules();
+    vi.stubEnv('LAT_BUNDLED_EMBEDDING_MODEL', '1');
+    serveFiles(fakeFileContents);
+
+    await downloadDefaultSearchModel(null, fakeMultiQaModel);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(stderrWrite).not.toHaveBeenCalled();
+  });
+
+  // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#A failed lat init download warns and continues]]
+  it('warns once and returns when the lat init download fails', async () => {
+    const { downloadDefaultSearchModel, fakeMultiQaModel } =
+      await loadModules();
+    serveNothing();
+
+    await expect(
+      downloadDefaultSearchModel(null, fakeMultiQaModel),
+    ).resolves.toBeUndefined();
+
+    const warnings = stderrLines().filter((line) =>
+      line.includes('all-MiniLM-L6-v2'),
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('fetch failed');
+  });
+
+  // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#The server index build stays on MiniLM]]
+  it('builds the server index with MiniLM and no download', async () => {
+    const { analyzeMarkdownProject } =
+      await import('@plebeiantech/lat.md-core/project-analysis');
+    const { openDb, getStoredModel, closeDb } =
+      await import('../src/search/db.js');
+    serveNothing();
+    writeFileSync(
+      join(latDir, 'notes.md'),
+      '# Notes\n\nA short note about search.\n',
+    );
+    const project = await analyzeMarkdownProject(latDir, join(latDir, '..'), {
+      executor: 'auto',
+    });
+    const cacheDir = join(temporaryDirectory, 'server-index');
+    const exitCode = new Promise<number | undefined>((resolve) => {
+      vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+        resolve(code);
+      }) as typeof process.exit);
+    });
+
+    const listenersBeforeImport = process.listeners('message');
+    await import('../src/view/server-index-worker.js');
+    const workerListener = process
+      .listeners('message')
+      .find((listener) => !listenersBeforeImport.includes(listener));
+    if (!workerListener) throw new Error('the worker added no listener');
+    process.off('message', workerListener);
+    await workerListener({ latDir, project, cacheDir }, undefined);
+
+    expect(await exitCode).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const db = openDb(latDir, cacheDir, true);
+    try {
+      expect(await getStoredModel(db)).toBe(miniLmStoredModel);
+    } finally {
+      await closeDb(db);
+    }
+  }, 120_000);
 });
