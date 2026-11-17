@@ -25,7 +25,7 @@ A cached file whose hash does not match is never used. Only that file is fetched
 
 ## A fresh index uses multi-qa
 
-With no stored model, [[src/fork/multi-qa-search-model.ts#localEmbedderForIndex]] returns the multi-qa embedder with 384 dimensions and a 512-token input limit.
+With no stored model, [[src/fork/multi-qa-search-model.ts#localEmbedderForIndex]] returns the multi-qa embedder with 384 dimensions and a 250-token input limit. Its [[src/search/embedder.ts#modelKey]] is the exact string an index records for multi-qa, so a fresh index reopens with multi-qa.
 
 ## A bad hash falls back to MiniLM
 
@@ -35,9 +35,17 @@ When a downloaded file does not match its pinned SHA-256, nothing is stored at t
 
 When `fetch` fails, a fresh index and `lat reindex` both get the bundled MiniLM. Two failures in one process write one warning, and the warning is one line.
 
+## An HTTP error falls back like offline
+
+When the download answers HTTP 500, a fresh index gets the bundled MiniLM with one warning that names the status, and an index that records multi-qa rejects with [[src/search/embedder.ts#ReindexRequiredError]].
+
 ## A stalled download times out like offline
 
 When `fetch` never answers, the request is aborted after [[src/fork/multi-qa-search-model.ts#modelDownloadTimeoutMilliseconds]]. A fresh index then gets the bundled MiniLM with one warning, and an index that records multi-qa rejects with [[src/search/embedder.ts#ReindexRequiredError]]. The test shortens the timeout, so it does not wait.
+
+## One deadline bounds the whole download
+
+[[src/fork/multi-qa-search-model.ts#ensurePinnedModel]] creates one timeout signal and passes it to all three fetches, so [[src/fork/multi-qa-search-model.ts#modelDownloadTimeoutMilliseconds]] bounds the whole download, not each file.
 
 ## A hook process never downloads
 
@@ -58,6 +66,10 @@ An index that records the multi-qa model resolves the multi-qa embedder from the
 ## A stored multi-qa index never falls back
 
 When an index records multi-qa and the model cannot be loaded, [[src/search/embedder.ts#embedderForIndex]] rejects with [[src/search/embedder.ts#ReindexRequiredError]] and a message that names `lat reindex`. It never mixes models.
+
+## An unknown local model requires a reindex
+
+When an index records a local model that is neither MiniLM nor the current multi-qa pin, [[src/search/embedder.ts#embedderForIndex]] rejects with [[src/search/embedder.ts#ReindexRequiredError]], names the stored model and `lat reindex`, and makes no download. A re-pin must never search old vectors with MiniLM.
 
 ## Remote behaviour is unchanged
 

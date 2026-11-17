@@ -31,7 +31,7 @@ export const multiQaModel: PinnedModel = {
   repository: 'sentence-transformers/multi-qa-MiniLM-L6-cos-v1',
   commit: 'b207367332321f8e44f96e224ef15bc607f4dbf0',
   dimensions: 384,
-  maxTokens: 512,
+  maxTokens: 250,
   weights: {
     name: 'model.safetensors',
     sha256: '7bec4fd9eba43073d5c5dcf1b79b0a3397608fa063e6f626d6f8fd70a81f2d8c',
@@ -114,11 +114,10 @@ async function downloadVerifiedFile(
   model: PinnedModel,
   file: PinnedModelFile,
   cacheDirectory: string,
+  downloadDeadline: AbortSignal,
 ): Promise<void> {
   const url = `https://huggingface.co/${model.repository}/resolve/${model.commit}/${file.name}`;
-  const response = await fetch(url, {
-    signal: AbortSignal.timeout(modelDownloadTimeoutMilliseconds),
-  });
+  const response = await fetch(url, { signal: downloadDeadline });
   if (!response.ok) throw new Error(`${url} answered HTTP ${response.status}`);
   announceDownloadOnce(model, cacheDirectory);
   const bytes = new Uint8Array(await response.arrayBuffer());
@@ -141,12 +140,15 @@ export async function ensurePinnedModel(
   model: PinnedModel,
 ): Promise<ModelManifest> {
   const cacheDirectory = pinnedModelCacheDirectory(model);
+  const downloadDeadline = AbortSignal.timeout(
+    modelDownloadTimeoutMilliseconds,
+  );
   for (const file of [model.weights, model.tokenizer, model.config]) {
     const cachedPath = join(cacheDirectory, file.name);
     if (await cachedFileIsVerified(cachedPath, file.sha256)) continue;
     if (!processMayDownloadModel)
       throw new Error(`${cachedPath} is missing or corrupt`);
-    await downloadVerifiedFile(model, file, cacheDirectory);
+    await downloadVerifiedFile(model, file, cacheDirectory, downloadDeadline);
   }
   return {
     id: model.id,
@@ -173,7 +175,7 @@ function warnAboutFallbackOnce(model: PinnedModel, error: unknown): void {
   if (fallbackWarningShown) return;
   fallbackWarningShown = true;
   process.stderr.write(
-    `lat: could not get the ${model.displayName} search model (${failureReason(error)}), so this index uses the bundled all-MiniLM-L6-v2 model.\n`,
+    `lat: could not get the ${model.displayName} search model (${failureReason(error)}), so this index uses the bundled all-MiniLM-L6-v2 model. Run 'lat reindex' to switch to ${model.displayName} once the download works.\n`,
   );
 }
 
@@ -214,7 +216,15 @@ export async function localEmbedderForIndex(
     }
   }
 
-  if (storedModel || bundledModelRequested()) return bundledEmbedder();
+  if (storedModel === storedModelKey(bundledMiniLmManifest))
+    return bundledEmbedder();
+
+  if (storedModel)
+    throw new ReindexRequiredError(
+      `This index was built with '${storedModel}', which this version of lat does not search with. Run 'lat reindex' to rebuild it.`,
+    );
+
+  if (bundledModelRequested()) return bundledEmbedder();
 
   try {
     return await createEmbedder({ model: await ensurePinnedModel(model) });

@@ -74,6 +74,12 @@ function serveFiles(contents: Record<string, string>): void {
   );
 }
 
+function answerHttpError(status: number): void {
+  fetchMock.mockImplementation(
+    async () => new Response('server error', { status }),
+  );
+}
+
 function serveNothing(): void {
   fetchMock.mockRejectedValue(new TypeError('fetch failed'));
 }
@@ -205,14 +211,16 @@ describe('multi-qa search model', () => {
 
   // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#A fresh index uses multi-qa]]
   it('gives a fresh index the multi-qa model', async () => {
-    const { localEmbedderForIndex, fakeMultiQaModel } = await loadModules();
+    const { localEmbedderForIndex, modelKey, fakeMultiQaModel } =
+      await loadModules();
     serveFiles(fakeFileContents);
 
     const embedder = await localEmbedderForIndex(null, fakeMultiQaModel);
 
     expect(embedder.name).toBe(multiQaEmbedderName);
     expect(embedder.dimensions).toBe(384);
-    expect(embedder.maxInputTokens).toBe(512);
+    expect(embedder.maxInputTokens).toBe(250);
+    expect(modelKey(embedder)).toBe(multiQaStoredModel);
   });
 
   // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#A bad hash falls back to MiniLM]]
@@ -252,6 +260,24 @@ describe('multi-qa search model', () => {
     expect(warnings[0]).toMatch(/^[^\n]+\n$/);
   });
 
+  // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#An HTTP error falls back like offline]]
+  it('treats an HTTP error on the download as offline', async () => {
+    const { embedderForIndex, ReindexRequiredError } = await loadModules();
+    answerHttpError(500);
+
+    const freshIndexEmbedder = await embedderForIndex(null, latDir);
+
+    expect(freshIndexEmbedder.name).toBe(miniLmEmbedderName);
+    const warnings = stderrLines().filter((line) =>
+      line.includes('all-MiniLM-L6-v2'),
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('HTTP 500');
+    await expect(
+      embedderForIndex(multiQaStoredModel, latDir),
+    ).rejects.toBeInstanceOf(ReindexRequiredError);
+  });
+
   // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#A stalled download times out like offline]]
   it('treats a stalled download as offline once the timeout passes', async () => {
     const {
@@ -275,6 +301,20 @@ describe('multi-qa search model', () => {
     await expect(
       embedderForIndex(multiQaStoredModel, latDir),
     ).rejects.toBeInstanceOf(ReindexRequiredError);
+  });
+
+  // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#One deadline bounds the whole download]]
+  it('bounds the whole download with one deadline', async () => {
+    const { ensurePinnedModel, fakeMultiQaModel } = await loadModules();
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    serveFiles(fakeFileContents);
+
+    await ensurePinnedModel(fakeMultiQaModel);
+
+    expect(timeout).toHaveBeenCalledOnce();
+    const signals = new Set(fetchMock.mock.calls.map((call) => call[1].signal));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(signals.size).toBe(1);
   });
 
   // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#A hook process never downloads]]
@@ -366,6 +406,19 @@ describe('multi-qa search model', () => {
 
     await expect(attempt).rejects.toBeInstanceOf(ReindexRequiredError);
     await expect(attempt).rejects.toThrow(/lat reindex/);
+  });
+
+  // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#An unknown local model requires a reindex]]
+  it('requires a reindex for an index that records an unknown local model', async () => {
+    const { embedderForIndex, ReindexRequiredError } = await loadModules();
+    const unknownStoredModel = 'local:multi-qa-older-pin:384';
+
+    const attempt = embedderForIndex(unknownStoredModel, latDir);
+
+    await expect(attempt).rejects.toBeInstanceOf(ReindexRequiredError);
+    await expect(attempt).rejects.toThrow(unknownStoredModel);
+    await expect(attempt).rejects.toThrow(/lat reindex/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#Remote behaviour is unchanged]]
