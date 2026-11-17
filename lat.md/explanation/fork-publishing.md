@@ -36,7 +36,11 @@ The published dependency graph has to be made only of plain registry packages at
 
 So [[scripts/fork-vendor-ui-server.ts]] copies the compiled server into `dist/vendor/lat.md-server` after `tsc`, and rewrites the bare specifier in the emitted output to a relative path. `express`, its only external import, moves up into the fork's own dependencies. `@lat.md/server` stays a workspace `devDependency`, which is all the tests and the typecheck ever needed.
 
-The script walks the whole of `dist/src` rather than naming the single importer, so a second importer needs no edit and a second run finds nothing left to rewrite. An occurrence surviving the rewrite fails the build rather than shipping.
+The copy keeps the package's own layout: `dist/` plus its `package.json`. The server reads its version from `../package.json`, and `lat ui build server` pins that version in the artifact it writes. Without the manifest, the command fails with `ENOENT`.
+
+The script walks the whole of `dist/src` rather than naming the single importer, so a second importer needs no edit and a second run finds nothing left to rewrite. An import surviving the rewrite fails the build rather than shipping.
+
+The rewrite touches only import specifiers. The same string is a dependency key in the artifact's `package.json`, and rewriting it there named a relative path as a package. [[tests/fork-vendor-ui-server#Fork Vendor UI Server]] covers both rules.
 
 This is temporary by construction. The day upstream publishes `@lat.md/server`, the script and its call in `build` come out and the workspace dependency alone works again.
 

@@ -38,6 +38,7 @@ Shared patterns for writing and organizing tests in this project.
 - [Fork Scaffold](fork-scaffold.md) — Tests for \[\[src/cli/fork-scaffold.ts\]\], which gives a freshly created \`lat.md/\` the four Diátaxis directories, and for the \`require-mode\` gate in \[\[packages/core/src/cli/check-mode.ts#checkMode\]\] that the scaffold turns on.
 - [Fork Section Edges](fork-section-edges.md): Tests for \[\[packages/core/src/fork/section-edges.ts\]\], which classifies code reference roles and formats citation coordinates for section backlinks.
 - [Fork Stop Impact](fork-stop-impact.md): Tests for \[\[src/cli/fork-stop-impact.ts\]\], which intersects git diff line ranges with \`@lat:\` references and wiki links on Stop hook execution.
+- [Fork Vendor UI Server](fork-vendor-ui-server.md) — Tests in \[\[tests/fork-vendor-ui-server.test.ts\]\] for \[\[scripts/fork-vendor-ui-server.ts\]\], run against a small fixture tree so \`lat ui build server\` keeps working from the vendored copy.
 - [Frontmatter Field Placement](frontmatter-placement.md) — Tests for \`parseFrontmatter\`'s validation of known \`lat\` fields written at the document root instead of nested under \`lat:\`, and the \`checkFrontmatter\` check that surfaces it via \`lat check\`.
 - [Gen GitHub Wiki Workflow Tests](gen-github-wiki-workflow.md) — Functional tests for wiki workflow template rendering and placeholder substitution.
 - [Graph Export](graph-export.md) — Functional and unit tests for \[\[cli#graph\]\] — exporting the knowledge graph and diffing it against git history.
