@@ -15,12 +15,13 @@
 .github/workflows/publish.yml	Upstream's ran on every push to main and published the `lat.md` package, which this fork does not own. Replaced wholesale by a tag-triggered job that refuses to run unless the package name is @plebeiantech/lat.md.
 .gitignore	Ignores /.cache/, the parsed-file cache lat writes at the repository root when the repository itself is used as the lat directory.
 AGENTS.md	Upstream's agent instruction file. Carries the generated `%% lat-fork:begin %%` conventions block appended by `writeForkInstructions`.
-README.md	Install and usage text names the scoped package and the fork's release assets. Upstream's README cannot describe a package it does not publish. Also states that the default local search model is downloaded on first use, because upstream's sentence promised a bundled model and no network.
+README.md	Install and usage text names the scoped package and the fork's release assets. Upstream's README cannot describe a package it does not publish. Also states that the default local search model is downloaded on first use, because upstream's sentence promised a bundled model and no network. The reindex line calls `--local` the local model, not the offline one, for the same reason.
 lat.md/knowledge/architecture-analysis.md	Documents Ruby in supported source analysis languages.
-lat.md/knowledge/cli.md	Upstream's CLI reference. Fork-added subcommands and flags have to be documented where a reader looks them up, and `lat check` validates the wiki links into them. The key-resolution list also names the fork's default local model and links its fork-owned document. The search entry names `--rerank` and links its fork-owned document.
+lat.md/knowledge/cli.md	Upstream's CLI reference. Fork-added subcommands and flags have to be documented where a reader looks them up, and `lat check` validates the wiki links into them. The key-resolution list also names the fork's default local model and links its fork-owned document. The search entry names `--rerank`, links its fork-owned document, and lists the fork's three search environment variables. The search and reindex entries describe the local model as downloaded on first use, not offline.
 lat.md/knowledge/dev-process.md	Upstream's development process doc, extended with the fork's own testing and CI conventions and linked to lat.md/fork.md.
 lat.md/knowledge/external-sources.md	Documents .erb, .rake, and .rb support in external default-file-extension.
 lat.md/knowledge/markdown.md	Upstream's markdown-conventions doc. The fork's index-entry link scheme is a markdown convention and belongs in it rather than in a second competing document.
+lat.md/knowledge/rag-architecture.md	Upstream's search architecture names MiniLM as the local model. One sentence links the fork-owned document for the downloaded default, which MiniLM now backs up.
 lat.md/knowledge/tests/check-index.md	Test spec for upstream's index check, extended where the fork extended the check. `require-code-mention` fails unless each new spec section sits beside its test.
 lat.md/knowledge/tests/check-md.md	Test spec for Ruby, Rake, and ERB source symbol resolution; require-code-mention fails unless the spec section sits beside its test.
 lat.md/knowledge/tests/hook.md	Test spec for the hook suite the fork extended, for the same require-code-mention reason.
@@ -47,17 +48,17 @@ src/cli/gen.ts	Registration point for gen targets; each fork target is one impor
 src/cli/git-hook-install.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/cli/git-hook.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/cli/hook.ts	Hook event dispatch. Each fork-owned handler is an import plus one case in the switch.
-src/cli/index.ts	Commander's command table. A fork-added subcommand or flag has nowhere else to be registered, including `lat search --rerank`, whose URL parser lives in src/fork/decision-model-rerank.ts.
+src/cli/index.ts	Commander's command table. A fork-added subcommand or flag has nowhere else to be registered, including `lat search --rerank`, whose URL parser lives in src/fork/decision-model-rerank.ts. The `reindex --local` help no longer calls the local model offline, because the fork's default local model downloads on first use.
 src/cli/init-preferences.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/cli/init.ts	Writes the hook wiring and generated files `lat init` installs, which the fork extends. Changing what init installs means changing the installer.
-src/cli/reindex.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
+src/cli/reindex.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core. Its prompts call the local model local, not offline, because the fork's default downloads on first use.
 src/cli/search.ts	Knowledge federation has to join the result set where upstream builds it; there is no fork-owned call site downstream of it. The `--rerank` hook widens the candidate count and reorders matches before formatting, with the logic in src/fork/decision-model-rerank.ts.
 src/cli/ui-build-server.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/cli/ui-build.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/cli/ui.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/mcp/server.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core. Also carries one import and one `registerForkMcp(server)` line that registers the fork's usage tap on the MCP server; the tap lives in src/fork/usage/.
 src/search/chunks.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
-src/search/embedder.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core. Also routes every local model choice through `localEmbedderForIndex` and passes the index's stored model to the search engine factory, so the fork's downloaded default model and the per-index choice live in src/fork/multi-qa-search-model.ts.
+src/search/embedder.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core. Also routes every local model choice through `localEmbedderForIndex` and passes the index's stored model to the search engine factory, so the fork's downloaded default model and the per-index choice live in src/fork/multi-qa-search-model.ts. The `localEmbedder` comment drops "offline" for the same reason.
 src/search/index.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/search/query.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.
 src/search/types.ts	Imports @plebeiantech/lat.md-core package instead of unpublished upstream core.

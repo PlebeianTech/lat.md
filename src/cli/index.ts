@@ -527,7 +527,7 @@ program
 program
   .command('reindex')
   .description('Rebuild the embedding index; switch backends if needed')
-  .option('--local', 'use the local offline model (ignore LAT_LLM_KEY)')
+  .option('--local', 'use the local model (ignore LAT_LLM_KEY)')
   .option(
     '--remote',
     'use the hosted API from LAT_LLM_KEY (override a local pin)',

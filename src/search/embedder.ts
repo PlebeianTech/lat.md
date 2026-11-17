@@ -38,7 +38,7 @@ export async function embedderFromEnv(): Promise<Embedder> {
   return key ? createEmbedder({ key }) : localEmbedderForIndex();
 }
 
-/** Local (offline) embedder, ignoring any configured key. */
+/** Local embedder, ignoring any configured key. */
 export function localEmbedder(): Promise<Embedder> {
   return localEmbedderForIndex();
 }

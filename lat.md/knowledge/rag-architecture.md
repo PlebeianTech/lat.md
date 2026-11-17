@@ -81,7 +81,7 @@ The embedder contract exposes dimensions, model input limits, tokenizer identity
 
 [[packages/embed/src/index.ts#createEmbedder]] selects the local or hosted backend. [[src/search/embedder.ts#embedderForIndex]] honors an existing index's recorded model; fresh indexes honor the durable local preference before consulting configured credentials.
 
-[[packages/embed/src/local.ts#createLocalEmbedder]] loads MiniLM from [[packages/embed-minilm-fp16]] into a Rust/WASM engine. [[packages/embed/crate/src/lib.rs#Embedder]] counts tokens including special tokens, rejects overflow, and generates normalized embeddings. Large batches use [[packages/embed/src/worker.ts]]; small batches run inline.
+[[packages/embed/src/local.ts#createLocalEmbedder]] loads MiniLM from [[packages/embed-minilm-fp16]] into a Rust/WASM engine. [[packages/embed/crate/src/lib.rs#Embedder]] counts tokens including special tokens, rejects overflow, and generates normalized embeddings. Large batches use [[packages/embed/src/worker.ts]]; small batches run inline. Fresh local indexes default to a downloaded model instead, and MiniLM is the fallback; see [[multi-qa-search-model]].
 
 [[packages/embed/src/remote.ts]] counts hosted inputs with the [[package-distribution#Dependency Boundary#Hosted tokenizer bundle|bundled upstream tokenizer]], batches OpenAI-compatible requests, and validates response ordering. [[tests/search#Hybrid Retrieval#Validates hosted input and response ordering]] uses mocked responses; it is not a live hosted relevance evaluation.
 

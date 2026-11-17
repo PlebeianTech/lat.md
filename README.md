@@ -141,7 +141,7 @@ To use higher-quality hosted embeddings instead, provide an OpenAI (`sk-...`) or
 3. `LAT_LLM_KEY_HELPER` env var — shell command that prints the key (10s timeout)
 4. Config file — power users can set `llm_key` manually. Run `lat paths --config` to print its location. Run `lat paths` to see cache and other storage paths with their purposes.
 
-Switch backends any time with `lat reindex` (`--local` to force the offline model, `--remote` to use your key).
+Switch backends any time with `lat reindex` (`--local` to force the local model, `--remote` to use your key).
 
 ## Development
 
