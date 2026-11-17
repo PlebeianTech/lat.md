@@ -14,19 +14,26 @@
 // relative path. `express`, its only external import, moves up into the
 // fork's own dependencies.
 //
+// The vendored copy keeps the package's own layout, `package.json` beside
+// `dist/`, because the server reads its version from `../package.json`.
+//
 // Delete this script, and its call in `build`, once upstream publishes
 // @lat.md/server — the workspace dependency alone works again at that point.
 
-import { cp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { cp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SPECIFIER = '@lat.md/server';
-const source = join(root, 'packages/server/dist');
+const sourcePackage = join(root, 'packages/server');
+const source = join(sourcePackage, 'dist');
 const vendor = join(root, 'dist/vendor/lat.md-server');
-const entry = join(vendor, 'index.js');
+const entry = join(vendor, 'dist/index.js');
+// Only an import or export specifier: the same string is also a dependency key
+// in the server package.json that `lat ui build server` writes.
+const IMPORT_SPECIFIER = /(\bfrom\s*|\bimport\s*\(\s*)'@lat\.md\/server'/g;
 
 if (!existsSync(join(source, 'index.js'))) {
   console.error(
@@ -36,8 +43,9 @@ if (!existsSync(join(source, 'index.js'))) {
   process.exit(1);
 }
 
-await mkdir(dirname(vendor), { recursive: true });
-await cp(source, vendor, { recursive: true });
+await rm(vendor, { recursive: true, force: true });
+await cp(source, join(vendor, 'dist'), { recursive: true });
+await cp(join(sourcePackage, 'package.json'), join(vendor, 'package.json'));
 
 // Walking the whole emitted tree rather than naming src/view/server.ts keeps
 // this correct if upstream adds a second importer, and makes it idempotent:
@@ -53,18 +61,18 @@ async function* emitted(dir: string): AsyncGenerator<string> {
 const rewritten = [];
 for await (const file of emitted(join(root, 'dist/src'))) {
   const before = await readFile(file, 'utf-8');
-  if (!before.includes(SPECIFIER)) continue;
+  if (!before.match(IMPORT_SPECIFIER)) continue;
   // A POSIX separator regardless of platform, and always explicitly relative:
   // Node reads a bare specifier as a package name, not a sibling file.
   let target = relative(dirname(file), entry).split('\\').join('/');
   if (!target.startsWith('.')) target = `./${target}`;
-  await writeFile(file, before.split(`'${SPECIFIER}'`).join(`'${target}'`));
+  await writeFile(file, before.replace(IMPORT_SPECIFIER, `$1'${target}'`));
   rewritten.push(relative(root, file));
 }
 
 const missed = [];
 for await (const file of emitted(join(root, 'dist/src'))) {
-  if ((await readFile(file, 'utf-8')).includes(SPECIFIER)) missed.push(relative(root, file));
+  if ((await readFile(file, 'utf-8')).match(IMPORT_SPECIFIER)) missed.push(relative(root, file));
 }
 if (missed.length > 0) {
   console.error(
