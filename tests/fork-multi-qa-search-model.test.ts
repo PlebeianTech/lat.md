@@ -17,13 +17,18 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 
 const miniLmEmbedderName = 'local:minilm-l6-v2';
 const miniLmStoredModel = 'local:minilm-l6-v2:384';
 const multiQaEmbedderName = 'local:multi-qa-minilm-l6-cos-v1';
 const multiQaStoredModel = 'local:multi-qa-minilm-l6-cos-v1:384';
+
+const platformCacheFolders: Partial<Record<NodeJS.Platform, string>> = {
+  darwin: join(homedir(), 'Library', 'Caches'),
+  linux: join(homedir(), '.cache'),
+};
 
 const fakeFileContents: Record<string, string> = {
   'model.safetensors': 'fake weights',
@@ -161,6 +166,25 @@ describe('multi-qa search model', () => {
       ),
     );
   });
+
+  // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#The cache sits in the platform cache folder]]
+  it.skipIf(!(process.platform in platformCacheFolders))(
+    'caches the model under the platform user cache folder',
+    async () => {
+      const { pinnedModelCacheDirectory, multiQaModel } = await loadModules();
+      vi.stubEnv('XDG_CACHE_HOME', '');
+
+      expect(pinnedModelCacheDirectory(multiQaModel)).toBe(
+        join(
+          platformCacheFolders[process.platform]!,
+          'lat',
+          'embedding-models',
+          multiQaModel.repository,
+          multiQaModel.commit,
+        ),
+      );
+    },
+  );
 
   // @lat: [[tests/fork-multi-qa-search-model#Fork Multi-QA Search Model#A corrupt cached file is replaced]]
   it('replaces a cached file whose hash does not match', async () => {

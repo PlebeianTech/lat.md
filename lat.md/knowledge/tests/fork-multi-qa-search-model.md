@@ -13,7 +13,11 @@ With all three files in the cache and their hashes correct, [[src/fork/multi-qa-
 
 ## A download is verified and stored
 
-With an empty cache, the three files are fetched from URLs pinned to the model commit and stored under the cache directory that carries the model id and that commit. No temporary file is left behind.
+With an empty cache, the three files are fetched from URLs pinned to the model commit and stored under the cache directory that carries the repository name and that commit. No temporary file is left behind.
+
+## The cache sits in the platform cache folder
+
+With `XDG_CACHE_HOME` unset, [[src/fork/multi-qa-search-model.ts#pinnedModelCacheDirectory]] sits under `~/Library/Caches` on macOS and `~/.cache` on Linux. The test compares against those literal folders, not the `@folder/xdg` call the code makes, and skips other platforms.
 
 ## A corrupt cached file is replaced
 

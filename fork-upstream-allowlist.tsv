@@ -29,7 +29,7 @@ lat.md/knowledge/tests/init.md	Test spec for `lat init`, extended where the fork
 lat.md/knowledge/tests/tests.md	The tests index. Every fork-owned test spec file must be listed here or `lat check` fails.
 lat.md/knowledge/view/specs.md	Test spec for safe source syntax highlighting including Ruby and Rake.
 lat.md/lat.md	Root index of the knowledge graph. `lat check` fails unless every fork-owned document under lat.md/ is listed here, so a fork-owned doc forces an entry.
-package.json	The only place `name`, `version`, `repository.url`, and `homepage` live, and all four must differ for the fork to publish at all. Also carries the vendoring of `@lat.md/server`, which upstream depends on but has not published: it moves to devDependencies, `express` moves up, and `build` gains the vendor step.
+package.json	The only place `name`, `version`, `repository.url`, and `homepage` live, and all four must differ for the fork to publish at all. Also carries the vendoring of `@lat.md/server`, which upstream depends on but has not published: it moves to devDependencies, `express` moves up, and `build` gains the vendor step. `@folder/xdg` moves to dependencies because the fork's search-model download imports it at run time.
 packages/core/package.json	Published under fork-owned @plebeiantech/lat.md-core scope with export points for fork commands.
 packages/core/src/cli/check.ts	Registration point for check subcommands in the core package.
 packages/core/src/cli/expand.ts	Untrusted-content quoting in the core package.

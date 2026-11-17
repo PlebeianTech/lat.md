@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
+import xdg from '@folder/xdg';
 import {
   createEmbedder,
   type Embedder,
@@ -69,9 +69,8 @@ function bundledModelRequested(): boolean {
 
 // @lat: [[multi-qa-search-model#Multi-QA Search Model#The cache]]
 export function pinnedModelCacheDirectory(model: PinnedModel): string {
-  const cacheHome = process.env.XDG_CACHE_HOME || join(homedir(), '.cache');
   return join(
-    cacheHome,
+    xdg().cache,
     'lat',
     'embedding-models',
     model.repository,

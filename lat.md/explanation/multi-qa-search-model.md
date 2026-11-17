@@ -29,10 +29,10 @@ The download is pinned twice. Each URL names one exact commit of the model repos
 The files live in the user cache, in a directory named by [[src/fork/multi-qa-search-model.ts#pinnedModelCacheDirectory]]. One download serves every project on the machine.
 
 ```
-$XDG_CACHE_HOME/lat/embedding-models/sentence-transformers/multi-qa-MiniLM-L6-cos-v1/<commit>/
+<user cache>/lat/embedding-models/sentence-transformers/multi-qa-MiniLM-L6-cos-v1/<commit>/
 ```
 
-`~/.cache` stands in when `XDG_CACHE_HOME` is unset. The path carries the model id and the pinned commit, so a later pin gets its own directory and never reads files from an older one.
+The user cache is the platform's cache folder from `@folder/xdg`: `XDG_CACHE_HOME` when set, otherwise `~/Library/Caches` on macOS and `~/.cache` on Linux. The path carries the repository name and the pinned commit, so a later pin gets its own directory and never reads files from an older one.
 
 Each file is written under a temporary name and then renamed. A rename is atomic, so two lat processes that download at once cannot leave a half-written file behind.
 
