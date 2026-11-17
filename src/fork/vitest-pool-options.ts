@@ -6,3 +6,8 @@ export const forkPoolOptions = {
     execArgv: nodeHasWebStorage ? ['--no-experimental-webstorage'] : [],
   },
 };
+
+// @lat: [[multi-qa-search-model#Multi-QA Search Model#Staying on the bundled model]]
+export const forkTestEnvironment = {
+  LAT_BUNDLED_EMBEDDING_MODEL: '1',
+};

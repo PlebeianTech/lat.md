@@ -36,6 +36,7 @@ import {
 } from './comment-reminder.js';
 import { handlePreToolUse } from './comment-guard.js';
 import { handleAntigravityHook } from '../fork/antigravity-hook.js';
+import { neverDownloadModelInThisProcess } from '../fork/multi-qa-search-model.js';
 import { isExperimentEnabled } from './experiments.js';
 
 function outputPromptSubmit(context: string): void {
@@ -563,6 +564,7 @@ async function handleCursorStop(): Promise<void> {
 }
 
 export async function hookCmd(agent: string, event?: string): Promise<void> {
+  neverDownloadModelInThisProcess();
   if (agent === 'git-pre-commit' && event === undefined) {
     const { gitPreCommit } = await import('./git-hook.js');
     process.exitCode = await gitPreCommit();

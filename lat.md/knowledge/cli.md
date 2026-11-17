@@ -501,15 +501,23 @@ Implementation: [[src/mcp/server.ts]], tool descriptions in [[src/mcp/fork-tool-
 
 ## search
 
-Hybrid lexical and semantic search returns ranked sections with matching source passages. Local embeddings work offline; hosted models remain available through the existing backend selection rules.
+Hybrid lexical and semantic search returns ranked sections with matching source passages. Local search needs no API key; its [[multi-qa-search-model|model]] downloads on first use and falls back to bundled MiniLM offline. Hosted models follow the backend selection rules.
 
-Usage: `lat search [query] [--limit <n>] [--min-similarity <score>] [--preview passage|intro|both] [--debug]`.
+Usage: `lat search [query] [--limit <n>] [--min-similarity <score>] [--preview passage|intro|both] [--debug] [--rerank <url>]`.
 
 With no query, search builds or updates the index. With a query it checks document freshness before retrieval. Unchanged projects reuse their published index without embedding or copying a generation. Read-only prompt hooks never build or migrate.
 
 The semantic minimum defaults to 0.20 ([[src/search/search.ts#DEFAULT_MIN_SIMILARITY]]). Lexical evidence qualifies independently. The limit defaults to five ([[src/search/search.ts#DEFAULT_SEARCH_LIMIT]]); the UI requests ten. Empty queries return no matches and oversized embedding queries fail explicitly.
 
 Passage previews are the default. `--preview intro` restores introduction previews; `both` displays both without changing ranking. `--debug` includes hybrid rank score, channel ranks and contributions, cosine similarity, and candidate-budget diagnostics. Hybrid scores are not confidence values.
+
+`--rerank <url>` reorders the results with a decision model at that URL and falls back to search order when it fails; see [[decision-model-rerank]] for the request format.
+
+Environment variables for search:
+
+- `LAT_RERANK_MODEL`: the model name sent to the `--rerank` decision model. Default `default`.
+- `LAT_RERANK_KEY`: sent as a bearer token with each `--rerank` request. Unset by default, which sends no `Authorization` header.
+- `LAT_BUNDLED_EMBEDDING_MODEL`: `1` gives a fresh local index the bundled all-MiniLM-L6-v2 instead of downloading multi-qa. Unset by default.
 
 CLI and MCP share [[src/cli/search.ts#runSearch]]. The MCP argument is `minSimilarity`; the old threshold option is removed. [[src/search/query.ts#openIndexedSearchSession]] owns one published database generation and embedder for repeated runtime queries.
 
@@ -539,7 +547,7 @@ Key resolution is unchanged ([[packages/core/src/config.ts#getLlmKey]], priority
 `LAT_LLM_KEY_FILE` → `LAT_LLM_KEY_HELPER` → `llm_key` config). The key prefix picks the hosted
 provider (detected in `@lat.md/embed`):
 
-- (no key) — **local** `@lat.md/embed-minilm-fp16` (all-MiniLM-L6-v2, 384 dims, name `local:minilm-l6-v2`)
+- (no key) — **local** [[multi-qa-search-model|multi-qa-MiniLM-L6-cos-v1]] (384 dims, name `local:multi-qa-minilm-l6-cos-v1`), with the bundled `@lat.md/embed-minilm-fp16` (all-MiniLM-L6-v2, 384 dims, name `local:minilm-l6-v2`) as its fallback
 - `sk-...` — OpenAI (`text-embedding-3-small`, 1536 dims)
 - `vck_...` — Vercel AI Gateway (`openai/text-embedding-3-small`, 1536 dims)
 - `sk-ant-...` — Anthropic (not supported, errors with guidance)
@@ -582,7 +590,7 @@ Explicitly rebuilds the complete hybrid index; ordinary search also performs inc
 
 Backend selection honors the **durable per-repo preference**: a repo pinned to local rebuilds local
 and ignores `LAT_LLM_KEY` (printing a note when a key is nonetheless set). Flags override: `--local`
-forces the offline model; `--remote` re-resolves from the key (the escape hatch back to hosted, and
+forces the local model; `--remote` re-resolves from the key (the escape hatch back to hosted, and
 errors if no key is set). A bare run on an _unpinned_ repo decides from the environment. This is how
 a user migrates — e.g. after removing a key, or when a key is rejected.
 

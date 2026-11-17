@@ -3,16 +3,19 @@ import {
   EmbeddingAuthError,
   type Embedder,
 } from '@lat.md/embed';
-import minilm from '@lat.md/embed-minilm-fp16';
+import { localEmbedderForIndex } from '../fork/multi-qa-search-model.js';
 import { getLlmKey, getRepoEmbedding } from '@plebeiantech/lat.md-core/config';
 
 export type { Embedder };
 export { EmbeddingAuthError };
 
-export type CreateSearchEngine = (key?: string) => Promise<Embedder>;
+export type CreateSearchEngine = (
+  key?: string,
+  storedModel?: string | null,
+) => Promise<Embedder>;
 
-const defaultCreateSearchEngine: CreateSearchEngine = (key) =>
-  key ? createEmbedder({ key }) : createEmbedder({ model: minilm });
+const defaultCreateSearchEngine: CreateSearchEngine = (key, storedModel) =>
+  key ? createEmbedder({ key }) : localEmbedderForIndex(storedModel);
 
 /** `meta.embedding_model` value for an embedder, e.g. `local:minilm-l6-v2:384`. */
 export function modelKey(embedder: Embedder): string {
@@ -32,12 +35,12 @@ export class ReindexRequiredError extends Error {
  *  a fresh index and by `lat reindex` when re-deciding the backend. */
 export async function embedderFromEnv(): Promise<Embedder> {
   const key = getLlmKey();
-  return key ? createEmbedder({ key }) : createEmbedder({ model: minilm });
+  return key ? createEmbedder({ key }) : localEmbedderForIndex();
 }
 
-/** Local (offline) embedder, ignoring any configured key. */
+/** Local embedder, ignoring any configured key. */
 export function localEmbedder(): Promise<Embedder> {
-  return createEmbedder({ model: minilm });
+  return localEmbedderForIndex();
 }
 
 /**
@@ -61,7 +64,7 @@ export async function embedderForIndex(
   }
 
   if (storedModel.startsWith('local:')) {
-    return createSearchEngine(); // ignores LAT_LLM_KEY entirely
+    return createSearchEngine(undefined, storedModel); // ignores LAT_LLM_KEY entirely
   }
 
   // Remote-pinned index: needs a key that resolves to the same model.

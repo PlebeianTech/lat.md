@@ -43,9 +43,7 @@ async function confirmUseLocal(
     input: process.stdin,
     output: process.stderr,
   });
-  const ans = (
-    await rl.question('Use local offline embeddings instead? [Y/n] ')
-  )
+  const ans = (await rl.question('Use local embeddings instead? [Y/n] '))
     .trim()
     .toLowerCase();
   rl.close();
@@ -113,7 +111,7 @@ export async function reindexCommand(
           output:
             ' Fix the key, or re-run ' +
             s.cyan('lat reindex --local') +
-            ' to switch to the offline model.',
+            ' to switch to the local model.',
           isError: true,
         };
       }

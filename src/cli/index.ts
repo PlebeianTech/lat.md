@@ -7,6 +7,7 @@ import {
 } from '@plebeiantech/lat.md-core/cli';
 import { resolveContext } from '@plebeiantech/lat.md-core/cli/context';
 import { registerForkCli } from '../fork/usage/cli-registration.js';
+import { parseRerankUrl } from '../fork/decision-model-rerank.js';
 import {
   DEFAULT_SEARCH_LIMIT,
   DEFAULT_MIN_SIMILARITY,
@@ -488,6 +489,11 @@ program
     `minimum cosine similarity score (default: ${DEFAULT_MIN_SIMILARITY})`,
     parseSimilarityThreshold,
   )
+  .option(
+    '--rerank <url>',
+    'reorder results with the decision model at this http(s) URL',
+    parseRerankUrl,
+  )
   .action(
     async (
       query: string | undefined,
@@ -496,6 +502,7 @@ program
         debug?: boolean;
         minSimilarity?: number;
         preview?: 'passage' | 'intro' | 'both';
+        rerank?: string;
       },
     ) => {
       const ctx = resolveContext(program.opts());
@@ -509,6 +516,7 @@ program
           debug: opts.debug,
           minSimilarity: opts.minSimilarity,
           preview: opts.preview,
+          rerank: opts.rerank,
         },
         progress,
       );
@@ -519,7 +527,7 @@ program
 program
   .command('reindex')
   .description('Rebuild the embedding index; switch backends if needed')
-  .option('--local', 'use the local offline model (ignore LAT_LLM_KEY)')
+  .option('--local', 'use the local model (ignore LAT_LLM_KEY)')
   .option(
     '--remote',
     'use the hosted API from LAT_LLM_KEY (override a local pin)',
