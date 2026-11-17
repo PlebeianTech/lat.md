@@ -16,6 +16,10 @@ import {
   RERANK_QUESTION_INSTRUCTIONS,
 } from '../src/fork/decision-model-rerank.js';
 import { searchCommand } from '../src/cli/search.js';
+import { prepareSearchQuery } from '../src/search/search.js';
+import type { Embedder } from '@lat.md/embed';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { rmDirBestEffort } from './util.js';
 
 const rerankUrl = 'http://127.0.0.1:9/v1/decide';
@@ -153,6 +157,17 @@ describe('decision model rerank', () => {
     expect(headingsOf(matches)).toEqual(['Alpha', 'Beta']);
   });
 
+  // @lat: [[tests/fork-decision-model-rerank#Fork Decision Model Rerank#A limit below one keeps the limit error]]
+  it('passes a limit below one through to the limit error', async () => {
+    for (const limit of [0, -1]) {
+      const candidateCount = rerankCandidateCount(limit, rerankUrl);
+      expect(candidateCount).toBe(limit);
+      await expect(
+        prepareSearchQuery('question', {} as Embedder, candidateCount),
+      ).rejects.toThrow('limit must be a positive integer');
+    }
+  });
+
   // @lat: [[tests/fork-decision-model-rerank#Fork Decision Model Rerank#Sends the request body the decision model expects]]
   it('sends the exact request body, model and bearer header', async () => {
     vi.stubEnv('LAT_RERANK_MODEL', 'judge');
@@ -259,6 +274,37 @@ describe('decision model rerank', () => {
       await expectFallback();
     });
 
+    it('on a redirect, without following it', async () => {
+      const server = createServer((request, response) => {
+        if (request.url === '/decide') {
+          response.writeHead(307, { Location: '/moved' });
+          response.end();
+          return;
+        }
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ answers: { relevant: { noul: 0.9 } } }));
+      });
+      await new Promise<void>((resolve) =>
+        server.listen(0, '127.0.0.1', resolve),
+      );
+      const { port } = server.address() as AddressInfo;
+      try {
+        const matches = await rerankSearchMatches(
+          projectRoot,
+          'question',
+          [alpha(), beta(), gamma()],
+          2,
+          `http://127.0.0.1:${port}/decide`,
+        );
+        expect(headingsOf(matches)).toEqual(['Alpha', 'Beta']);
+        expect(matches[0].diagnostics).not.toHaveProperty('rerankProbability');
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0]).toMatch(/search order/);
+      } finally {
+        await new Promise((resolve) => server.close(resolve));
+      }
+    });
+
     it('on a timeout, without waiting in real time', async () => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       const fetchMock = vi.fn(
@@ -292,6 +338,38 @@ describe('decision model rerank', () => {
     expect(() => parseRerankUrl('ftp://example.test/')).toThrow(
       InvalidArgumentError,
     );
+  });
+
+  // @lat: [[tests/fork-decision-model-rerank#Fork Decision Model Rerank#Rejects a URL with a user name or password]]
+  it('rejects a URL with a user name or password', () => {
+    for (const url of [
+      'https://user@example.test/decide',
+      'https://user:secret@example.test/decide',
+      'https://:secret@example.test/decide',
+    ])
+      expect(() => parseRerankUrl(url)).toThrow(/LAT_RERANK_KEY/);
+  });
+
+  // @lat: [[tests/fork-decision-model-rerank#Fork Decision Model Rerank#Never prints a key that cannot go in a header]]
+  it('never prints a key that cannot go in a header', async () => {
+    const key = 'secret-part-one\nsecret-part-two';
+    vi.stubEnv('LAT_RERANK_KEY', key);
+    const fetchMock = vi.fn(async () => answer(0.5));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const matches = await rerankSearchMatches(
+      projectRoot,
+      'question',
+      [alpha(), beta()],
+      2,
+      rerankUrl,
+    );
+
+    expect(headingsOf(matches)).toEqual(['Alpha', 'Beta']);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/search order/);
+    expect(warnings[0]).not.toContain('secret-part');
   });
 
   // @lat: [[tests/fork-decision-model-rerank#Fork Decision Model Rerank#Leaves search unchanged without the flag]]

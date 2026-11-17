@@ -19,6 +19,10 @@ Two matches with equal probabilities keep the order search gave them, so a flat 
 
 The candidate count is the larger of the limit and ten, every candidate is asked about once, and only `limit` matches come back.
 
+## A limit below one keeps the limit error
+
+With `--rerank`, a limit of 0 or -1 passes through [[src/fork/decision-model-rerank.ts#rerankCandidateCount]] unchanged, so search raises its usual "limit must be a positive integer" error instead of searching ten candidates.
+
 ## Sends the request body the decision model expects
 
 Each request is a JSON `POST` with the query, the heading path and section text, and the `noul` question. `LAT_RERANK_MODEL` sets the model and `LAT_RERANK_KEY` sets a bearer header.
@@ -27,11 +31,21 @@ Without those variables the model is `default` and no header is sent. Section te
 
 ## Falls back to search order when the decision model fails
 
-A network error, an HTTP error, a malformed or out-of-range probability, and a timeout each produce the first `limit` matches in search order and exactly one stderr warning. The timeout runs on fake timers, so the test does not wait ten seconds.
+A network error, an HTTP error, a redirect, a malformed or out-of-range probability, and a timeout each produce the first `limit` matches in search order and exactly one stderr warning.
+
+The redirect comes from a local test server. The timeout runs on fake timers, so the test does not wait ten seconds.
 
 ## Rejects a value that is not an HTTP URL
 
 `http:` and `https:` URLs pass. A bare host, plain text and an `ftp:` URL raise commander's argument error.
+
+## Rejects a URL with a user name or password
+
+A URL with a user name, a password or both raises an argument error that points to `LAT_RERANK_KEY`, so a key never sits in a URL.
+
+## Never prints a key that cannot go in a header
+
+A `LAT_RERANK_KEY` with a line break stops the rerank before any request. The results keep search order, and the one warning does not contain the key.
 
 ## Leaves search unchanged without the flag
 

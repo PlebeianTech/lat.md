@@ -1,7 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { InvalidArgumentError } from 'commander';
-import type { SearchDiagnostics } from '@plebeiantech/lat.md-core/search-metadata';
 import type { SectionMatch } from '@plebeiantech/lat.md-core/lattice-model';
 
 export const RERANK_REQUEST_TIMEOUT_MILLISECONDS = 10_000;
@@ -11,20 +10,20 @@ export const RERANK_DEFAULT_MODEL = 'default';
 export const RERANK_QUESTION_INSTRUCTIONS =
   'The question is what a reader wants to find in the project documentation. Does this documentation section directly answer the question?';
 
-export type RerankedDiagnostics = SearchDiagnostics & {
-  rerankProbability: number;
-};
-
 // @lat: [[decision-model-rerank#Decision Model Rerank#The flag]]
 export function parseRerankUrl(value: string): string {
-  let protocol: string;
+  let url: URL;
   try {
-    protocol = new URL(value).protocol;
+    url = new URL(value);
   } catch {
     throw new InvalidArgumentError('rerank must be an http or https URL');
   }
-  if (protocol !== 'http:' && protocol !== 'https:')
+  if (url.protocol !== 'http:' && url.protocol !== 'https:')
     throw new InvalidArgumentError('rerank must be an http or https URL');
+  if (url.username || url.password)
+    throw new InvalidArgumentError(
+      'rerank URL must not contain a user name or password; put the key in LAT_RERANK_KEY',
+    );
   return value;
 }
 
@@ -33,7 +32,8 @@ export function rerankCandidateCount(
   limit: number,
   rerankUrl: string | undefined,
 ): number {
-  return rerankUrl ? Math.max(limit, RERANK_MINIMUM_CANDIDATE_COUNT) : limit;
+  if (!rerankUrl || limit < 1) return limit;
+  return Math.max(limit, RERANK_MINIMUM_CANDIDATE_COUNT);
 }
 
 // @lat: [[decision-model-rerank#Decision Model Rerank#When the decision model fails]]
@@ -115,6 +115,10 @@ async function askDecisionModel(
     'Content-Type': 'application/json',
   };
   const apiKey = process.env.LAT_RERANK_KEY;
+  if (apiKey && /[^\x21-\x7E]/.test(apiKey))
+    throw new Error(
+      'LAT_RERANK_KEY has a character that cannot go in an HTTP header',
+    );
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
 
   const controller = new AbortController();
@@ -137,6 +141,7 @@ async function askDecisionModel(
         },
       }),
       signal: controller.signal,
+      redirect: 'error',
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const body = (await response.json()) as {
