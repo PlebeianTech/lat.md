@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
 import { isSourceFileExtension } from '@plebeiantech/lat.md-core/source-formats';
+import { stopDiffBase } from './stop-diff-base.js';
 
 const MEMORY_FILE_NAME = 'lat-stop-reminder';
 
@@ -38,7 +39,7 @@ function codeChangesFingerprint(projectRoot: string): string {
   const lines: string[] = [];
   const numstat = gitOutputOrEmpty(
     projectRoot,
-    'git diff HEAD --numstat --relative -- .',
+    `git diff ${stopDiffBase(projectRoot)} --numstat --relative -- .`,
   );
   for (const line of numstat.split('\n')) {
     const [added, removed, file] = line.split('\t');

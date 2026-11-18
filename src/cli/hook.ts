@@ -38,6 +38,7 @@ import { handlePreToolUse } from './comment-guard.js';
 import { handleAntigravityHook } from '../fork/antigravity-hook.js';
 import { isRepeatedSyncReminder } from '../fork/stop-reminder-memory.js';
 import { stopSyncMessage } from '../fork/stop-sync-message.js';
+import { stopDiffBase } from '../fork/stop-diff-base.js';
 import { neverDownloadModelInThisProcess } from '../fork/multi-qa-search-model.js';
 import { isExperimentEnabled } from './experiments.js';
 
@@ -374,7 +375,8 @@ export function analyzeDiff(projectRoot: string): {
   // Tracked changes vs HEAD. Throws when there is no HEAD yet (a repo with no
   // commits) or no repo at all; the untracked scan below still runs.
   try {
-    const output = execSync('git diff HEAD --numstat --relative -- .', {
+    const base = stopDiffBase(projectRoot);
+    const output = execSync(`git diff ${base} --numstat --relative -- .`, {
       cwd: projectRoot,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],

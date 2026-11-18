@@ -8,6 +8,7 @@ import { resolveRef } from '@plebeiantech/lat.md-core/lattice';
 import { isSourceFileExtension } from '@plebeiantech/lat.md-core/source-formats';
 import { toPosix } from '@plebeiantech/lat.md-core/path';
 import { cleanUntrustedId } from '@plebeiantech/lat.md-core/untrusted';
+import { stopDiffBase } from '../fork/stop-diff-base.js';
 
 export type DiffLineRange = {
   file: string;
@@ -109,12 +110,16 @@ function resolveCanonicalSectionId(
 
 function readWorkingTreeDiff(projectRoot: string): string | null {
   try {
-    return execSync('git diff HEAD --unified=0 --no-prefix --relative -- .', {
-      cwd: projectRoot,
-      encoding: 'utf-8',
-      timeout: 5000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
+    const base = stopDiffBase(projectRoot);
+    return execSync(
+      `git diff ${base} --unified=0 --no-prefix --relative -- .`,
+      {
+        cwd: projectRoot,
+        encoding: 'utf-8',
+        timeout: 5000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    );
   } catch {
     return null;
   }
