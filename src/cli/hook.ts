@@ -350,8 +350,8 @@ function countUntrackedFileLines(projectRoot: string, file: string): number {
 }
 
 /**
- * Measure code vs `lat.md/` churn since HEAD, in lines. Combines tracked
- * changes (`git diff HEAD --numstat`) with untracked files
+ * Measure code vs `lat.md/` churn since the diff base, in lines. Combines tracked
+ * changes (`git diff <the diff base> --numstat`) with untracked files
  * (`git ls-files --others --exclude-standard -z`). Counting untracked files is
  * what makes a freshly scaffolded, never-committed `lat.md/` register as
  * updated — otherwise its edits are invisible to `git diff HEAD` and the sync
@@ -377,7 +377,7 @@ export function analyzeDiff(projectRoot: string): {
     }
   };
 
-  // Tracked changes vs HEAD. Throws when there is no HEAD yet (a repo with no
+  // Tracked changes vs the diff base. Throws when there is no HEAD yet (a repo with no
   // commits) or no repo at all; the untracked scan below still runs.
   try {
     const base = stopDiffBase(projectRoot);

@@ -49,6 +49,12 @@ function makeRepoWithCodeChange(fixture: string): string {
   writeFileSync(join(repo, 'lat.md', '.gitignore'), '.cache/\n');
   mkdirSync(join(repo, 'src'));
   writeFileSync(join(repo, 'src', 'app.ts'), 'before\n');
+  // One valid ref, in a file no later change touches: lat check passes and
+  // the diff links no section.
+  writeFileSync(
+    join(repo, 'src', 'entry.ts'),
+    '// @lat: [[feature#Feature]]\n',
+  );
   git(repo, 'init', '--quiet');
   git(repo, 'add', '.');
   git(repo, 'commit', '--quiet', '-m', 'initial');
@@ -65,7 +71,9 @@ describe('stop reminder memory', () => {
   it('reminds once for unchanged code changes', async () => {
     const repo = makeRepoWithCodeChange('hook-clean');
 
-    expect((await stopStatus(repo)).needsSync).toBe(true);
+    const first = await stopStatus(repo);
+    expect(first.checkFailed).toBe(false);
+    expect(first.needsSync).toBe(true);
 
     const second = await stopStatus(repo);
     expect(second.needsSync).toBe(false);
@@ -80,7 +88,9 @@ describe('stop reminder memory', () => {
 
     appendFileSync(join(repo, 'src', 'app.ts'), 'more\n');
 
-    expect((await stopStatus(repo)).needsSync).toBe(true);
+    const again = await stopStatus(repo);
+    expect(again.checkFailed).toBe(false);
+    expect(again.needsSync).toBe(true);
   });
 
   // @lat: [[fork-stop-reminder-memory#Fork Stop Reminder Memory#Doc edits do not renew the reminder]]
@@ -91,6 +101,7 @@ describe('stop reminder memory', () => {
     appendFileSync(join(repo, 'lat.md', 'feature.md'), '\nMore detail.\n');
 
     const afterDocEdit = await stopStatus(repo);
+    expect(afterDocEdit.checkFailed).toBe(false);
     expect(afterDocEdit.latMdLines).toBeGreaterThan(0);
     expect(afterDocEdit.needsSync).toBe(false);
   });

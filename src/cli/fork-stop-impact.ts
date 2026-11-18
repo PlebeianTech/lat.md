@@ -112,11 +112,12 @@ function readWorkingTreeDiff(projectRoot: string): string | null {
   try {
     const base = stopDiffBase(projectRoot);
     return execSync(
-      `git diff ${base} --unified=0 --no-prefix --relative -- .`,
+      `git -c core.quotePath=false diff ${base} --no-color --no-ext-diff --unified=0 --no-prefix --relative -- .`,
       {
         cwd: projectRoot,
         encoding: 'utf-8',
         timeout: 5000,
+        maxBuffer: 64 * 1024 * 1024,
         stdio: ['ignore', 'pipe', 'ignore'],
       },
     );

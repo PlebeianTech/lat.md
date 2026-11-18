@@ -57,6 +57,12 @@ function makeRepo(): string {
   writeFileSync(join(repo, 'lat.md', '.gitignore'), '.cache/\n');
   mkdirSync(join(repo, 'src'));
   writeFileSync(join(repo, 'src', 'app.ts'), 'before\n');
+  // One valid ref, in a file no later change touches: lat check passes and
+  // the diff links no section.
+  writeFileSync(
+    join(repo, 'src', 'entry.ts'),
+    '// @lat: [[feature#Feature]]\n',
+  );
   git(repo, 'init', '--quiet', '--initial-branch=main');
   git(repo, 'add', '.');
   git(repo, 'commit', '--quiet', '-m', 'initial');
@@ -96,6 +102,30 @@ describe('stop diff base', () => {
     expect(churn.latMdLines).toBeGreaterThan(0);
   });
 
+  // @lat: [[fork-stop-diff-base#Fork Stop Diff Base#Committed doc changes still count after a fetch]]
+  it('counts committed lat.md/ changes after fetching new upstream commits', () => {
+    const repo = makePushedRepo();
+    commitDocsLeaveCodeUncommitted(repo);
+
+    const other = join(repo, '..', 'other');
+    git(
+      repo,
+      'clone',
+      '--quiet',
+      '--branch',
+      'main',
+      join(repo, '..', 'remote.git'),
+      other,
+    );
+    writeFileSync(join(other, 'unrelated.txt'), 'unrelated\n');
+    git(other, 'add', 'unrelated.txt');
+    git(other, 'commit', '--quiet', '-m', 'unrelated');
+    git(other, 'push', '--quiet');
+    git(repo, 'fetch', '--quiet');
+
+    expect(analyzeDiff(repo).latMdLines).toBeGreaterThan(0);
+  });
+
   // @lat: [[fork-stop-diff-base#Fork Stop Diff Base#Committed code changes still need a sync]]
   it('reminds about code committed since the upstream merge base', async () => {
     const repo = makePushedRepo();
@@ -103,8 +133,34 @@ describe('stop diff base', () => {
     expect(git(repo, 'status', '--porcelain')).toBe('');
 
     const status = await getStopStatus(join(repo, 'lat.md'));
+    expect(status.checkFailed).toBe(false);
     expect(status.codeLines).toBeGreaterThanOrEqual(100);
     expect(status.needsSync).toBe(true);
+  });
+
+  // @lat: [[fork-stop-diff-base#Fork Stop Diff Base#Code merged from another branch does not count]]
+  it('ignores code merged in from another branch', async () => {
+    const repo = makePushedRepo();
+    git(repo, 'checkout', '--quiet', '-b', 'other');
+    commitCodeOnly(repo);
+    git(repo, 'checkout', '--quiet', 'main');
+    git(repo, 'merge', '--quiet', '--no-ff', '-m', 'merge other', 'other');
+
+    expect(analyzeDiff(repo)).toEqual({ codeLines: 0, latMdLines: 0 });
+    const status = await getStopStatus(join(repo, 'lat.md'));
+    expect(status.checkFailed).toBe(false);
+    expect(status.needsSync).toBe(false);
+  });
+
+  // @lat: [[fork-stop-diff-base#Fork Stop Diff Base#A branch that diverged from its upstream diffs against the merge base]]
+  it('diffs against the merge base after the branch diverged from its upstream', () => {
+    const repo = makePushedRepo();
+    const forkPoint = git(repo, 'rev-parse', 'HEAD').trim();
+    commitCodeOnly(repo);
+    git(repo, 'push', '--quiet');
+    git(repo, 'commit', '--quiet', '--amend', '-m', 'code, rewritten');
+
+    expect(stopDiffBase(repo)).toBe(forkPoint);
   });
 
   // @lat: [[fork-stop-diff-base#Fork Stop Diff Base#A branch without an upstream diffs against HEAD]]
@@ -118,6 +174,7 @@ describe('stop diff base', () => {
     git(repo, 'add', 'src/app.ts');
     git(repo, 'commit', '--quiet', '-m', 'code');
     const status = await getStopStatus(join(repo, 'lat.md'));
+    expect(status.checkFailed).toBe(false);
     expect(status.codeLines).toBe(0);
     expect(status.needsSync).toBe(false);
   });

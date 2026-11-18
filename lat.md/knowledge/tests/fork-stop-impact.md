@@ -79,6 +79,18 @@ With twelve linked sections and the alphabetically first ten rewritten, [[src/cl
 
 A linked section that lives in an untracked file under `lat.md/` never appears in `git diff`. [[src/cli/fork-stop-impact.ts#findUnreviewedSectionsForDiff]] counts it as reviewed.
 
+## Large non-code diff still counts an edited section
+
+A 30,000-line data file change makes the diff output larger than 1 MB, the default `execSync` buffer. The diff is read with a 64 MB buffer, so [[src/cli/fork-stop-impact.ts#findUnreviewedSectionsForDiff]] still sees the code change and the edited section. It counts one linked section and lists none.
+
+## Section in a non-ASCII file name counts as reviewed
+
+By default git prints a path like `lat.md/café.md` as a quoted octal escape, which never equals the section's file path. The diff is read with `core.quotePath=false`, so [[src/cli/fork-stop-impact.ts#findUnreviewedSectionsForDiff]] counts the edited linked section in `lat.md/café.md` as reviewed.
+
+## Colored diff config still counts an edited section
+
+The temporary repository sets `color.ui` to `always` in its own git config, so a plain `git diff` adds color codes that the parser cannot read. The diff is read with `--no-color --no-ext-diff`, so [[src/cli/fork-stop-impact.ts#findUnreviewedSectionsForDiff]] counts the edited linked section as reviewed.
+
 ## Code change without linked sections keeps the ratio rule
 
 When the code change links no section, [[src/cli/hook.ts#getStopStatus]] keeps the line ratio rule: 400 code lines against 2 doc lines still sets `needsSync`, with an empty section list.

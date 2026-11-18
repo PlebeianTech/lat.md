@@ -597,12 +597,73 @@ describe('fork stop impact reviewed sections', () => {
     });
   });
 
+  // @lat: [[fork-stop-impact#Fork Stop Impact#Large non-code diff still counts an edited section]]
+  it('counts an edited linked section as reviewed beside a large non-code diff', async () => {
+    const repo = makeRepo(['Transport'], ['Transport']);
+    const line = (n: number, value: string) =>
+      `  "package-${n}": "${value}-${'x'.repeat(40)}",\n`;
+    const lockfile = (value: string) =>
+      Array.from({ length: 30000 }, (_, n) => line(n, value)).join('');
+    writeFiles(repo, { 'data.json': lockfile('old') });
+    git(repo, 'add', 'data.json');
+    git(repo, 'commit', '--quiet', '-m', 'add a large data file');
+    writeFiles(repo, { 'data.json': lockfile('new') });
+    rewriteParagraph(repo, 'lat.md/doc.md', 'Transport');
+
+    expect(await reviewStatus(repo)).toEqual({
+      linkedSectionCount: 1,
+      unreviewedSections: [],
+    });
+  });
+
+  // @lat: [[fork-stop-impact#Fork Stop Impact#Section in a non-ASCII file name counts as reviewed]]
+  it('counts an edited linked section in a non-ASCII doc file name as reviewed', async () => {
+    const repo = makeRepo(['Transport'], []);
+    const refs = ['café#Café#Topic'];
+    writeFiles(repo, {
+      'lat.md/café.md':
+        '# Café\n\nCafé overview.\n\n## Topic\n\nAbout Topic.\n',
+      'src/app.ts': codeLinkedTo(refs, 'const before = 0;'),
+    });
+    git(repo, 'add', '.');
+    git(repo, 'commit', '--quiet', '-m', 'link to a non-ASCII doc');
+    writeFiles(repo, { 'src/app.ts': codeLinkedTo(refs, 'const after = 1;') });
+    rewriteParagraph(repo, 'lat.md/café.md', 'Topic');
+
+    expect(await reviewStatus(repo)).toEqual({
+      linkedSectionCount: 1,
+      unreviewedSections: [],
+    });
+  });
+
+  // @lat: [[fork-stop-impact#Fork Stop Impact#Colored diff config still counts an edited section]]
+  it('counts an edited linked section as reviewed with color.ui set to always', async () => {
+    const repo = makeRepo(['Transport'], ['Transport']);
+    git(repo, 'config', 'color.ui', 'always');
+    rewriteParagraph(repo, 'lat.md/doc.md', 'Transport');
+
+    expect(await reviewStatus(repo)).toEqual({
+      linkedSectionCount: 1,
+      unreviewedSections: [],
+    });
+  });
+
   // @lat: [[fork-stop-impact#Fork Stop Impact#Code change without linked sections keeps the ratio rule]]
   it('keeps the line ratio rule when no section is linked', async () => {
     const repo = makeRepo(['Transport'], []);
+    // Commit what lat check needs, away from the lines the diff changes: a
+    // leading paragraph in the root index, and one ref in a file the diff
+    // does not touch. lat check passes and the diff still links no section.
+    writeFiles(repo, {
+      'lat.md/lat.md': '# Project\n\nThe project.\n\n- [[doc]] — Doc\n',
+      'src/entry.ts': '// @lat: [[doc#Doc#Transport]]\n',
+    });
+    git(repo, 'add', 'lat.md/lat.md', 'src/entry.ts');
+    git(repo, 'commit', '--quiet', '-m', 'pass lat check');
     rewriteParagraph(repo, 'lat.md/doc.md', 'Transport');
 
     const status = await getStopStatus(join(repo, 'lat.md'));
+    expect(status.checkFailed).toBe(false);
     expect(status.codeLines).toBe(400);
     expect(status.latMdLines).toBe(2);
     expect(status.needsSync).toBe(true);

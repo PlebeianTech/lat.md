@@ -13,9 +13,23 @@ Each git test copies the `hook-clean` case into a temporary repository with a co
 
 With an upstream, a 100-line change to `src/app.ts` stays uncommitted and an edit to `lat.md/feature.md` is committed. [[src/cli/hook.ts#analyzeDiff]] reports at least 100 code lines and more than zero `lat.md/` lines.
 
+## Committed doc changes still count after a fetch
+
+After a doc commit, a fetch brings in an unrelated commit, so the upstream is no longer an ancestor of `HEAD`. [[src/cli/hook.ts#analyzeDiff]] still reports more than zero `lat.md/` lines.
+
+The code change is uncommitted, as in the test above. A second clone pushes the unrelated commit.
+
 ## Committed code changes still need a sync
 
 With an upstream, a 100-line change to `src/app.ts` is committed and the tree is clean. [[src/cli/hook.ts#getStopStatus]] reports at least 100 code lines and `needsSync` true.
+
+## Code merged from another branch does not count
+
+With an upstream, a 100-line change to `src/app.ts` is committed on a second branch and merged into `main` with a merge commit. The agent changes nothing. [[src/cli/hook.ts#analyzeDiff]] reports zero code lines, and [[src/cli/hook.ts#getStopStatus]] reports `needsSync` false.
+
+## A branch that diverged from its upstream diffs against the merge base
+
+With an upstream, a code commit is pushed and then amended, as a rebase would rewrite it. The branch and its upstream have diverged, and the base is their merge base: the commit before the code commit.
 
 ## A branch without an upstream diffs against HEAD
 
