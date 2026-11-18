@@ -169,6 +169,28 @@ Without this, `lat check` fails on the command line while the Stop hook calls th
 
 Tested in `tests/hook-stop-mode.test.ts`.
 
+## Blocks on every check that lat check counts
+
+[[src/cli/hook.ts#getStopStatus]] runs the same ten checks as `checkAllCommand`. For each of `checkLinks`, `checkDiagrams`, `checkStatus`, `checkFrontmatter` and `checkCoverage`, a project whose only error comes from that check makes `checkFailed` true.
+
+The fixtures are a broken relative link, a malformed Mermaid fence, an unknown `status`, frontmatter that is not valid YAML, and a source file with no `@lat:` ref. Each one fails `lat check` with exactly one error. Before this test, the Stop hook counted five checks and called each of these trees clean.
+
+Tested in `tests/hook-stop-mode.test.ts`.
+
+## A Mermaid warning does not fail the Stop check
+
+`lat check` does not count a `checkDiagrams` finding with severity `warning`, so the Stop hook does not either. A project whose only diagram finding is a wide left-to-right flowchart keeps `checkFailed` false.
+
+Tested in `tests/hook-stop-mode.test.ts`.
+
+## Stop error count matches lat check
+
+`totalErrors` from the Stop hook equals the count that a plain `lat check` prints. Both count an error from `checkMd`, `checkLinks` and `checkCodeRefs` once when file, line, target and message are all the same.
+
+The fixture has an invalid `lat.md/config.local.yaml`, which `checkMd` and `checkCodeRefs` both report with the same text, plus one Mermaid warning. Both counts are 1.
+
+Tested in `tests/hook-stop-mode.test.ts`.
+
 ## Parses the lat.md tree once per prompt (lat-t1y.23)
 
 `UserPromptSubmit` handling needs the parsed tree for both [[cli#expand]] and [[cli#search]] federation lookups. Sharing one command context across those call sites avoids walking and parsing the tree twice per prompt.

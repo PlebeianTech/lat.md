@@ -17,14 +17,19 @@ import {
 import { findUnreviewedSectionsForDiff } from './fork-stop-impact.js';
 import {
   checkMd,
+  checkLinks,
   checkCodeRefs,
   checkIndex,
   checkSections,
+  checkDiagrams,
 } from '@plebeiantech/lat.md-core/cli/check';
 import { CheckRunContext } from '@plebeiantech/lat.md-core/cli/check-context';
 import { isSourceFileExtension } from '@plebeiantech/lat.md-core/source-formats';
 import { commandProjectAnalysis } from '@plebeiantech/lat.md-core/project-analysis';
 import { checkMode } from '@plebeiantech/lat.md-core/cli/check-mode';
+import { checkStatus } from '@plebeiantech/lat.md-core/cli/check-status';
+import { checkFrontmatter } from '@plebeiantech/lat.md-core/cli/check-frontmatter';
+import { checkCoverage } from '@plebeiantech/lat.md-core/cli/check-coverage';
 import { federateTags, taggedDocsForFiles } from '../knowledge/index.js';
 import {
   loadSessionMarkers,
@@ -433,19 +438,44 @@ export async function getStopStatus(latDir: string): Promise<StopStatus> {
   // Must stay in step with `checkAllCommand` in check.ts. A check counted
   // there but not here lets the Stop hook call a failing tree clean, which
   // silently disables the very enforcement the check was added for.
-  const [md, code, indexErrors, sectionErrors, modeErrors] = await Promise.all([
+  const [
+    md,
+    linkErrors,
+    code,
+    indexErrors,
+    sectionErrors,
+    diagramErrors,
+    modeErrors,
+    statusErrors,
+    fmErrors,
+    coverageErrors,
+  ] = await Promise.all([
     checkMd(latDir, projectRoot, run),
+    checkLinks(latDir, run),
     checkCodeRefs(latDir, projectRoot, run),
     checkIndex(latDir, run),
     checkSections(latDir, projectRoot, run),
+    checkDiagrams(latDir, projectRoot, run),
     checkMode(latDir, projectRoot),
+    checkStatus(latDir, projectRoot),
+    checkFrontmatter(latDir, projectRoot),
+    checkCoverage(latDir, projectRoot),
   ]);
+  const uniqueRefErrors = new Set(
+    [...md.errors, ...linkErrors, ...code.errors].map(
+      (error) =>
+        `${error.file}\0${error.line}\0${error.target}\0${error.message}`,
+    ),
+  );
   const totalErrors =
-    md.errors.length +
-    code.errors.length +
+    uniqueRefErrors.size +
     indexErrors.length +
     sectionErrors.length +
-    modeErrors.length;
+    diagramErrors.filter((error) => error.severity !== 'warning').length +
+    modeErrors.length +
+    statusErrors.length +
+    fmErrors.length +
+    coverageErrors.length;
   const checkFailed = totalErrors > 0;
 
   const { codeLines, latMdLines } = analyzeDiff(projectRoot);

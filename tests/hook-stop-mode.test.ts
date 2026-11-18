@@ -3,6 +3,9 @@ import { spawnSync } from 'node:child_process';
 import { join, delimiter } from 'node:path';
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { checkAllCommand } from '@plebeiantech/lat.md-core/cli/check';
+import { plainStyler } from '@plebeiantech/lat.md-core/context';
+import { getStopStatus } from '../src/cli/hook.js';
 import { rmDirBestEffort } from './util.js';
 
 const cliPath = join(
@@ -119,6 +122,99 @@ describe('hook stop', () => {
       expect(parsed.reason).toContain('lat check');
     } finally {
       rmDirBestEffort(fakeBinDir);
+      rmDirBestEffort(dir);
+    }
+  });
+});
+
+const ROOT_INDEX =
+  '# Count Stop\n\nA tree with one document.\n\n- [[topic]] — the document under test\n';
+
+const WIDE_DIAGRAM =
+  '```mermaid\nflowchart LR; A[Markdown source] --> B[Shared parser] --> C[Sanitized HTML] --> D[lat ui] --> E[Highlighted code] --> F[Additional processing]\n```\n';
+
+function makeProject(topic: string, extraFiles: Record<string, string> = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'lat-count-stop-'));
+  mkdirSync(join(dir, 'lat.md'));
+  writeFileSync(join(dir, 'lat.md', 'lat.md'), ROOT_INDEX);
+  writeFileSync(join(dir, 'lat.md', 'topic.md'), topic);
+  for (const [path, content] of Object.entries(extraFiles)) {
+    mkdirSync(join(dir, path, '..'), { recursive: true });
+    writeFileSync(join(dir, path), content);
+  }
+  return dir;
+}
+
+async function latCheckErrorCount(dir: string): Promise<number> {
+  const { output } = await checkAllCommand({
+    projectRoot: dir,
+    latDir: join(dir, 'lat.md'),
+    styler: plainStyler,
+    mode: 'cli',
+    headless: true,
+  });
+  const match = output.match(/(\d+) errors? found/);
+  return match ? Number(match[1]) : 0;
+}
+
+describe('getStopStatus counts what lat check counts', () => {
+  // @lat: [[hook#Blocks on every check that lat check counts]]
+  it.each([
+    {
+      check: 'checkLinks',
+      topic: '# Topic\n\nSee [the missing page](missing.md).\n',
+    },
+    {
+      check: 'checkDiagrams',
+      topic: '# Topic\n\nA diagram.\n\n```mermaid\nflowchart LR; A -->\n```\n',
+    },
+    {
+      check: 'checkStatus',
+      topic: '---\nlat:\n  status: bogus\n---\n\n# Topic\n\nA document.\n',
+    },
+    {
+      check: 'checkFrontmatter',
+      topic: '---\nlat: [unclosed\n---\n\n# Topic\n\nA document.\n',
+    },
+    {
+      check: 'checkCoverage',
+      topic: '# Topic\n\nA document.\n',
+      extraFiles: { 'src/app.ts': 'export const app = 1;\n' },
+    },
+  ])(
+    'fails when the only error comes from $check',
+    async ({ topic, extraFiles }) => {
+      const dir = makeProject(topic, extraFiles);
+      try {
+        const status = await getStopStatus(join(dir, 'lat.md'));
+        expect(status.checkFailed).toBe(true);
+      } finally {
+        rmDirBestEffort(dir);
+      }
+    },
+  );
+
+  // @lat: [[hook#A Mermaid warning does not fail the Stop check]]
+  it('passes when the only diagram finding is a warning', async () => {
+    const dir = makeProject(`# Topic\n\nA diagram.\n\n${WIDE_DIAGRAM}`);
+    try {
+      const status = await getStopStatus(join(dir, 'lat.md'));
+      expect(status.checkFailed).toBe(false);
+    } finally {
+      rmDirBestEffort(dir);
+    }
+  });
+
+  // @lat: [[hook#Stop error count matches lat check]]
+  it('counts a duplicated error once and a diagram warning not at all', async () => {
+    const dir = makeProject(`# Topic\n\nA diagram.\n\n${WIDE_DIAGRAM}`, {
+      'lat.md/config.local.yaml': 'external-sources: 5\n',
+    });
+    try {
+      const status = await getStopStatus(join(dir, 'lat.md'));
+      expect(status.totalErrors).toBe(1);
+      expect(status.totalErrors).toBe(await latCheckErrorCount(dir));
+    } finally {
       rmDirBestEffort(dir);
     }
   });
