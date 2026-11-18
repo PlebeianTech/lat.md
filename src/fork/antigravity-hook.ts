@@ -20,6 +20,7 @@ import {
   formatStopReason,
   type StopStatus,
 } from '../cli/hook.js';
+import { isExperimentEnabled } from '../cli/experiments.js';
 import { computeCommentBlock } from '../cli/comment-guard.js';
 import { taggedDocsForFiles, federateTags } from '../knowledge/index.js';
 import {
@@ -485,6 +486,11 @@ export async function handleAntigravityStop(
       ((input as Record<string, unknown>).cwd as string | undefined);
     const latDir = findLatticeDir(workspacePath) ?? findLatticeDir();
     if (!latDir) {
+      if (writeOutput) process.stdout.write(JSON.stringify(allowStop) + '\n');
+      return allowStop;
+    }
+
+    if (isExperimentEnabled('commit-hooks', dirname(latDir))) {
       if (writeOutput) process.stdout.write(JSON.stringify(allowStop) + '\n');
       return allowStop;
     }
