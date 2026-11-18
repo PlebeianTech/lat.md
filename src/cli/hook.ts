@@ -14,7 +14,7 @@ import {
   findUngroundedPromptFiles,
   formatCoverageGapNotice,
 } from './fork-coverage-preflight.js';
-import { findImpactedSectionsForDiff } from './fork-stop-impact.js';
+import { findUnreviewedSectionsForDiff } from './fork-stop-impact.js';
 import {
   checkMd,
   checkCodeRefs,
@@ -455,7 +455,11 @@ export async function getStopStatus(latDir: string): Promise<StopStatus> {
   let impactedSections: string[] | undefined;
   if (needsSync) {
     try {
-      impactedSections = await findImpactedSectionsForDiff(projectRoot, run);
+      const review = await findUnreviewedSectionsForDiff(projectRoot, run);
+      impactedSections = review.unreviewedSections;
+      if (review.linkedSectionCount > 0 && impactedSections.length === 0) {
+        needsSync = false;
+      }
     } catch {
       impactedSections = [];
     }
