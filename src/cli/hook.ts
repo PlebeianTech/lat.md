@@ -36,6 +36,7 @@ import {
 } from './comment-reminder.js';
 import { handlePreToolUse } from './comment-guard.js';
 import { handleAntigravityHook } from '../fork/antigravity-hook.js';
+import { isRepeatedSyncReminder } from '../fork/stop-reminder-memory.js';
 import { neverDownloadModelInThisProcess } from '../fork/multi-qa-search-model.js';
 import { isExperimentEnabled } from './experiments.js';
 
@@ -458,6 +459,11 @@ export async function getStopStatus(latDir: string): Promise<StopStatus> {
     } catch {
       impactedSections = [];
     }
+  }
+
+  if (needsSync && isRepeatedSyncReminder(projectRoot)) {
+    needsSync = false;
+    impactedSections = undefined;
   }
 
   return {
