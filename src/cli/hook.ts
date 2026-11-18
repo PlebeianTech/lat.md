@@ -14,17 +14,22 @@ import {
   findUngroundedPromptFiles,
   formatCoverageGapNotice,
 } from './fork-coverage-preflight.js';
-import { findImpactedSectionsForDiff } from './fork-stop-impact.js';
+import { findUnreviewedSectionsForDiff } from './fork-stop-impact.js';
 import {
   checkMd,
+  checkLinks,
   checkCodeRefs,
   checkIndex,
   checkSections,
+  checkDiagrams,
 } from '@plebeiantech/lat.md-core/cli/check';
 import { CheckRunContext } from '@plebeiantech/lat.md-core/cli/check-context';
 import { isSourceFileExtension } from '@plebeiantech/lat.md-core/source-formats';
 import { commandProjectAnalysis } from '@plebeiantech/lat.md-core/project-analysis';
 import { checkMode } from '@plebeiantech/lat.md-core/cli/check-mode';
+import { checkStatus } from '@plebeiantech/lat.md-core/cli/check-status';
+import { checkFrontmatter } from '@plebeiantech/lat.md-core/cli/check-frontmatter';
+import { checkCoverage } from '@plebeiantech/lat.md-core/cli/check-coverage';
 import { federateTags, taggedDocsForFiles } from '../knowledge/index.js';
 import {
   loadSessionMarkers,
@@ -36,6 +41,9 @@ import {
 } from './comment-reminder.js';
 import { handlePreToolUse } from './comment-guard.js';
 import { handleAntigravityHook } from '../fork/antigravity-hook.js';
+import { isRepeatedSyncReminder } from '../fork/stop-reminder-memory.js';
+import { stopSyncMessage } from '../fork/stop-sync-message.js';
+import { stopDiffBase } from '../fork/stop-diff-base.js';
 import { neverDownloadModelInThisProcess } from '../fork/multi-qa-search-model.js';
 import { isExperimentEnabled } from './experiments.js';
 
@@ -342,8 +350,8 @@ function countUntrackedFileLines(projectRoot: string, file: string): number {
 }
 
 /**
- * Measure code vs `lat.md/` churn since HEAD, in lines. Combines tracked
- * changes (`git diff HEAD --numstat`) with untracked files
+ * Measure code vs `lat.md/` churn since the diff base, in lines. Combines tracked
+ * changes (`git diff <the diff base> --numstat`) with untracked files
  * (`git ls-files --others --exclude-standard -z`). Counting untracked files is
  * what makes a freshly scaffolded, never-committed `lat.md/` register as
  * updated — otherwise its edits are invisible to `git diff HEAD` and the sync
@@ -369,10 +377,11 @@ export function analyzeDiff(projectRoot: string): {
     }
   };
 
-  // Tracked changes vs HEAD. Throws when there is no HEAD yet (a repo with no
+  // Tracked changes vs the diff base. Throws when there is no HEAD yet (a repo with no
   // commits) or no repo at all; the untracked scan below still runs.
   try {
-    const output = execSync('git diff HEAD --numstat --relative -- .', {
+    const base = stopDiffBase(projectRoot);
+    const output = execSync(`git diff ${base} --numstat --relative -- .`, {
       cwd: projectRoot,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
@@ -429,19 +438,44 @@ export async function getStopStatus(latDir: string): Promise<StopStatus> {
   // Must stay in step with `checkAllCommand` in check.ts. A check counted
   // there but not here lets the Stop hook call a failing tree clean, which
   // silently disables the very enforcement the check was added for.
-  const [md, code, indexErrors, sectionErrors, modeErrors] = await Promise.all([
+  const [
+    md,
+    linkErrors,
+    code,
+    indexErrors,
+    sectionErrors,
+    diagramErrors,
+    modeErrors,
+    statusErrors,
+    fmErrors,
+    coverageErrors,
+  ] = await Promise.all([
     checkMd(latDir, projectRoot, run),
+    checkLinks(latDir, run),
     checkCodeRefs(latDir, projectRoot, run),
     checkIndex(latDir, run),
     checkSections(latDir, projectRoot, run),
+    checkDiagrams(latDir, projectRoot, run),
     checkMode(latDir, projectRoot),
+    checkStatus(latDir, projectRoot),
+    checkFrontmatter(latDir, projectRoot),
+    checkCoverage(latDir, projectRoot),
   ]);
+  const uniqueRefErrors = new Set(
+    [...md.errors, ...linkErrors, ...code.errors].map(
+      (error) =>
+        `${error.file}\0${error.line}\0${error.target}\0${error.message}`,
+    ),
+  );
   const totalErrors =
-    md.errors.length +
-    code.errors.length +
+    uniqueRefErrors.size +
     indexErrors.length +
     sectionErrors.length +
-    modeErrors.length;
+    diagramErrors.filter((error) => error.severity !== 'warning').length +
+    modeErrors.length +
+    statusErrors.length +
+    fmErrors.length +
+    coverageErrors.length;
   const checkFailed = totalErrors > 0;
 
   const { codeLines, latMdLines } = analyzeDiff(projectRoot);
@@ -454,10 +488,19 @@ export async function getStopStatus(latDir: string): Promise<StopStatus> {
   let impactedSections: string[] | undefined;
   if (needsSync) {
     try {
-      impactedSections = await findImpactedSectionsForDiff(projectRoot, run);
+      const review = await findUnreviewedSectionsForDiff(projectRoot, run);
+      impactedSections = review.unreviewedSections;
+      if (review.linkedSectionCount > 0 && impactedSections.length === 0) {
+        needsSync = false;
+      }
     } catch {
       impactedSections = [];
     }
+  }
+
+  if (needsSync && isRepeatedSyncReminder(projectRoot)) {
+    needsSync = false;
+    impactedSections = undefined;
   }
 
   return {
@@ -508,8 +551,11 @@ export function formatStopReason({
     );
   } else {
     parts.push(
-      syncMsg +
-        ' Review whether `lat.md/` needs a current-state update; do not add journal/changelog notes just to satisfy this reminder. Run `lat search` to find relevant sections and `lat check` at the end.',
+      stopSyncMessage(
+        codeLines,
+        latMdLines,
+        impactedSections !== undefined && impactedSections.length > 0,
+      ),
     );
   }
 

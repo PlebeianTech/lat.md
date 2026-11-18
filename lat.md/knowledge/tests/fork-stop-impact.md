@@ -58,3 +58,39 @@ When no `@lat:` reference lies within 15 lines of a hunk, [[src/cli/fork-stop-im
 ## Stop hook formats impacted sections receipt when sync needed
 
 When `needsSync` is true and [[src/cli/hook.ts#getStopStatus]] populates `impactedSections`, [[src/cli/hook.ts#formatStopReason]] appends the `[[section]]` list to the stop message.
+
+## Untouched linked section is not reviewed
+
+In a temporary git repository, a code change next to an `@lat:` comment links one section. [[src/cli/fork-stop-impact.ts#findUnreviewedSectionsForDiff]] counts one linked section and lists it as not reviewed, because its lines did not change.
+
+## Rewritten linked section clears the reminder
+
+After the linked section's paragraph is rewritten (2 changed doc lines), [[src/cli/fork-stop-impact.ts#findUnreviewedSectionsForDiff]] still counts one linked section but lists none. [[src/cli/hook.ts#getStopStatus]] on a fresh repository in the same state returns `needsSync` false, although 2 doc lines are below the 5 percent ratio.
+
+## Only unreviewed linked sections are listed
+
+With two linked sections and one of them rewritten, [[src/cli/fork-stop-impact.ts#findUnreviewedSectionsForDiff]] lists only the other one.
+
+## Ten section cap applies after reviewed sections are removed
+
+With twelve linked sections and the alphabetically first ten rewritten, [[src/cli/fork-stop-impact.ts#findUnreviewedSectionsForDiff]] lists the remaining two. The cap of ten applies after the reviewed sections are removed.
+
+## Section in an untracked doc file counts as reviewed
+
+A linked section that lives in an untracked file under `lat.md/` never appears in `git diff`. [[src/cli/fork-stop-impact.ts#findUnreviewedSectionsForDiff]] counts it as reviewed.
+
+## Large non-code diff still counts an edited section
+
+A 30,000-line data file change makes the diff output larger than 1 MB, the default `execSync` buffer. The diff is read with a 64 MB buffer, so [[src/cli/fork-stop-impact.ts#findUnreviewedSectionsForDiff]] still sees the code change and the edited section. It counts one linked section and lists none.
+
+## Section in a non-ASCII file name counts as reviewed
+
+By default git prints a path like `lat.md/café.md` as a quoted octal escape, which never equals the section's file path. The diff is read with `core.quotePath=false`, so [[src/cli/fork-stop-impact.ts#findUnreviewedSectionsForDiff]] counts the edited linked section in `lat.md/café.md` as reviewed.
+
+## Colored diff config still counts an edited section
+
+The temporary repository sets `color.ui` to `always` in its own git config, so a plain `git diff` adds color codes that the parser cannot read. The diff is read with `--no-color --no-ext-diff`, so [[src/cli/fork-stop-impact.ts#findUnreviewedSectionsForDiff]] counts the edited linked section as reviewed.
+
+## Code change without linked sections keeps the ratio rule
+
+When the code change links no section, [[src/cli/hook.ts#getStopStatus]] keeps the line ratio rule: 400 code lines against 2 doc lines still sets `needsSync`, with an empty section list.

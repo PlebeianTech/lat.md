@@ -1,18 +1,24 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { MarkdownProjectAnalysis } from '@plebeiantech/lat.md-core/project-analysis';
 import type { Ref } from '@plebeiantech/lat.md-core/lattice-model';
-import type { CheckRunContext } from '@plebeiantech/lat.md-core/cli/check-context';
+import { CheckRunContext } from '@plebeiantech/lat.md-core/cli/check-context';
 import type { CodeRef, ScanResult } from '@plebeiantech/lat.md-core/code-refs';
 import { rmDirBestEffort } from './util.js';
 import {
   parseUnifiedZeroDiff,
   findImpactedSectionsForDiff,
+  findUnreviewedSectionsForDiff,
   type DiffLineRange,
 } from '../src/cli/fork-stop-impact.js';
-import { formatStopReason, type StopStatus } from '../src/cli/hook.js';
+import {
+  formatStopReason,
+  getStopStatus,
+  type StopStatus,
+} from '../src/cli/hook.js';
 
 function makeMockProject(
   projectRoot: string,
@@ -424,5 +430,243 @@ describe('fork stop impact diff parser and section resolver', () => {
       impactedSections: ['cli#CLI#hook#Stop'],
     };
     expect(formatStopReason(statusNoSync)).toBeNull();
+  });
+});
+
+const GIT_ENV = {
+  ...process.env,
+  GIT_AUTHOR_NAME: 'Lat Tests',
+  GIT_AUTHOR_EMAIL: 'lat@example.invalid',
+  GIT_COMMITTER_NAME: 'Lat Tests',
+  GIT_COMMITTER_EMAIL: 'lat@example.invalid',
+  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_CONFIG_SYSTEM: '/dev/null',
+};
+
+function git(repo: string, ...args: string[]): void {
+  const result = spawnSync('git', args, {
+    cwd: repo,
+    encoding: 'utf-8',
+    env: GIT_ENV,
+  });
+  if (result.status !== 0) {
+    throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
+  }
+}
+
+function docWithSections(names: string[]): string {
+  return [
+    '# Doc',
+    '',
+    'Doc overview.',
+    '',
+    ...names.flatMap((name) => [`## ${name}`, '', `About ${name}.`, '']),
+  ].join('\n');
+}
+
+function codeLinkedTo(sectionRefs: string[], body: string): string {
+  return (
+    sectionRefs.map((ref) => `// @lat: [[${ref}]]\n`).join('') +
+    `${body}\n`.repeat(200)
+  );
+}
+
+function writeFiles(repo: string, files: Record<string, string>): void {
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(join(repo, path, '..'), { recursive: true });
+    writeFileSync(join(repo, path), content);
+  }
+}
+
+function rewriteParagraph(repo: string, docPath: string, name: string): void {
+  const path = join(repo, docPath);
+  const content = readFileSync(path, 'utf-8');
+  writeFileSync(
+    path,
+    content.replace(`About ${name}.`, `About ${name}, rewritten.`),
+  );
+}
+
+describe('fork stop impact reviewed sections', () => {
+  const repos: string[] = [];
+
+  afterEach(() => {
+    for (const repo of repos.splice(0)) rmDirBestEffort(repo);
+  });
+
+  /**
+   * Commit `lat.md/doc.md` holding `sectionNames` and `src/app.ts` whose
+   * first lines link to `linkedNames`, then change 200 code lines.
+   */
+  function makeRepo(sectionNames: string[], linkedNames: string[]): string {
+    const repo = mkdtempSync(join(tmpdir(), 'lat-stop-reviewed-'));
+    repos.push(repo);
+    const refs = linkedNames.map((name) => `doc#Doc#${name}`);
+    writeFiles(repo, {
+      'lat.md/.gitignore': '.cache/\n',
+      'lat.md/lat.md': '# Project\n\n- [[doc]] — Doc\n',
+      'lat.md/doc.md': docWithSections(sectionNames),
+      'src/app.ts': codeLinkedTo(refs, 'const before = 0;'),
+    });
+    git(repo, 'init', '--quiet');
+    git(repo, 'add', '.');
+    git(repo, 'commit', '--quiet', '-m', 'initial');
+    writeFiles(repo, { 'src/app.ts': codeLinkedTo(refs, 'const after = 1;') });
+    return repo;
+  }
+
+  function reviewStatus(repo: string) {
+    const latDir = join(repo, 'lat.md');
+    return findUnreviewedSectionsForDiff(
+      repo,
+      new CheckRunContext(latDir, repo),
+    );
+  }
+
+  // @lat: [[fork-stop-impact#Fork Stop Impact#Untouched linked section is not reviewed]]
+  it('lists a linked section that was not edited', async () => {
+    const repo = makeRepo(['Transport'], ['Transport']);
+
+    expect(await reviewStatus(repo)).toEqual({
+      linkedSectionCount: 1,
+      unreviewedSections: ['lat.md/doc#Doc#Transport'],
+    });
+  });
+
+  // @lat: [[fork-stop-impact#Fork Stop Impact#Rewritten linked section clears the reminder]]
+  it('counts a rewritten linked section as reviewed and clears the reminder', async () => {
+    const repo = makeRepo(['Transport'], ['Transport']);
+    rewriteParagraph(repo, 'lat.md/doc.md', 'Transport');
+
+    expect(await reviewStatus(repo)).toEqual({
+      linkedSectionCount: 1,
+      unreviewedSections: [],
+    });
+
+    const freshRepo = makeRepo(['Transport'], ['Transport']);
+    rewriteParagraph(freshRepo, 'lat.md/doc.md', 'Transport');
+    const status = await getStopStatus(join(freshRepo, 'lat.md'));
+    expect(status.latMdLines).toBe(2);
+    expect(status.needsSync).toBe(false);
+  });
+
+  // @lat: [[fork-stop-impact#Fork Stop Impact#Only unreviewed linked sections are listed]]
+  it('lists only the linked sections that were not edited', async () => {
+    const repo = makeRepo(['Storage', 'Transport'], ['Storage', 'Transport']);
+    rewriteParagraph(repo, 'lat.md/doc.md', 'Transport');
+
+    expect(await reviewStatus(repo)).toEqual({
+      linkedSectionCount: 2,
+      unreviewedSections: ['lat.md/doc#Doc#Storage'],
+    });
+  });
+
+  // @lat: [[fork-stop-impact#Fork Stop Impact#Ten section cap applies after reviewed sections are removed]]
+  it('applies the ten section cap after removing reviewed sections', async () => {
+    const names = Array.from(
+      { length: 12 },
+      (_, i) => `Item${String(i + 1).padStart(2, '0')}`,
+    );
+    const repo = makeRepo(names, names);
+    for (const name of names.slice(0, 10)) {
+      rewriteParagraph(repo, 'lat.md/doc.md', name);
+    }
+
+    expect(await reviewStatus(repo)).toEqual({
+      linkedSectionCount: 12,
+      unreviewedSections: ['lat.md/doc#Doc#Item11', 'lat.md/doc#Doc#Item12'],
+    });
+  });
+
+  // @lat: [[fork-stop-impact#Fork Stop Impact#Section in an untracked doc file counts as reviewed]]
+  it('counts a linked section in an untracked lat.md file as reviewed', async () => {
+    const repo = makeRepo(['Transport'], []);
+    const refs = ['fresh#Fresh#Topic'];
+    writeFiles(repo, {
+      'src/app.ts': codeLinkedTo(refs, 'const before = 0;'),
+    });
+    git(repo, 'commit', '--quiet', '-am', 'link to a new doc');
+    writeFiles(repo, {
+      'lat.md/fresh.md': '# Fresh\n\n## Topic\n\nAbout Topic.\n',
+      'src/app.ts': codeLinkedTo(refs, 'const after = 1;'),
+    });
+
+    expect(await reviewStatus(repo)).toEqual({
+      linkedSectionCount: 1,
+      unreviewedSections: [],
+    });
+  });
+
+  // @lat: [[fork-stop-impact#Fork Stop Impact#Large non-code diff still counts an edited section]]
+  it('counts an edited linked section as reviewed beside a large non-code diff', async () => {
+    const repo = makeRepo(['Transport'], ['Transport']);
+    const line = (n: number, value: string) =>
+      `  "package-${n}": "${value}-${'x'.repeat(40)}",\n`;
+    const lockfile = (value: string) =>
+      Array.from({ length: 30000 }, (_, n) => line(n, value)).join('');
+    writeFiles(repo, { 'data.json': lockfile('old') });
+    git(repo, 'add', 'data.json');
+    git(repo, 'commit', '--quiet', '-m', 'add a large data file');
+    writeFiles(repo, { 'data.json': lockfile('new') });
+    rewriteParagraph(repo, 'lat.md/doc.md', 'Transport');
+
+    expect(await reviewStatus(repo)).toEqual({
+      linkedSectionCount: 1,
+      unreviewedSections: [],
+    });
+  });
+
+  // @lat: [[fork-stop-impact#Fork Stop Impact#Section in a non-ASCII file name counts as reviewed]]
+  it('counts an edited linked section in a non-ASCII doc file name as reviewed', async () => {
+    const repo = makeRepo(['Transport'], []);
+    const refs = ['café#Café#Topic'];
+    writeFiles(repo, {
+      'lat.md/café.md':
+        '# Café\n\nCafé overview.\n\n## Topic\n\nAbout Topic.\n',
+      'src/app.ts': codeLinkedTo(refs, 'const before = 0;'),
+    });
+    git(repo, 'add', '.');
+    git(repo, 'commit', '--quiet', '-m', 'link to a non-ASCII doc');
+    writeFiles(repo, { 'src/app.ts': codeLinkedTo(refs, 'const after = 1;') });
+    rewriteParagraph(repo, 'lat.md/café.md', 'Topic');
+
+    expect(await reviewStatus(repo)).toEqual({
+      linkedSectionCount: 1,
+      unreviewedSections: [],
+    });
+  });
+
+  // @lat: [[fork-stop-impact#Fork Stop Impact#Colored diff config still counts an edited section]]
+  it('counts an edited linked section as reviewed with color.ui set to always', async () => {
+    const repo = makeRepo(['Transport'], ['Transport']);
+    git(repo, 'config', 'color.ui', 'always');
+    rewriteParagraph(repo, 'lat.md/doc.md', 'Transport');
+
+    expect(await reviewStatus(repo)).toEqual({
+      linkedSectionCount: 1,
+      unreviewedSections: [],
+    });
+  });
+
+  // @lat: [[fork-stop-impact#Fork Stop Impact#Code change without linked sections keeps the ratio rule]]
+  it('keeps the line ratio rule when no section is linked', async () => {
+    const repo = makeRepo(['Transport'], []);
+    // Commit what lat check needs, away from the lines the diff changes: a
+    // leading paragraph in the root index, and one ref in a file the diff
+    // does not touch. lat check passes and the diff still links no section.
+    writeFiles(repo, {
+      'lat.md/lat.md': '# Project\n\nThe project.\n\n- [[doc]] — Doc\n',
+      'src/entry.ts': '// @lat: [[doc#Doc#Transport]]\n',
+    });
+    git(repo, 'add', 'lat.md/lat.md', 'src/entry.ts');
+    git(repo, 'commit', '--quiet', '-m', 'pass lat check');
+    rewriteParagraph(repo, 'lat.md/doc.md', 'Transport');
+
+    const status = await getStopStatus(join(repo, 'lat.md'));
+    expect(status.checkFailed).toBe(false);
+    expect(status.codeLines).toBe(400);
+    expect(status.latMdLines).toBe(2);
+    expect(status.needsSync).toBe(true);
+    expect(status.impactedSections).toEqual([]);
   });
 });
