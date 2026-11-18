@@ -191,24 +191,22 @@ describe('antigravity hook handler', () => {
     });
 
     describe('with a failing lat check', () => {
-      function withBrokenProject(
+      async function withBrokenProject(
         commitHooks: boolean,
         run: (projectDir: string) => Promise<void>,
       ) {
         const projectDir = mkdtempSync(join(tmpdir(), 'lat-agy-stop-'));
-        return (async () => {
-          try {
-            mkdirSync(join(projectDir, 'lat.md'));
-            writeFileSync(
-              join(projectDir, 'lat.md', 'notes.md'),
-              '# Notes\n\nSee [[missing#Nowhere]].\n',
-            );
-            writeExperiments(projectDir, { 'commit-hooks': commitHooks });
-            await run(projectDir);
-          } finally {
-            rmSync(projectDir, { recursive: true, force: true });
-          }
-        })();
+        try {
+          mkdirSync(join(projectDir, 'lat.md'));
+          writeFileSync(
+            join(projectDir, 'lat.md', 'notes.md'),
+            '# Notes\n\nSee [[missing#Nowhere]].\n',
+          );
+          writeExperiments(projectDir, { 'commit-hooks': commitHooks });
+          await run(projectDir);
+        } finally {
+          rmSync(projectDir, { recursive: true, force: true });
+        }
       }
 
       it('allows the stop when the commit-hooks experiment is enabled', () =>
