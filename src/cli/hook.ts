@@ -37,6 +37,7 @@ import {
 import { handlePreToolUse } from './comment-guard.js';
 import { handleAntigravityHook } from '../fork/antigravity-hook.js';
 import { isRepeatedSyncReminder } from '../fork/stop-reminder-memory.js';
+import { stopSyncMessage } from '../fork/stop-sync-message.js';
 import { neverDownloadModelInThisProcess } from '../fork/multi-qa-search-model.js';
 import { isExperimentEnabled } from './experiments.js';
 
@@ -518,8 +519,11 @@ export function formatStopReason({
     );
   } else {
     parts.push(
-      syncMsg +
-        ' Review whether `lat.md/` needs a current-state update; do not add journal/changelog notes just to satisfy this reminder. Run `lat search` to find relevant sections and `lat check` at the end.',
+      stopSyncMessage(
+        codeLines,
+        latMdLines,
+        impactedSections !== undefined && impactedSections.length > 0,
+      ),
     );
   }
 
