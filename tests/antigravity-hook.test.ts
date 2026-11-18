@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { writeExperiments } from '../src/cli/experiments.js';
 import {
   extractLastUserPrompt,
   handleAntigravityPreInvocation,
@@ -187,6 +188,41 @@ describe('antigravity hook handler', () => {
       const input = JSON.stringify({ stop_hook_active: true });
       const output = await handleAntigravityStop(input, false);
       expect(output.decision).toBeUndefined();
+    });
+
+    describe('with a failing lat check', () => {
+      async function withBrokenProject(
+        commitHooks: boolean,
+        run: (projectDir: string) => Promise<void>,
+      ) {
+        const projectDir = mkdtempSync(join(tmpdir(), 'lat-agy-stop-'));
+        try {
+          mkdirSync(join(projectDir, 'lat.md'));
+          writeFileSync(
+            join(projectDir, 'lat.md', 'notes.md'),
+            '# Notes\n\nSee [[missing#Nowhere]].\n',
+          );
+          writeExperiments(projectDir, { 'commit-hooks': commitHooks });
+          await run(projectDir);
+        } finally {
+          rmSync(projectDir, { recursive: true, force: true });
+        }
+      }
+
+      it('allows the stop when the commit-hooks experiment is enabled', () =>
+        withBrokenProject(true, async (projectDir) => {
+          const input = JSON.stringify({ workspacePaths: [projectDir] });
+          const output = await handleAntigravityStop(input, false);
+          expect(output).toEqual({});
+        }));
+
+      it('continues with a reason when the experiment is disabled', () =>
+        withBrokenProject(false, async (projectDir) => {
+          const input = JSON.stringify({ workspacePaths: [projectDir] });
+          const output = await handleAntigravityStop(input, false);
+          expect(output.decision).toBe('continue');
+          expect(output.reason).toBeTruthy();
+        }));
     });
   });
 
