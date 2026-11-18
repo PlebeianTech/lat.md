@@ -452,6 +452,8 @@ Conditionally continues Claude or Codex — only when something is actually wron
 
 When `needsSync` is true, [[src/cli/hook.ts#getStopStatus]] resolves candidate `[[section]]` targets via [[src/cli/fork-stop-impact.ts#findImpactedSectionsForDiff]], which parses `git diff HEAD --unified=0` line ranges with [[src/cli/fork-stop-impact.ts#parseUnifiedZeroDiff]] and intersects modified lines against `@lat:` comments and `lat.md/` source wiki links, and [[src/cli/hook.ts#formatStopReason]] appends the impacted sections to the block message.
 
+The sync reminder is advisory and is issued once per set of code changes. As its last step, [[src/cli/hook.ts#getStopStatus]] asks [[src/fork/stop-reminder-memory.ts#isRepeatedSyncReminder]] whether it already reminded about the current code changes in this worktree. If so, it reports `needsSync` false and no impacted sections. Otherwise it remembers the new state and reminds. The state is a SHA-256 of the `git diff HEAD --numstat --relative` lines for the counted code files plus a line count for each untracked code file. Files under `lat.md/` are not part of it, so doc edits do not renew the reminder. An edit that leaves every count the same does not renew it either. The fingerprint lives in the file that `git rev-parse --git-path lat-stop-reminder` names, inside the git directory, so it is never a project change. When that location is missing, unreadable or not writable, the memory is unavailable and the reminder repeats as before. A real `lat check` failure is not affected and blocks on every call.
+
 ### PreToolUse
 
 Fires before an Edit, Write or MultiEdit and **refuses** the write when it would put a multi-line rationale comment into source. Implementation: [[src/cli/comment-guard.ts]].
