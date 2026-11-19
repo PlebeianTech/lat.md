@@ -13,6 +13,12 @@
   "activationEvents": [
     "onStartupFinished"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Clicking a link runs the lat binary, so the extension stays off until the workspace is trusted."
+    }
+  },
   "contributes": {
     "configuration": {
       "title": "lat Wiki Links",
@@ -20,7 +26,8 @@
         "latWikiLinks.latPath": {
           "type": "string",
           "default": "lat",
-          "description": "Path to the lat binary. Set a full path when VS Code does not inherit your shell PATH."
+          "description": "Path to the lat binary. Set a full path when VS Code does not inherit your shell PATH.",
+          "scope": "machine"
         }
       }
     }
