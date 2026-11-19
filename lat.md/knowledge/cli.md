@@ -653,3 +653,13 @@ The cost bound is the reason for the format. Measured for `cli#CLI#gen`, ids alo
 Honest limits: many sections have no inbound refs and most gain nothing past one hop, so for them it returns no more than [[cli#refs]]. It helps on hub sections such as `cli#gen`, which has one direct ref and dozens of sections reachable through it, and is no faster than `lat refs` elsewhere. It takes no query language.
 
 Implementation: [[src/cli/impact.ts#impactCommand]]. Run `lat impact --help` for the options.
+
+## resolve
+
+Print the file and line that one wiki-link target opens, as one JSON object on stdout. Usage: `lat resolve <ref>`.
+
+The ref may keep its `[[ ]]` brackets and a `|label` alias; both are dropped first. Refs resolve in the order [[cli#check]] validates them, so a ref that passes `lat check` opens the section it validated: section refs (full or short), then source files and symbols, then repository files.
+
+Success prints `{"file": "<absolute path>", "line": <n>}` with a 1-based line and exits 0. A file ref with no symbol gives line 1. Failure prints `{"error": "<message>"}` and exits 1: an ambiguous short ref lists its candidates, and external-source refs, directory refs and unknown refs are errors. The one exception is a missing `lat.md/` directory, which prints plain text to stderr like every other command.
+
+Implementation: [[src/cli/fork-resolve.ts#resolveLinkTarget]]
