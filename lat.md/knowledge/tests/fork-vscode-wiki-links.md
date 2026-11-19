@@ -5,7 +5,7 @@ lat:
 
 # Fork VS Code Wiki Links
 
-Tests in [[packages/vscode-wiki-links/src/find-wiki-links.test.ts]] for [[packages/vscode-wiki-links/src/find-wiki-links.ts]], which finds the wiki links the VS Code extension makes clickable.
+Tests in [[packages/vscode-wiki-links/src/find-wiki-links.test.ts]] and [[packages/vscode-wiki-links/src/resolve-with-lat.test.ts]] for [[packages/vscode-wiki-links/src/find-wiki-links.ts]], which finds the wiki links the VS Code extension makes clickable, and [[packages/vscode-wiki-links/src/resolve-with-lat.ts]], which resolves a link target with `lat resolve`.
 
 ## Slash comment link is found
 
