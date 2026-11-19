@@ -1,0 +1,36 @@
+{
+  "name": "vscode-wiki-links",
+  "displayName": "lat Wiki Links",
+  "description": "Makes lat [[wiki links]] in @lat: comments and lat.md files clickable",
+  "version": "0.0.1",
+  "private": true,
+  "publisher": "plebeiantech",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "lat Wiki Links",
+      "properties": {
+        "latWikiLinks.latPath": {
+          "type": "string",
+          "default": "lat",
+          "description": "Path to the lat binary. Set a full path when VS Code does not inherit your shell PATH."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc --noEmit && esbuild src/extension.ts --bundle --outfile=dist/extension.js --format=cjs --platform=node --external:vscode"
+  },
+  "devDependencies": {
+    "@types/vscode": "~1.100.0",
+    "esbuild": "0.27.3",
+    "typescript": "7.0.2"
+  }
+}
