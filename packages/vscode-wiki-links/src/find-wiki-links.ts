@@ -7,9 +7,18 @@ export interface WikiLink {
   end: number;
 }
 
-const CODE_COMMENT_LINK =
-  /(?<=(?:\/\/|#)[^\S\r\n]*@lat:[^\S\r\n]*)\[\[(.+?)\]\]/g;
-const WIKI_LINK = /(?<!\\)\[\[(.+?)\]\]/g;
+// A body may hold [x] or [[x]], as in bracketed route paths.
+const LINK_BODY = String.raw`((?:[^[\]\r\n]|\[[^[\]\r\n]*\]|\[\[[^[\]\r\n]*\]\])+)`;
+const CODE_COMMENT_LINK = new RegExp(
+  String.raw`(?<=(?:\/\/|#)[^\S\r\n]*@lat:[^\S\r\n]*)\[\[` +
+    LINK_BODY +
+    String.raw`\]\]`,
+  'g',
+);
+const WIKI_LINK = new RegExp(
+  String.raw`(?<!\\)\[\[` + LINK_BODY + String.raw`\]\]`,
+  'g',
+);
 const FENCE_OPENING = /^\s*(`{3,}|~{3,})/;
 const INLINE_CODE_SPAN = /(`+).+?\1/g;
 

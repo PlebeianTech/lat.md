@@ -56,6 +56,16 @@ describe('findCodeCommentLinks', () => {
     const text = 'const a = [[1]]; // see [[b]]';
     expect(findCodeCommentLinks(text)).toEqual([]);
   });
+
+  // @lat: [[fork-vscode-wiki-links#Fork VS Code Wiki Links#Bracketed path in a comment link is found]]
+  it('keeps brackets inside a comment link path', () => {
+    const text = '// @lat: [[app/[[...slug]]/page.tsx]]';
+    const [link] = findCodeCommentLinks(text);
+    expect(link.target).toBe('app/[[...slug]]/page.tsx');
+    expect(text.slice(link.start, link.end)).toBe(
+      '[[app/[[...slug]]/page.tsx]]',
+    );
+  });
 });
 
 describe('findMarkdownLinks', () => {
@@ -98,5 +108,19 @@ describe('findMarkdownLinks', () => {
   it('ignores a [[ preceded by a backslash', () => {
     const text = 'Escaped \\[[a]] but [[b]]';
     expect(findMarkdownLinks(text).map((link) => link.target)).toEqual(['b']);
+  });
+
+  // @lat: [[fork-vscode-wiki-links#Fork VS Code Wiki Links#Bracketed path in a markdown link is found]]
+  it('keeps brackets inside a link path', () => {
+    const text = '- [[app/[[...slug]]/page.tsx]]\n- [[src/pages/[region]]]';
+    const links = findMarkdownLinks(text);
+    expect(links.map((link) => link.target)).toEqual([
+      'app/[[...slug]]/page.tsx',
+      'src/pages/[region]',
+    ]);
+    expect(links.map((link) => text.slice(link.start, link.end))).toEqual([
+      '[[app/[[...slug]]/page.tsx]]',
+      '[[src/pages/[region]]]',
+    ]);
   });
 });

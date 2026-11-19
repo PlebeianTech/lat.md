@@ -59,6 +59,14 @@ Tests in [[packages/vscode-wiki-links/src/find-wiki-links.test.ts]] for [[packag
 
 [[packages/vscode-wiki-links/src/find-wiki-links.ts#findMarkdownLinks]] does not return a `[[` preceded by a backslash.
 
+## Bracketed path in a comment link is found
+
+[[packages/vscode-wiki-links/src/find-wiki-links.ts#findCodeCommentLinks]] returns the whole path of `@lat: [[app/[[...slug]]/page.tsx]]`, because brackets inside a link body do not end the link.
+
+## Bracketed path in a markdown link is found
+
+[[packages/vscode-wiki-links/src/find-wiki-links.ts#findMarkdownLinks]] returns the whole path of links such as `[[app/[[...slug]]/page.tsx]]` and `[[src/pages/[region]]]`, with ranges that cover the full link.
+
 ## Resolved target gives file and line
 
 [[packages/vscode-wiki-links/src/resolve-with-lat.ts#resolveWithLat]] returns the `file` and `line` that `lat resolve` prints as JSON on success. Tests in [[packages/vscode-wiki-links/src/resolve-with-lat.test.ts]] pass a fake `execFile`, so they run without VS Code.
