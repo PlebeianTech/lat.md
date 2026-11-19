@@ -6,6 +6,11 @@
   "private": true,
   "publisher": "plebeiantech",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PlebeianTech/lat.md.git",
+    "directory": "packages/vscode-wiki-links"
+  },
   "engines": {
     "vscode": "^1.100.0"
   },
@@ -33,7 +38,8 @@
     }
   },
   "scripts": {
-    "build": "tsc --noEmit && esbuild src/extension.ts --bundle --outfile=dist/extension.js --format=cjs --platform=node --external:vscode"
+    "build": "tsc --noEmit && esbuild src/extension.ts --bundle --outfile=dist/extension.js --format=cjs --platform=node --external:vscode",
+    "package": "pnpm build && pnpm dlx @vscode/vsce@4.1.1 package --no-dependencies"
   },
   "devDependencies": {
     "@types/vscode": "~1.100.0",
