@@ -90,12 +90,12 @@ async function resolveSourceTarget(
       error: `broken link [[${target}]] — file "${filePart}" not found`,
     };
   }
-  if (hashIdx === -1) {
+  const symbolPart = hashIdx === -1 ? '' : target.slice(hashIdx + 1);
+  if (!symbolPart) {
     return { file: join(ctx.projectRoot, filePart), line: 1 };
   }
 
-  const symbolPart = target.slice(hashIdx + 1);
-  const { symbols, error } = await resolveSourceSymbol(
+  const { symbols, error, found } = await resolveSourceSymbol(
     filePart,
     symbolPart,
     ctx.projectRoot,
@@ -108,7 +108,7 @@ async function resolveSourceTarget(
       ? s.name === parts[0] && !s.parent
       : s.name === parts[1] && s.parent === parts[0],
   );
-  if (!symbol) {
+  if (!found || !symbol) {
     return {
       error: `broken link [[${target}]] — symbol "${symbolPart}" not found in "${filePart}"`,
     };

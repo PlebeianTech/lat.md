@@ -35,6 +35,14 @@ A source symbol ref whose symbol does not exist returns the same `symbol ... not
 
 A ref to a source file with no `#` fragment returns the file and line 1.
 
+## Source ref with extra symbol parts is an error
+
+A source ref with three or more `#` parts, such as `src/app.ts#a#b#c`, returns the symbol-not-found error, matching `lat check`, which reports such a ref as broken.
+
+## Source ref with empty fragment resolves to line one
+
+A source file ref that ends in a bare `#` returns the file and line 1, matching `lat check`, which accepts an empty fragment.
+
 ## Plain file ref resolves to line one
 
 A ref to an existing repository file that is not a source file returns the file and line 1.

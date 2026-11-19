@@ -137,6 +137,22 @@ describe('resolveLinkTarget', () => {
     });
   });
 
+  // @lat: [[tests/fork-resolve#Source ref with extra symbol parts is an error]]
+  it('returns an error when a source ref has three or more # parts', async () => {
+    expect(await resolveRef('src/app.ts#Greeter#hello#junk')).toEqual({
+      error:
+        'broken link [[src/app.ts#Greeter#hello#junk]] — symbol "Greeter#hello#junk" not found in "src/app.ts"',
+    });
+  });
+
+  // @lat: [[tests/fork-resolve#Source ref with empty fragment resolves to line one]]
+  it('resolves a source ref with an empty fragment to line 1', async () => {
+    expect(await resolveRef('src/app.ts#')).toEqual({
+      file: join(projectRoot, 'src/app.ts'),
+      line: 1,
+    });
+  });
+
   // @lat: [[tests/fork-resolve#Plain file ref resolves to line one]]
   it('resolves a plain non-source file to line 1', async () => {
     expect(await resolveRef('notes.txt')).toEqual({
