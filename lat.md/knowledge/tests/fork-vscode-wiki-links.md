@@ -58,3 +58,23 @@ Tests in [[packages/vscode-wiki-links/src/find-wiki-links.test.ts]] for [[packag
 ## Backslash-escaped opening brackets are ignored
 
 [[packages/vscode-wiki-links/src/find-wiki-links.ts#findMarkdownLinks]] does not return a `[[` preceded by a backslash.
+
+## Resolved target gives file and line
+
+[[packages/vscode-wiki-links/src/resolve-with-lat.ts#resolveWithLat]] returns the `file` and `line` that `lat resolve` prints as JSON on success. Tests in [[packages/vscode-wiki-links/src/resolve-with-lat.test.ts]] pass a fake `execFile`, so they run without VS Code.
+
+## Error JSON gives its message
+
+[[packages/vscode-wiki-links/src/resolve-with-lat.ts#resolveWithLat]] returns the `error` text from the JSON that `lat resolve` prints with exit code 1.
+
+## Output without JSON falls back to stderr
+
+[[packages/vscode-wiki-links/src/resolve-with-lat.ts#resolveWithLat]] uses the trimmed stderr as the error when stdout is empty or not JSON, as when lat finds no `lat.md/` directory.
+
+## Spawn failure gives a readable error
+
+[[packages/vscode-wiki-links/src/resolve-with-lat.ts#resolveWithLat]] names the binary in the error when the process cannot start, such as when `lat` is not found.
+
+## CLI is called with the target after a double dash
+
+[[packages/vscode-wiki-links/src/resolve-with-lat.ts#resolveWithLat]] runs the configured binary with `resolve`, `--` and the target, in the given directory, so a target that starts with `-` is not read as an option.
