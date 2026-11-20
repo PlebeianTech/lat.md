@@ -122,6 +122,33 @@ The [[untrusted-content#Notice]] appears exactly once, at the top of the whole r
 
 Federation returns `null` rather than an empty string when nothing matched, so the hook can distinguish "no output to add" from "an empty block to add".
 
+## Usage Events
+
+When usage tracking is on for the project root (see
+[[usage-analytics#Usage Analytics#Opt-in and the usage directory]]),
+federation writes one usage event per store query. The command is
+`federate:` plus the store name, so the cost and yield of each store can be
+measured before more stores are added.
+
+Each event has surface `hook` and caller `hook-injected`. It carries the
+query's wall time as `duration_ms`, the joined terms as `query`, the
+document id as `section_id`, and the hit count as `result_count` and
+`found`. `session_id` is null and `not_captured`: federation does not
+receive the session id. `injected_bytes` is null because the event injects
+nothing itself; the `lat hook` event records the injection.
+
+A query that the deadline abandons writes one event at the deadline, with
+`error_class` `deadline`. The query keeps running, but when it settles it
+writes nothing more, so each query has exactly one event.
+
+Writing an event never throws out of federation and never changes its
+output. With tracking off, nothing is written.
+
+Aggregation skips `federate:` events when it counts injections, savings
+and missed-knowledge reads. Otherwise each store query would count as an
+injection with uncaptured bytes, and as a read of the document, on top of
+the hook event that really injected the text.
+
 ## Test Specs
 
-Behaviour is specified in [[tests/knowledge-store]] and [[tests/knowledge-session]], with the federation entry point covered by the federate specs in [[tests/tests]].
+Behaviour is specified in [[tests/knowledge-store]] and [[tests/knowledge-session]], with the federation entry point covered by the federate specs in [[tests/tests]]. Usage events are specified in [[tests/fork-federate-usage]].

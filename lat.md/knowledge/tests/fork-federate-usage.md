@@ -12,9 +12,11 @@ how aggregation treats them. See [[knowledge-federation#Usage Events]].
 ## Each store query writes one event
 
 With `LAT_USAGE=1`, federating one document across two fake stores writes
-two events, `federate:cq` and `federate:bd`. Each has surface `hook`, caller
-`hook-injected`, the document id as `section_id`, the joined terms as
-`query`, and the store's hit count as `result_count` and `found`.
+two events, `federate:cq` and `federate:bd`.
+
+Each has surface `hook`, caller `hook-injected`, the document id as
+`section_id`, the joined terms as `query`, and the store's hit count as
+`result_count` and `found`.
 
 ## A query the deadline abandons writes one deadline event
 
