@@ -66,8 +66,7 @@ function registerStores(entries: unknown): void {
 }
 
 const symbol = { file: 'src/auth.rb', name: 'User#login' };
-const answer = (callers: unknown[]) =>
-  JSON.stringify([{ symbol, callers }]);
+const answer = (callers: unknown[]) => JSON.stringify([{ symbol, callers }]);
 const caller = { file: 'src/app.rb', name: 'App#run', line: 7 };
 
 describe('external callers lookup', () => {
