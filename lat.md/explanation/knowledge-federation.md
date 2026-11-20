@@ -230,6 +230,31 @@ The [[untrusted-content#Notice]] appears exactly once, at the top of the whole r
 
 Federation returns `null` rather than an empty string when nothing matched, so the hook can distinguish "no output to add" from "an empty block to add".
 
+### Callers in output
+
+Under each emitted document, federation adds a `Callers (LABEL):` group that
+lists who calls the code symbols the document links. `LABEL` is the label of
+the callers store, cleaned like an external store label.
+
+Only documents that already have store hits are emitted, so a document with
+callers but no store hits is not shown. With no store that supports
+`callers`, the output has no such group and is the same as without it.
+
+[[src/knowledge/linked-symbols.ts#linkedSymbols]] reads the document's wiki
+links and keeps those whose target is a source file path with a `#` symbol,
+such as `[[src/auth.ts#validateToken]]`. It does not parse source files. It
+takes at most 10 symbols per document, in link order.
+
+Federation calls [[src/knowledge/callers.ts#findCallers]] once per call, at
+depth 1, for the symbols of all emitted documents, inside the federation
+deadline. A lookup that fails or outlasts the deadline gives no group and
+leaves the store groups unchanged.
+
+Each document lists at most 3 callers as `NAME (FILE:LINE)`, quoted like hit
+text. Caller lines count against `maxTotalHits`, but they spend only what the
+store hits leave of it, so the cap cuts caller lines first. When store hits use
+the whole cap, the callers store is not run.
+
 ## Usage Events
 
 When usage tracking is on for the project root (see
@@ -261,4 +286,5 @@ unjoinable event, on top of the hook event that really injected the text.
 
 Behaviour is specified in [[tests/knowledge-store]] and [[tests/knowledge-session]], with the federation entry point covered by the federate specs in [[tests/tests]]. Usage events are specified in [[tests/fork-federate-usage]]. External stores are specified in
 [[tests/fork-external-stores]] and their callers lookup in
-[[tests/fork-external-callers]].
+[[tests/fork-external-callers]]. Callers in output are specified in
+[[tests/fork-federate-callers]].

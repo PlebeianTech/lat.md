@@ -13,7 +13,9 @@ import { readGitState } from '../fork/usage/cli-tap.js';
 import { usageEnabled } from '../fork/usage/enabled.js';
 import { USAGE_SCHEMA_VERSION, type UsageEvent } from '../fork/usage/schema.js';
 import { writeUsageEvent } from '../fork/usage/writer.js';
-import { externalStores } from './external.js';
+import { findCallers, type CodeSymbol } from './callers.js';
+import { externalStores, readExternalStoreConfigs } from './external.js';
+import { linkedSymbols } from './linked-symbols.js';
 import { tagsToTerms, capHits } from './ranking.js';
 import type {
   BuiltInStoreName,
@@ -383,7 +385,10 @@ export async function federateTags(
   // document. A document left with no hits is dropped like a candidate beyond
   // maxEmitted: not emitted, not marked seen.
   let hitsLeft = maxTotalHits;
-  const blocks: string[] = [];
+  const accepted: Array<{
+    doc: TaggedDoc;
+    keptByStore: Map<StoreName, KnowledgeHit[]>;
+  }> = [];
   for (const index of acceptedIndices) {
     const { doc, hitsByStore } = candidates.get(index)!;
     const keptByStore = new Map<StoreName, KnowledgeHit[]>();
@@ -395,8 +400,26 @@ export async function federateTags(
     }
     if (keptByStore.size === 0) continue;
     seen.add(doc.id);
-    blocks.push(formatDocBlock(doc, keptByStore, perStoreLimit, stores));
+    accepted.push({ doc, keptByStore });
   }
+
+  // Callers spend only what the store hits left of the cap, so they never
+  // displace a store hit and never decide which documents are emitted.
+  const callerGroups = await callerGroupsByDoc(
+    accepted.map(({ doc }) => doc),
+    opts.projectRoot,
+    hitsLeft,
+    deadlineAt,
+  );
+  const blocks = accepted.map(({ doc, keptByStore }) =>
+    formatDocBlock(
+      doc,
+      keptByStore,
+      perStoreLimit,
+      stores,
+      callerGroups.get(doc.id) ?? [],
+    ),
+  );
 
   if (blocks.length === 0) return null;
 
@@ -415,6 +438,7 @@ function formatDocBlock(
   hitsByStore: Map<StoreName, KnowledgeHit[]>,
   perStoreLimit: number,
   stores: Store[],
+  callerLines: string[],
 ): string {
   // The heading lists the document's WHOLE authored tag list, even though
   // only the first two (maxTerms) drove the search — that keeps the heading
@@ -444,7 +468,70 @@ function formatDocBlock(
     lines.push(...hitLines);
   }
 
+  lines.push(...callerLines);
   return lines.join('\n');
+}
+
+const MAX_CALLERS_PER_DOC = 3;
+
+/**
+ * The lines of each document's 'Callers (LABEL):' group, by document id. One
+ * findCallers call asks about the symbols of every document, inside the
+ * federation deadline. At most `budget` caller lines are spent, in document
+ * order. A document with no callers has no entry; with no callers provider,
+ * no budget, or a lookup that fails or outlasts the deadline, the Map is
+ * empty. The caller text is untrusted, like hit text.
+ */
+async function callerGroupsByDoc(
+  docs: TaggedDoc[],
+  projectRoot: string,
+  budget: number,
+  deadlineAt: number,
+): Promise<Map<string, string[]>> {
+  const groups = new Map<string, string[]>();
+  const provider = readExternalStoreConfigs().find((config) =>
+    config.operations.includes('callers'),
+  );
+  if (provider === undefined || budget <= 0) return groups;
+
+  const symbolsByDoc = new Map<string, CodeSymbol[]>();
+  const allSymbols = new Map<string, CodeSymbol>();
+  for (const doc of docs) {
+    const symbols = await linkedSymbols(projectRoot, doc.id);
+    symbolsByDoc.set(doc.id, symbols);
+    for (const symbol of symbols) {
+      allSymbols.set(`${symbol.file}#${symbol.name}`, symbol);
+    }
+  }
+  if (allSymbols.size === 0) return groups;
+
+  const remainingMs = deadlineAt - Date.now();
+  const callersByKey = await raceDeadline(
+    findCallers(projectRoot, [...allSymbols.values()], {
+      depth: 1,
+      remainingMs,
+    }),
+    remainingMs,
+  );
+  if (callersByKey === null) return groups;
+
+  const heading = `Callers (${cleanUntrustedId(provider.label)}):`;
+  for (const doc of docs) {
+    const callers = symbolsByDoc
+      .get(doc.id)!
+      .flatMap(({ file, name }) => callersByKey.get(`${file}#${name}`) ?? [])
+      .slice(0, Math.min(MAX_CALLERS_PER_DOC, budget));
+    if (callers.length === 0) continue;
+    budget -= callers.length;
+    groups.set(doc.id, [
+      heading,
+      ...callers.map(
+        ({ name, file, line }) =>
+          `- ${quoteUntrusted(`${name} (${file}:${line})`, 200)}`,
+      ),
+    ]);
+  }
+  return groups;
 }
 
 /**
