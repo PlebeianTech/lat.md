@@ -2,15 +2,46 @@
 // Fake codebase-memory-mcp. Appends its argv as one JSON line to the file
 // named by LAT_FIXTURE_ARGV_LOG. 'list_projects' prints LAT_FIXTURE_PROJECTS.
 // 'search_graph' prints the entry of the JSON object LAT_FIXTURE_SEARCHES
-// that is keyed by the --name-pattern value, or a result with no rows.
+// that is keyed by the --name-pattern value, or a result with no rows. With
+// --qn-pattern it prints the nodes of the JSON array LAT_FIXTURE_NODES whose
+// qualified name matches that regex. 'trace_path' prints the entry of
+// LAT_FIXTURE_TRACES keyed by the --function-name value; with no entry it
+// prints CBM's not-found error and exits 1.
 import { appendFileSync } from 'node:fs';
 const argv = process.argv.slice(2);
 appendFileSync(process.env.LAT_FIXTURE_ARGV_LOG, JSON.stringify(argv) + '\n');
+const flagValue = (flag) => argv[argv.indexOf(flag) + 1];
+const jsonEnv = (name) => JSON.parse(process.env[name] ?? '{}');
 const emptySearch = JSON.stringify({ cols: [], groups: [], total: 0 });
 if (argv.includes('list_projects')) {
   process.stdout.write(process.env.LAT_FIXTURE_PROJECTS);
+} else if (argv.includes('search_graph') && argv.includes('--qn-pattern')) {
+  const qnPattern = new RegExp(flagValue('--qn-pattern'), 'i');
+  const nodes = JSON.parse(process.env.LAT_FIXTURE_NODES ?? '[]').filter(
+    (node) =>
+      qnPattern.test(
+        node.qn_prefix ? `${node.qn_prefix}.${node.name}` : node.name,
+      ),
+  );
+  process.stdout.write(
+    JSON.stringify({
+      cols: ['name', 'label', 'lines', 'in', 'out'],
+      groups: nodes.map((node) => ({
+        qn_prefix: node.qn_prefix,
+        file: node.file,
+        rows: [[node.name, node.label, node.lines, 0, 0]],
+      })),
+    }),
+  );
 } else if (argv.includes('search_graph')) {
-  const pattern = argv[argv.indexOf('--name-pattern') + 1];
-  const searches = JSON.parse(process.env.LAT_FIXTURE_SEARCHES ?? '{}');
-  process.stdout.write(searches[pattern] ?? emptySearch);
+  process.stdout.write(
+    jsonEnv('LAT_FIXTURE_SEARCHES')[flagValue('--name-pattern')] ?? emptySearch,
+  );
+} else if (argv.includes('trace_path')) {
+  const trace = jsonEnv('LAT_FIXTURE_TRACES')[flagValue('--function-name')];
+  if (trace === undefined) {
+    process.stdout.write('{"error":"function not found"}');
+    process.exit(1);
+  }
+  process.stdout.write(trace);
 }
