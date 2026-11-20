@@ -69,6 +69,12 @@ The template names `lat section` and `lat expand` as the way to reach a section 
 
 This is the one rule in the block that no check enforces, which is exactly why it is asserted here. A silent edit dropping it would cost every consumer project an order of magnitude of context per lookup and break no test otherwise.
 
+## The block tells the agent to load the section behind a code ref
+
+A block written by `writeForkInstructions` carries a subsection under "Read sections, not files" that tells the agent to run `lat section "TARGET"`, or the `lat_section` MCP tool, before editing code beside an `@lat:` comment.
+
+Antigravity cannot inject hook advice after a read, so this text is the only route by which its agents learn the rule. A silent edit that dropped it would break no other test.
+
 ## A real init lands the block and the scaffold together
 
 A full `initCmd` run with Claude Code selected produces an `AGENTS.md` carrying both marker blocks, a `lat-md-conventions` skill beside upstream's `lat-md`, and a `lat.md/` with the four mode directories and `require-mode: true`.
