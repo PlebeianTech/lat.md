@@ -224,3 +224,10 @@ asked about.
 
 Use `lat expand` on a prompt carrying `[[refs]]` for the same reason: it
 resolves each ref to a location and a preview rather than to a file.
+
+### Load the section behind an `@lat:` comment
+
+A comment such as `@lat: [[TARGET]]` names the section that explains the code
+beside it. Before you edit that code, run `lat section "TARGET"` (or call the
+`lat_section` MCP tool) and read the result. To see what depends on the code,
+run `lat refs "TARGET"`.

@@ -224,6 +224,18 @@ export function syncLatHooks(
       },
     ],
   });
+  // Claude Code also gets read-time advice about `@lat:` references.
+  if (agent === 'claude') {
+    settings.hooks.PostToolUse.push({
+      matcher: 'Read',
+      hooks: [
+        {
+          type: 'command',
+          command: latHookCommand(style, agent, 'PostToolUse'),
+        },
+      ],
+    });
+  }
   writeProjectFile(
     root,
     settingsPath,

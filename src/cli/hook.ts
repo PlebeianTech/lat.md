@@ -41,6 +41,7 @@ import {
 } from './comment-reminder.js';
 import { handlePreToolUse } from './comment-guard.js';
 import { handleAntigravityHook } from '../fork/antigravity-hook.js';
+import { claudeReadRefAdvice } from '../fork/read-ref-claude-hook.js';
 import { isRepeatedSyncReminder } from '../fork/stop-reminder-memory.js';
 import { stopSyncMessage } from '../fork/stop-sync-message.js';
 import { stopDiffBase } from '../fork/stop-diff-base.js';
@@ -263,6 +264,11 @@ async function handlePostToolUse(): Promise<void> {
     const input = JSON.parse(raw) as PostToolUseInput;
     const eventName = input.hook_event_name ?? 'PostToolUse';
     const toolName = input.tool_name ?? '';
+    if (toolName === 'Read') {
+      const advice = claudeReadRefAdvice(input);
+      if (advice) outputPostToolUse(eventName, advice);
+      return;
+    }
     if (!/^(Edit|Write|MultiEdit)$/.test(toolName)) return;
 
     const context = computeCommentReminder(input);

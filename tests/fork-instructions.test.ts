@@ -255,4 +255,22 @@ describe('fork instruction block', () => {
     expect(body).toContain('lat section');
     expect(body).toContain('lat expand');
   });
+
+  // @lat: [[fork-instructions#Fork Instructions#The block tells the agent to load the section behind a code ref]]
+  it('tells the agent to run lat section on the target of a code ref before editing', async () => {
+    const root = makeRoot();
+    try {
+      writeFileSync(join(root, 'AGENTS.md'), '# My App\n');
+      await quiet(() =>
+        writeForkInstructions(root, join(root, 'lat.md'), {}, alwaysYes),
+      );
+
+      const block = extractForkBlock(readFileSync(join(root, 'AGENTS.md'), 'utf-8'));
+      expect(block).toContain('### Load the section behind an `@lat:` comment');
+      expect(block).toContain('`lat section "TARGET"`');
+      expect(block).toContain('lat_section');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

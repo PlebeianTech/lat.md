@@ -38,6 +38,16 @@
             "timeout": 20
           }
         ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/lat-guard.sh\" hook claude PostToolUse",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "Stop": [
