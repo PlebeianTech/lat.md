@@ -344,7 +344,7 @@ export function hasLatTree(projectRoot: string): boolean {
  * already exists (or can't be checked), the caller treats it as "already
  * reminded" only when the file actually exists, never on error — a dedup
  * failure should fire the reminder again, not suppress it forever. */
-function alreadyReminded(
+export function alreadyReminded(
   sessionId: string,
   filePath: string,
 ): {
