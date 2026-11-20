@@ -300,6 +300,7 @@ export async function handleAntigravityPreInvocation(
             projectRoot: ctx.projectRoot,
             seen: sessionMarkers.markers.seen,
             attemptedEmpty: sessionMarkers.markers.attemptedEmpty,
+            prompt: userPrompt,
           });
           saveSessionMarkers(sessionMarkers);
           if (federated) {

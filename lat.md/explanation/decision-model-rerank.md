@@ -6,6 +6,8 @@ Hybrid search ranks by word overlap and vector similarity, and neither one reads
 
 Lat depends on no product here. The user supplies the URL of any decision model that speaks the format below. Only the `lat search` command takes the flag: the MCP `lat_search` tool and the prompt hook keep the plain search order.
 
+The prompt hooks do filter federated knowledge: when `LAT_FEDERATION_RERANK_URL` is set, they send the prompt and each federated hit to the decision model and drop the hits it scores low.
+
 ## The flag
 
 The value must be an absolute `http:` or `https:` URL. [[src/fork/decision-model-rerank.ts#parseRerankUrl]] rejects anything else as an argument error before lat searches. It also rejects a URL that carries a user name or password, because the key belongs in `LAT_RERANK_KEY`.
