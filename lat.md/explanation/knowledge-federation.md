@@ -206,6 +206,41 @@ The cap is spent in the acceptance step: documents in document order, and within
 
 A document left with no hits is treated like a candidate beyond `maxEmitted`: it is not emitted and not added to `seen`, so a later prompt can still surface it. Below the cap, output is unchanged.
 
+## Decision Filter
+
+When the caller passes the user's prompt and `LAT_FEDERATION_RERANK_URL`
+holds a valid URL, a decision model drops the store hits that do not help
+with the prompt.
+
+Federation searches with a document's tags, not with what the user asked. A
+hit can match a tag and still not help with the request, and each added store
+adds such noise. The URL must be `http:` or `https:`. Without the prompt or
+the variable, no request is sent and the output is unchanged. An invalid URL
+turns the filter off; it does not fail federation.
+
+The filter uses the request format of [[decision-model-rerank#The request]],
+through [[src/fork/decision-model-rerank.ts#requestDecision]], and the same
+`LAT_RERANK_KEY` and `LAT_RERANK_MODEL` variables. The question is the prompt,
+cut at 1,200 characters. The section text is the hit's store label, title and
+detail. The instructions ask whether the stored knowledge helps with what the
+user asked a coding agent to do.
+
+Federation asks about every store hit of a document when the stores answer,
+before the document becomes a candidate and before the hit budget. It sends
+all requests at once. They end at the 10-second request timeout or at the
+federation deadline, whichever comes first. Hits with a probability below 0.5
+are dropped; the rest keep their order. Caller lines are not store hits: they
+are never sent to the model and never dropped.
+
+Any failure (network, HTTP status, redirect, malformed answer, timeout or
+deadline) keeps every hit of that document. A partial answer is not used. The
+filter writes nothing to stdout or stderr, because it runs inside a prompt
+hook.
+
+A document whose hits are all dropped is handled like a document with no
+hits: it goes into `attemptedEmpty`, not into `seen`, and it does not use a
+`maxEmitted` slot, so the next document with hits can be emitted instead.
+
 ## Session Markers
 
 `lat hook` runs as a fresh process per prompt, so the two marker sets would start empty every time without on-disk persistence. `src/knowledge/session.ts` is that persistence, keyed on the hook payload's session id.
@@ -288,3 +323,5 @@ Behaviour is specified in [[tests/knowledge-store]] and [[tests/knowledge-sessio
 [[tests/fork-external-stores]] and their callers lookup in
 [[tests/fork-external-callers]]. Callers in output are specified in
 [[tests/fork-federate-callers]].
+
+The decision filter is specified in [[tests/fork-federate-decision-filter]].

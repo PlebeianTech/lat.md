@@ -8,6 +8,11 @@ import {
   quoteUntrusted,
   cleanUntrustedId,
 } from '@plebeiantech/lat.md-core/untrusted';
+import {
+  parseRerankUrl,
+  requestDecision,
+  RERANK_REQUEST_TIMEOUT_MILLISECONDS,
+} from '../fork/decision-model-rerank.js';
 import { detectAgent } from '../fork/usage/agent-detect.js';
 import { readGitState } from '../fork/usage/cli-tap.js';
 import { usageEnabled } from '../fork/usage/enabled.js';
@@ -111,7 +116,85 @@ export type FederateOptions = {
   concurrency?: number;
   /** Overall wall-clock budget for the whole call, in ms. Default 5000. */
   deadlineMs?: number;
+  /**
+   * What the user asked the agent. With LAT_FEDERATION_RERANK_URL set, a
+   * decision model drops the store hits that do not help with it.
+   */
+  prompt?: string;
 };
+
+const FEDERATION_RERANK_QUESTION_MAXIMUM_CHARACTERS = 1_200;
+const FEDERATION_RERANK_INSTRUCTIONS =
+  'The question is what the user asked a coding agent to do. Does this stored knowledge help with that request?';
+
+/** The valid URL in LAT_FEDERATION_RERANK_URL, or null. Never throws. */
+function federationRerankUrl(): string | null {
+  const value = process.env.LAT_FEDERATION_RERANK_URL;
+  if (!value) return null;
+  try {
+    return parseRerankUrl(value);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The store hits that the decision model at `url` says help with `prompt`
+ * (probability 0.5 or more), in their order. All requests run in parallel,
+ * each bounded by the request timeout and the federation deadline. Any
+ * failure keeps every hit. Writes nothing to stdout or stderr.
+ */
+// @lat: [[knowledge-federation#Knowledge Federation#Decision Filter]]
+async function filterHitsByDecision(
+  hitsByStore: Map<StoreName, KnowledgeHit[]>,
+  stores: Store[],
+  prompt: string,
+  url: string,
+  deadlineAt: number,
+): Promise<Map<StoreName, KnowledgeHit[]>> {
+  const question = prompt.slice(
+    0,
+    FEDERATION_RERANK_QUESTION_MAXIMUM_CHARACTERS,
+  );
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new Error('the request timed out')),
+    Math.min(RERANK_REQUEST_TIMEOUT_MILLISECONDS, deadlineAt - Date.now()),
+  );
+  timer.unref?.();
+  const entries = [...hitsByStore];
+  try {
+    const probabilities = await Promise.all(
+      entries.map(([storeName, hits]) => {
+        const label = storeGroupLabel(
+          stores.find((s) => s.name === storeName)!,
+        );
+        return Promise.all(
+          hits.map((hit) =>
+            requestDecision(
+              url,
+              question,
+              [label, hit.title, hit.detail].join('\n'),
+              FEDERATION_RERANK_INSTRUCTIONS,
+              controller.signal,
+            ),
+          ),
+        );
+      }),
+    );
+    const kept = new Map<StoreName, KnowledgeHit[]>();
+    entries.forEach(([storeName, hits], i) => {
+      const helpful = hits.filter((_, j) => probabilities[i][j] >= 0.5);
+      if (helpful.length > 0) kept.set(storeName, helpful);
+    });
+    return kept;
+  } catch {
+    return hitsByStore;
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+  }
+}
 
 async function queryStore(
   store: Store,
@@ -251,6 +334,7 @@ export async function federateTags(
   const concurrency = Math.max(1, opts.concurrency ?? 4);
   const deadlineAt = Date.now() + (opts.deadlineMs ?? 5000);
   const recordStoreQuery = storeQueryRecorder(opts.projectRoot);
+  const rerankUrl = opts.prompt ? federationRerankUrl() : null;
 
   // A document with a hit is buffered here by its original index rather
   // than accepted immediately: under concurrency, several documents can
@@ -348,7 +432,7 @@ export async function federateTags(
         return;
       }
 
-      const hitsByStore = new Map<StoreName, KnowledgeHit[]>();
+      let hitsByStore = new Map<StoreName, KnowledgeHit[]>();
       for (let i = 0; i < stores.length; i++) {
         const result = results[i];
         const hits = result.status === 'fulfilled' ? result.value : [];
@@ -357,10 +441,23 @@ export async function federateTags(
         }
       }
 
+      // Filtering here, before the document becomes a candidate, lets a
+      // document whose hits are all dropped free its maxEmitted slot.
+      if (rerankUrl !== null && hitsByStore.size > 0) {
+        hitsByStore = await filterHitsByDecision(
+          hitsByStore,
+          stores,
+          opts.prompt!,
+          rerankUrl,
+          deadlineAt,
+        );
+      }
+
       if (hitsByStore.size === 0) {
-        // Nothing found: don't mark seen, don't count as emitted. A document
-        // that produced nothing stays unmarked so a later run — once the
-        // stores have something to say — can still surface it.
+        // Nothing found, or nothing the decision model kept: don't mark
+        // seen, don't count as emitted. A document that produced nothing
+        // stays unmarked so a later run — once the stores have something to
+        // say — can still surface it.
         attemptedEmpty.add(doc.id);
         continue;
       }
