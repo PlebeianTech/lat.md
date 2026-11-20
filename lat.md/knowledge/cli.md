@@ -648,7 +648,7 @@ The command `lat gen github-wiki-workflow` prints a GitHub Actions workflow that
 
 ## impact
 
-List which sections are affected if a section changes. Usage: `lat impact <section> [--depth <n>]`.
+List which sections are affected if a section changes. Usage: `lat impact <section> [--depth <n>] [--callers]`.
 
 Two other modes use the same address-only output. `lat impact <file>#<symbol> --specs` lists the test-spec sections that cover a code symbol through the `@lat` chain, with the same depth and output budget. `lat impact --unreferenced` lists the sections that no wikilink and no `@lat` comment point at; its output is bounded, and `--all` prints every one.
 
@@ -657,6 +657,8 @@ The command walks `wikilink` and `code-ref` edges of the [[cli#graph]] projectio
 Output is addresses, not content: each result is a section id followed by `file:line`, and nothing else. `lat section` stays the only command that loads text. The default depth is 2; sections further out are summarised in one line such as `18 more at depth 3-5`, and `--depth N` lists them. A section nothing refers to prints `No section depends on <id>.`
 
 The cost bound is the reason for the format. Measured for `cli#CLI#gen`, ids alone cost about 2 KB and ids plus leading paragraphs about 13 KB. The budget is 4,119 bytes, what `lat section` costs for `cli#search#Backend selection`. A test asserts the default output of every section stays under that figure. Results that do not fit, here and in `--specs`, are dropped and counted in one closing line such as `12 more not shown (--all lists them)`; `--all` prints every one.
+
+With `--callers`, the command also looks for dependencies that run through calls. After the normal walk it takes the code symbols the walk passed through: a symbol link as it is, and for an `@lat` comment the innermost symbol whose range, widened to the comment block above it, holds the comment. It asks [[src/knowledge/callers.ts#findCallers]] for their callers at depth 1, and [[src/knowledge/caller-sections.ts#findSectionsLinkedToSymbols]] for the sections linked to those callers. The sections not already listed, and not the target, print after the normal output under one `via callers (N):` heading, in the same address-only format, inside the same output budget, with the same `more not shown` line. With no callers provider registered the normal output is followed by the line `No callers provider is configured.` Without `--callers` the output is unchanged.
 
 Honest limits: many sections have no inbound refs and most gain nothing past one hop, so for them it returns no more than [[cli#refs]]. It helps on hub sections such as `cli#gen`, which has one direct ref and dozens of sections reachable through it, and is no faster than `lat refs` elsewhere. It takes no query language.
 
