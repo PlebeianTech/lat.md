@@ -74,6 +74,8 @@ export type FederateOptions = {
   perStoreLimit?: number;
   /** Max terms taken from one tag list. Default 2. */
   maxTerms?: number;
+  /** Max hits shown across all documents and stores. Default 9. */
+  maxTotalHits?: number;
   /** Max documents that actually EMIT a block. Default 3. */
   maxEmitted?: number;
   /** Max documents a lookup is attempted for. Default 20. */
@@ -224,6 +226,7 @@ export async function federateTags(
   const stores = opts.stores ?? (await DEFAULT_STORES());
   const perStoreLimit = opts.perStoreLimit ?? 3;
   const maxTerms = opts.maxTerms ?? 2;
+  const maxTotalHits = opts.maxTotalHits ?? 9;
   const maxEmitted = opts.maxEmitted ?? 3;
   const maxAttempts = opts.maxAttempts ?? 20;
   const seen = opts.seen ?? new Set<string>();
@@ -359,11 +362,24 @@ export async function federateTags(
   const acceptedIndices = [...candidates.keys()]
     .sort((a, b) => a - b)
     .slice(0, maxEmitted);
-  const blocks = acceptedIndices.map((index) => {
+  // The total hit cap is spent in document order, then store order within a
+  // document. A document left with no hits is dropped like a candidate beyond
+  // maxEmitted: not emitted, not marked seen.
+  let hitsLeft = maxTotalHits;
+  const blocks: string[] = [];
+  for (const index of acceptedIndices) {
     const { doc, hitsByStore } = candidates.get(index)!;
+    const keptByStore = new Map<StoreName, KnowledgeHit[]>();
+    for (const [storeName, hits] of hitsByStore) {
+      const kept = capHits(hits, perStoreLimit).slice(0, hitsLeft);
+      if (kept.length === 0) continue;
+      keptByStore.set(storeName, kept);
+      hitsLeft -= kept.length;
+    }
+    if (keptByStore.size === 0) continue;
     seen.add(doc.id);
-    return formatDocBlock(doc, hitsByStore, perStoreLimit);
-  });
+    blocks.push(formatDocBlock(doc, keptByStore, perStoreLimit));
+  }
 
   if (blocks.length === 0) return null;
 

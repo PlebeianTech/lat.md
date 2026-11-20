@@ -98,6 +98,14 @@ Two marker sets separate "already reported" from "looked and found nothing", and
 
 A document that produced hits goes into `seen` and is never queried again. A document that produced nothing goes into `attemptedEmpty` instead — it is *not* marked seen, so a later run can still surface it once a store has something to say.
 
+## Hit Budget
+
+One prompt shows at most `maxTotalHits` hits across all documents and stores (default 9). Without it, each store added to federation could add up to nine more hits per prompt.
+
+The cap is spent in the acceptance step: documents in document order, and within a document, stores in store order (built-ins first, then external stores in config order). Each store's hits are first limited to `perStoreLimit`, then cut when the cap runs out.
+
+A document left with no hits is treated like a candidate beyond `maxEmitted`: it is not emitted and not added to `seen`, so a later prompt can still surface it. Below the cap, output is unchanged.
+
 ## Session Markers
 
 `lat hook` runs as a fresh process per prompt, so the two marker sets would start empty every time without on-disk persistence. `src/knowledge/session.ts` is that persistence, keyed on the hook payload's session id.
