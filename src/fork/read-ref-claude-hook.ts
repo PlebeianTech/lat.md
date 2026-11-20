@@ -10,9 +10,9 @@ type ClaudeReadInput = {
 
 /**
  * Advice for the `@lat:` references in the lines a Claude Code Read returned,
- * or null. Read omits `offset` when it reads from the top of the file. The
- * file path is resolved through symlinks because git reports the project root
- * that way.
+ * or null. Read omits `offset`, or sends 0, when it reads from the top of the
+ * file. The file path is resolved through symlinks because git reports the
+ * project root that way.
  */
 export function claudeReadRefAdvice(input: ClaudeReadInput): string | null {
   try {
@@ -24,7 +24,7 @@ export function claudeReadRefAdvice(input: ClaudeReadInput): string | null {
     return buildReadRefAdvice({
       projectRoot,
       filePath,
-      firstLine: toolInput.offset ?? 1,
+      firstLine: toolInput.offset || 1,
       lineCount: toolInput.limit,
       sessionId: input.session_id,
     });

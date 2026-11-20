@@ -94,6 +94,24 @@ describe('Claude Code Read hook', () => {
     expect(result.stdout).toBe('');
   });
 
+  // @lat: [[fork-read-ref-hooks#Fork Read Ref Hooks#An offset of 0 reads from the first line]]
+  it('treats offset 0 as the first line', () => {
+    const project = makeProject();
+    writeFileSync(
+      join(project, 'src', 'top.ts'),
+      ['// @lat: [[cli#hook#PostToolUse]]', 'export const d = 4;'].join('\n'),
+    );
+    const result = runReadHook(
+      project,
+      readPayload(join(project, 'src', 'top.ts'), randomUUID(), { offset: 0 }),
+    );
+
+    expect(result.status).toBe(0);
+    expect(
+      JSON.parse(result.stdout).hookSpecificOutput.additionalContext,
+    ).toContain('lat section "cli#hook#PostToolUse"');
+  });
+
   // @lat: [[fork-read-ref-hooks#Fork Read Ref Hooks#A repeated Read in the same session prints nothing]]
   it('prints nothing for the same Read again in the same session', () => {
     const project = makeProject();

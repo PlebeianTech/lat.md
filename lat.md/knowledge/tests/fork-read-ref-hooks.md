@@ -15,6 +15,10 @@ A Read payload for a source file whose lines hold a `@lat:` reference prints Pos
 
 A Read whose `offset` and `limit` exclude the line with the reference prints nothing.
 
+## An offset of 0 reads from the first line
+
+A Read payload with `offset` 0 for a file whose reference is on line 1 prints advice, because Claude Code treats offset 0 as the first line.
+
 ## A repeated Read in the same session prints nothing
 
 The same Read payload sent twice with the same `session_id` prints advice only the first time.
