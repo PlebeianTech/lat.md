@@ -28,6 +28,7 @@ Shared patterns for writing and organizing tests in this project.
 - [External Sources](external-tests.md) — External-source tests verify pinned remote content is resolved reproducibly and safely across every Lat interface.
 - [Fork Coverage Preflight](fork-coverage-preflight.md): Tests for \[\[src/cli/fork-coverage-preflight.ts\]\], which surfaces ungrounded prompt file paths during UserPromptSubmit preflight execution.
 - [Fork Decision Model Rerank](fork-decision-model-rerank.md) — Tests in \[\[tests/fork-decision-model-rerank.test.ts\]\] for \[\[src/fork/decision-model-rerank.ts\]\], which reorders \`lat search\` results with a decision model. \`fetch\` is mocked, so no test reaches the network.
+- [Fork External Callers](fork-external-callers.md) — Tests in \[\[tests/knowledge/callers.test.ts\]\] for \[\[src/knowledge/callers.ts\]\], which asks a registered external store who calls a code symbol.
 - [Fork External Stores](fork-external-stores.md) — Tests in \[\[tests/knowledge/external.test.ts\]\] for \[\[src/knowledge/external.ts\]\], which runs the knowledge stores registered in the user's lat config.
 - [Fork Federate Hit Cap](fork-federate-hit-cap.md) — Tests in \[\[tests/knowledge/federate-hit-cap.test.ts\]\] for the total hit cap that \[\[src/knowledge/index.ts#federateTags\]\] applies to one prompt.
 - [Fork Federate Usage](fork-federate-usage.md) — Tests in \[\[tests/knowledge/federate-usage.test.ts\]\] for the usage events that \[\[src/knowledge/index.ts#federateTags\]\] writes per store query, and for how aggregation treats them.

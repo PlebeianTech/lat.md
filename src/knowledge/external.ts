@@ -114,40 +114,51 @@ function parseHits(
 }
 
 /**
- * Runs one store command with the query on stdin. Resolves to [] on a
- * non-zero exit, a timeout, bad output or any other error. The child is
- * killed at the smaller of its own timeout and the federation time left, so
- * an abandoned query cannot keep Node alive.
+ * Runs one store command with `request` as JSON on stdin and resolves to its
+ * stdout, or null on a non-zero exit, a timeout or any other error. The
+ * child is killed at the smaller of the store's own timeout and `remainingMs`
+ * (the federation time left), so an abandoned request cannot keep Node alive.
  */
-function runQuery(
+export function runStoreCommand(
   store: ExternalStoreConfig,
-  q: StoreQuery,
-): Promise<KnowledgeHit[]> {
-  const timeout = Math.min(store.timeoutMs, q.remainingMs ?? Infinity);
-  if (timeout <= 0) return Promise.resolve([]);
-  const request = JSON.stringify({
-    operation: 'query',
-    terms: q.terms,
-    projectRoot: q.projectRoot,
-    limit: q.limit,
-  });
+  request: object,
+  remainingMs: number = Infinity,
+): Promise<string | null> {
+  const timeout = Math.min(store.timeoutMs, remainingMs);
+  if (timeout <= 0) return Promise.resolve(null);
   return new Promise((resolve) => {
     try {
       const child = execFile(
         store.command[0],
         store.command.slice(1),
         { encoding: 'utf-8', timeout, killSignal: 'SIGKILL' },
-        (error, stdout) => {
-          resolve(error ? [] : parseHits(store.name, stdout, q.limit));
-        },
+        (error, stdout) => resolve(error ? null : stdout),
       );
       // A store that exits without reading stdin makes this write fail.
       child.stdin?.on('error', () => {});
-      child.stdin?.end(request);
+      child.stdin?.end(JSON.stringify(request));
     } catch {
-      resolve([]);
+      resolve(null);
     }
   });
+}
+
+/** Resolves to [] on any failure of the store command or its output. */
+async function runQuery(
+  store: ExternalStoreConfig,
+  q: StoreQuery,
+): Promise<KnowledgeHit[]> {
+  const stdout = await runStoreCommand(
+    store,
+    {
+      operation: 'query',
+      terms: q.terms,
+      projectRoot: q.projectRoot,
+      limit: q.limit,
+    },
+    q.remainingMs,
+  );
+  return stdout === null ? [] : parseHits(store.name, stdout, q.limit);
 }
 
 export function externalStore(config: ExternalStoreConfig): Store {

@@ -136,6 +136,34 @@ are passed as JSON data and never through a shell.
 The test suite points `XDG_CONFIG_HOME` at an empty temporary directory, so it
 never runs the stores that a developer registered.
 
+### Callers
+
+A store whose `operations` include `callers` answers who calls a code symbol.
+[[src/knowledge/callers.ts#findCallers]] uses the first such store in config
+order and reuses the config reader and process runner of
+[[src/knowledge/external.ts]]. lat writes one JSON object to stdin:
+
+```json
+{"operation":"callers","projectRoot":"/abs/path","symbols":[{"file":"src/auth.rb","name":"User#login"}],"depth":1}
+```
+
+`file` is project-relative with forward slashes. `name` is the symbol path
+that lat writes after the `#` in a source link, such as `App#listen` in
+`[[src/server.ts#App#listen]]`.
+
+The store prints a JSON array on stdout. Each object has the `symbol` that
+was asked about and its `callers`, each with a string `file`, a string `name`
+and a number `line`:
+
+```json
+[{"symbol":{"file":"src/auth.rb","name":"User#login"},"callers":[{"file":"src/app.rb","name":"App#run","line":7}]}]
+```
+
+The function returns a Map from `file#name` to that symbol's callers. With no
+store that supports `callers`, a non-zero exit, a timeout or output that is
+not JSON, the Map is empty. It skips a wrongly shaped entry or caller, and
+drops any caller whose file is absolute or contains `..`.
+
 ## Term Selection
 
 Turns a document's authored `tags:` into the search terms handed to each store. Implementation: [[src/knowledge/ranking.ts#tagsToTerms]]. The default budget is two terms.
@@ -232,4 +260,5 @@ unjoinable event, on top of the hook event that really injected the text.
 ## Test Specs
 
 Behaviour is specified in [[tests/knowledge-store]] and [[tests/knowledge-session]], with the federation entry point covered by the federate specs in [[tests/tests]]. Usage events are specified in [[tests/fork-federate-usage]]. External stores are specified in
-[[tests/fork-external-stores]].
+[[tests/fork-external-stores]] and their callers lookup in
+[[tests/fork-external-callers]].
