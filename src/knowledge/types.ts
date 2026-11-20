@@ -8,7 +8,10 @@
 // never a message on stderr. `lat hook` must not fail a user's prompt because
 // a lookup that was never guaranteed to find anything found nothing.
 
-export type StoreName = 'cq' | 'bd' | 'claude-memory';
+export type BuiltInStoreName = 'cq' | 'bd' | 'claude-memory';
+
+/** A built-in name, or the name of an external store from the user config. */
+export type StoreName = BuiltInStoreName | (string & {});
 
 /** One result from one store. Text is RAW here — the caller quotes it. */
 export type KnowledgeHit = {
@@ -41,6 +44,8 @@ export type StoreQuery = {
   projectRoot: string;
   /** Most hits this store may return for this one query. */
   limit: number;
+  /** Milliseconds left before federation abandons this query, if bounded. */
+  remainingMs?: number;
 };
 
 /**
@@ -49,6 +54,8 @@ export type StoreQuery = {
  */
 export type Store = {
   name: StoreName;
+  /** Group label for an external store, from the user config. */
+  label?: string;
   query(q: StoreQuery): Promise<KnowledgeHit[]>;
 };
 

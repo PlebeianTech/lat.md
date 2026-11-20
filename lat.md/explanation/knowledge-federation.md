@@ -64,6 +64,78 @@ A file with no frontmatter block therefore has no `name` and no `description`, a
 
 The cap trims back to the last complete UTF-8 sequence rather than cutting mid-character, so a file that crosses 64 KB never ends in U+FFFD.
 
+## External stores
+
+A user can add a store without a new module in lat: they register a command
+under `knowledge_stores` in their own lat config. Implementation:
+[[src/knowledge/external.ts]]. [[src/knowledge/index.ts#DEFAULT_STORES]]
+appends one store per entry whose `operations` include `query`, after the
+built-ins and in config order.
+
+### Config format
+
+The config is the user-level `config.json` from `lat paths --config`. Each
+entry in the `knowledge_stores` array has these fields:
+
+- `name`: letters, digits and hyphens. An entry named `cq`, `bd` or
+  `claude-memory`, or named like an earlier entry, is skipped.
+- `label`: the group label in federation output, followed by a colon. It is
+  cleaned like any other untrusted id.
+- `command`: an array of strings, the executable and then its arguments.
+- `operations`: optional, default `["query"]`.
+- `timeout_ms`: optional, default 2000.
+
+```json
+{
+  "knowledge_stores": [
+    {
+      "name": "my-store",
+      "label": "My store",
+      "command": ["/usr/local/bin/my-store-adapter", "--json"],
+      "timeout_ms": 1500
+    }
+  ]
+}
+```
+
+[[src/knowledge/external.ts#readExternalStoreConfigs]] reads the file
+itself and returns an empty list on any problem. It does not call
+`readConfig`, which exits the process on a parse error: this code runs inside
+a prompt hook. A malformed entry is skipped and the others stay.
+
+### Request and response
+
+lat runs `command[0]` with the other strings as arguments, through
+`execFile` with no shell. It writes one JSON object to stdin:
+
+```json
+{"operation":"query","terms":["alpha"],"projectRoot":"/abs/path","limit":3}
+```
+
+The store prints a JSON array on stdout. Each object has a string `key`,
+`title` and `detail` and a number `score`, with the same meaning as in
+[[knowledge-federation#Store Contract#Hit shape]]. lat drops any object with
+the wrong shape and keeps at most `limit` hits.
+
+A non-zero exit, a timeout, output that is not a JSON array, or any other
+error gives no hits from that store. The other stores are not affected.
+
+lat kills the child at the smaller of `timeout_ms` and the time left before
+the federation deadline. Without that, a child that federation had abandoned
+would keep the hook process alive until its own timeout.
+
+### Only the user config can register a store
+
+lat reads stores only from the user's config, never from a file in the
+repository. A command that a repository declared would run arbitrary code.
+
+Repository content is attacker-controlled, as the cq term filter above
+explains. The terms on stdin also come from repository frontmatter, so they
+are passed as JSON data and never through a shell.
+
+The test suite points `XDG_CONFIG_HOME` at an empty temporary directory, so it
+never runs the stores that a developer registered.
+
 ## Term Selection
 
 Turns a document's authored `tags:` into the search terms handed to each store. Implementation: [[src/knowledge/ranking.ts#tagsToTerms]]. The default budget is two terms.
@@ -124,7 +196,7 @@ Failing any of this must never fail the prompt and must never suppress a lookup.
 
 ## Output Format
 
-Results are grouped by document, then by store, under a single header. Store groups are labelled `cq:`, `bd memories:`, and `Claude Code memory:`.
+Results are grouped by document, then by store, under a single header. Store groups are labelled `cq:`, `bd memories:`, and `Claude Code memory:`. An external store's group uses its configured label.
 
 The [[untrusted-content#Notice]] appears exactly once, at the top of the whole result — never once per document. Everything below it is store content and is quoted accordingly.
 
@@ -159,4 +231,5 @@ unjoinable event, on top of the hook event that really injected the text.
 
 ## Test Specs
 
-Behaviour is specified in [[tests/knowledge-store]] and [[tests/knowledge-session]], with the federation entry point covered by the federate specs in [[tests/tests]]. Usage events are specified in [[tests/fork-federate-usage]].
+Behaviour is specified in [[tests/knowledge-store]] and [[tests/knowledge-session]], with the federation entry point covered by the federate specs in [[tests/tests]]. Usage events are specified in [[tests/fork-federate-usage]]. External stores are specified in
+[[tests/fork-external-stores]].

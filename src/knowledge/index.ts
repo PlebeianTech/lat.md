@@ -13,16 +13,23 @@ import { readGitState } from '../fork/usage/cli-tap.js';
 import { usageEnabled } from '../fork/usage/enabled.js';
 import { USAGE_SCHEMA_VERSION, type UsageEvent } from '../fork/usage/schema.js';
 import { writeUsageEvent } from '../fork/usage/writer.js';
+import { externalStores } from './external.js';
 import { tagsToTerms, capHits } from './ranking.js';
-import type { Store, StoreName, KnowledgeHit, TaggedDoc } from './types.js';
+import type {
+  BuiltInStoreName,
+  Store,
+  StoreName,
+  KnowledgeHit,
+  TaggedDoc,
+} from './types.js';
 
-const STORE_GROUP_LABELS: Record<StoreName, string> = {
+const STORE_GROUP_LABELS: Record<BuiltInStoreName, string> = {
   cq: 'cq:',
   bd: 'bd memories:',
   'claude-memory': 'Claude Code memory:',
 };
 
-function storeExportName(name: StoreName): string {
+function storeExportName(name: BuiltInStoreName): string {
   switch (name) {
     case 'cq':
       return 'cqStore';
@@ -42,10 +49,13 @@ function storeExportName(name: StoreName): string {
  * Each import is wrapped individually so one missing/broken store module
  * leaves the other two available, per the "every store is optional" contract
  * in types.ts.
+ *
+ * External stores registered in the user config follow the built-ins, in
+ * config order (see external.ts).
  */
 export async function DEFAULT_STORES(): Promise<Store[]> {
   const stores: Store[] = [];
-  const specs: Array<{ path: string; name: StoreName }> = [
+  const specs: Array<{ path: string; name: BuiltInStoreName }> = [
     { path: './cq.js', name: 'cq' },
     { path: './bd.js', name: 'bd' },
     { path: './claude-memory.js', name: 'claude-memory' },
@@ -63,6 +73,7 @@ export async function DEFAULT_STORES(): Promise<Store[]> {
       // Absent module, missing binary, etc. — treated as "store not present".
     }
   }
+  stores.push(...externalStores());
   return stores;
 }
 
@@ -105,9 +116,10 @@ async function queryStore(
   terms: string[],
   projectRoot: string,
   limit: number,
+  remainingMs: number,
 ): Promise<KnowledgeHit[]> {
   try {
-    return await store.query({ terms, projectRoot, limit });
+    return await store.query({ terms, projectRoot, limit, remainingMs });
   } catch {
     // A store must never throw per its contract, but a caller-injected fake
     // in tests might — treat a rejection the same as an empty result so one
@@ -179,6 +191,7 @@ function timedStoreQuery(
   terms: string[],
   projectRoot: string,
   limit: number,
+  remainingMs: number,
   record: StoreQueryRecorder | null,
 ): { hits: Promise<KnowledgeHit[]>; abandon: () => void } {
   const start = Date.now();
@@ -192,10 +205,12 @@ function timedStoreQuery(
       // Usage tracking must never change what federation returns.
     }
   };
-  const hits = queryStore(store, terms, projectRoot, limit).then((found) => {
-    recordOnce(found);
-    return found;
-  });
+  const hits = queryStore(store, terms, projectRoot, limit, remainingMs).then(
+    (found) => {
+      recordOnce(found);
+      return found;
+    },
+  );
   return { hits, abandon: () => recordOnce(null) };
 }
 
@@ -306,6 +321,7 @@ export async function federateTags(
       // open with no bound at all. Racing the queries against the remaining
       // budget is what makes the deadline hard rather than advisory: an
       // overrunning store is abandoned, never awaited.
+      const remainingMs = deadlineAt - Date.now();
       const queries = stores.map((store) =>
         timedStoreQuery(
           store,
@@ -313,6 +329,7 @@ export async function federateTags(
           terms,
           opts.projectRoot,
           perStoreLimit,
+          remainingMs,
           recordStoreQuery,
         ),
       );
@@ -378,7 +395,7 @@ export async function federateTags(
     }
     if (keptByStore.size === 0) continue;
     seen.add(doc.id);
-    blocks.push(formatDocBlock(doc, keptByStore, perStoreLimit));
+    blocks.push(formatDocBlock(doc, keptByStore, perStoreLimit, stores));
   }
 
   if (blocks.length === 0) return null;
@@ -397,6 +414,7 @@ function formatDocBlock(
   doc: TaggedDoc,
   hitsByStore: Map<StoreName, KnowledgeHit[]>,
   perStoreLimit: number,
+  stores: Store[],
 ): string {
   // The heading lists the document's WHOLE authored tag list, even though
   // only the first two (maxTerms) drove the search — that keeps the heading
@@ -422,11 +440,20 @@ function formatDocBlock(
       hitLines.push(`- ${title} -> ${detail}`);
     }
     if (hitLines.length === 0) continue;
-    lines.push(STORE_GROUP_LABELS[storeName]);
+    lines.push(storeGroupLabel(stores.find((s) => s.name === storeName)!));
     lines.push(...hitLines);
   }
 
   return lines.join('\n');
+}
+
+/**
+ * A built-in store keeps its fixed label. An external store's label comes
+ * from the user config and is cleaned like any other untrusted id.
+ */
+function storeGroupLabel(store: Store): string {
+  if (store.label !== undefined) return `${cleanUntrustedId(store.label)}:`;
+  return STORE_GROUP_LABELS[store.name as BuiltInStoreName];
 }
 
 /**
