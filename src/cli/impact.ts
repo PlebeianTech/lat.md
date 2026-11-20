@@ -609,7 +609,9 @@ export async function impactCommand(
   const hasCallersProvider = readExternalStoreConfigs().some((config) =>
     config.operations.includes('callers'),
   );
-  const viaCallers = await findViaCallerSections(index, ctx.projectRoot, query);
+  const viaCallers = hasCallersProvider
+    ? await findViaCallerSections(index, ctx.projectRoot, query)
+    : [];
   const report = reportImpact(index, query, {
     depth,
     all: opts.all === true,
