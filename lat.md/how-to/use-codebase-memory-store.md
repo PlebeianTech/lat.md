@@ -1,8 +1,10 @@
 # Use codebase-memory-mcp as a knowledge store
 
 Register the codebase-memory-mcp (CBM) code graph as an external store, so
-federation shows the code symbols that match a document's tags. The protocol
-is in [[knowledge-federation#External stores]]. The adapter is
+federation shows the code symbols that match a document's tags and lat can
+look up who calls a code symbol. The protocol is in
+[[knowledge-federation#External stores]] and
+[[knowledge-federation#External stores#Callers]]. The adapter is
 [[src/fork/adapters/codebase-memory-store.ts]]; its tests are in
 [[fork-codebase-memory-store]].
 
@@ -36,6 +38,7 @@ is in [[knowledge-federation#External stores]]. The adapter is
          "name": "codebase-memory",
          "label": "Code graph",
          "command": ["node", "/abs/path/to/dist/src/fork/adapters/codebase-memory-store.js"],
+         "operations": ["query", "callers"],
          "timeout_ms": 3000
        }
      ]
@@ -52,6 +55,15 @@ is in [[knowledge-federation#External stores]]. The adapter is
    It prints a JSON array of `{key,title,detail,score}`. `key` and `title`
    are the CBM qualified name, `detail` is `file:line`, and `score` is the
    number of terms that matched the symbol.
+
+   Ask for callers the same way:
+
+   ```sh
+   echo '{"operation":"callers","projectRoot":"/abs/path/to/project","symbols":[{"file":"src/knowledge/index.ts","name":"federateTags"}],"depth":1}' \
+     | node /abs/path/to/dist/src/fork/adapters/codebase-memory-store.js
+   ```
+
+   It prints `[{"symbol":{...},"callers":[{"file","name","line"}]}]`.
 
 ## What the adapter runs
 
@@ -78,6 +90,53 @@ The qualified name is `qn_prefix`, a dot, then `name`. `lines` is
 does not use. A project that is not indexed makes CBM print an error and
 exit 1, and an invalid regex also exits 1. Any failure makes the adapter
 print `[]` and exit 0.
+
+## How callers are found
+
+For one `callers` request the adapter runs `cli list_projects` once. Then,
+for each symbol, it runs three CBM calls, each with `--format json`:
+
+- `search_graph --project NAME --name-pattern ^NAME$ --file-pattern FILE`
+  finds the symbol. The name is the part after the last `#` of the lat name.
+  The adapter keeps only rows whose file is exactly `FILE` and whose name
+  equals the name in the same case: CBM matches the pattern without regard
+  to case and `--file-pattern` also matches any file that contains `FILE`.
+  A symbol with no such row is left out of the answer.
+- `trace_path --project NAME --function-name QN --direction inbound --depth
+  N` lists the callers. `QN` is the qualified name from the first call.
+- `search_graph --project NAME --qn-pattern ^(QN1|QN2)$ --limit COUNT` finds
+  the file and line of all callers at once.
+
+What running the real CLI (CBM 0.12.1) showed:
+
+- **Flags.** `trace_path` takes `--function-name`, `--project`, `--direction`
+  (`inbound`, `outbound` or `both`, default `both`), `--depth` (default 3),
+  `--limit` (default 100), `--include-tests` (default `false`) and `--mode`
+  (default `calls`). The adapter sets only direction and depth.
+- **Output.** `trace_path --format json` prints `{"function","direction",
+  "callers_total","callers":{"cols":["name","hop"],"groups":[{"qn_prefix",
+  "rows":[["handleUserPromptSubmit",1]]}]}}`. It gives no file and no line,
+  and the qualified name is `qn_prefix`, a dot, then the name. This is why
+  the third call is needed.
+- **Depth.** `--depth N` returns the callers of every hop up to N in one
+  list, nearest first, with the hop in each row. `--depth 0` returns none.
+  `--depth 20` is accepted although the README says 15.
+- **Tests.** Callers in test files are left out unless `--include-tests
+  true`. The adapter does not pass it, so a function that only tests call
+  has no callers.
+- **Same name.** `--function-name greet` with several matches prints
+  `{"status":"ambiguous","suggestions":[...]}` and no `callers`. A qualified
+  name is exact, so the adapter always passes one. In a Ruby file with a
+  top-level `greet` and `Greeter#greet`, the qualified names differ by the
+  class: `PROJECT.src.greeter.greet` and `PROJECT.src.greeter.Greeter.greet`.
+  A lat name `Greeter#greet` matches the row whose `qn_prefix` ends in
+  `.Greeter`. A bare name matches the row with the shortest `qn_prefix`.
+- **Errors.** A function that is not found, or a project that is not
+  indexed, makes CBM print `{"error":...}` and exit 1. A function without
+  callers exits 0 with `"groups":[]`.
+- **Caller names.** A caller that is a `Method` is named `Class#method`, with
+  the class taken from the last part of its `qn_prefix`. Any other caller is
+  named by its bare name.
 
 ## Measured cost
 
@@ -108,6 +167,13 @@ time, under that 5 s deadline. With the daemon, a wave of four runs takes
 about 1.5 s, so about three waves (12 documents) fit before the deadline and
 the rest are not tried. Without the daemon, almost no run finishes.
 
+A `callers` request makes one `list_projects` call, then up to three calls
+for each symbol that CBM finds and one for each that it does not. Measured
+against the same project: with `daemon start` running, one symbol took 1.8 s,
+and three symbols (two found, one unknown) took 3.5 s. With no daemon, one
+symbol and `--depth 2` took 6.3 s. Set a `timeout_ms` that fits the number of
+symbols you look up: with the daemon, about 1 s plus 1 s for each symbol.
+
 ## Federation check
 
 Federation printed the adapter's hits when the store was registered in a
@@ -127,6 +193,32 @@ Code graph:
 `lat paths --config` honours `XDG_CONFIG_HOME` on macOS, so the real config is
 untouched.
 
+## Callers check
+
+`findCallers` returned real callers when the store was registered in a
+temporary config.
+
+Done by hand with `XDG_CONFIG_HOME` set to a temporary directory that holds
+`lat/config.json` with the entry from step 6, `"operations": ["query",
+"callers"]`, `timeout_ms` 8000 and the daemon running. The project was the
+main lat.md checkout. `findCallers` with `depth` 2 for `federateTags` in
+`src/knowledge/index.ts` and for `noSuchFunction` took 2.3 s. It returned
+callers for the first symbol only:
+
+```
+src/knowledge/index.ts#federateTags:
+  src/cli/hook.ts:153 handleUserPromptSubmit
+  src/fork/antigravity-hook.ts:196 handleAntigravityPreInvocation
+  src/cli/hook.ts:618 hookCmd
+  src/fork/antigravity-hook.ts:545 handleAntigravityHook
+```
+
+The first two are direct callers and the last two call those. `Sum#add` in
+`src/fork/usage/aggregate-types.ts` returned its two callers,
+`computeTotals` and `estimateSavings`. `CheckRunContext#allSections` returned
+no callers although `search_graph` shows 19 incoming edges for it: `trace_path`
+follows call edges only.
+
 ## Limits
 
 The adapter has these limits.
@@ -134,6 +226,16 @@ The adapter has these limits.
 - CBM emits no call edge when it cannot type a receiver. Dynamic Ruby code
   has many such calls, so a Ruby project yields fewer results than a typed
   language does.
-- The adapter answers `query` only.
+- The adapter answers `query` and `callers`. For `callers`, CBM follows call
+  edges that it can resolve statically. It misses dynamic dispatch such as
+  Ruby's `send` and `method_missing`, and calls through a receiver it cannot
+  type. A symbol with no callers and a symbol whose callers CBM missed look
+  the same: `"callers":[]`.
+- Callers in test files are not returned.
+- A method that is a caller is named `Class#method` from its qualified name.
+  A language whose qualified names do not hold the class, such as Go, gets a
+  wrong prefix.
+- A bare lat name matches a method of that name when the file has no
+  top-level symbol of that name.
 - A search matches names, not file text, so a tag with spaces matches
   nothing.
