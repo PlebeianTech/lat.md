@@ -26,6 +26,7 @@ Shared patterns for writing and organizing tests in this project.
 - [Diátaxis Mode Check](mode.md) — Tests for \`checkMode\`'s exemption of imperative sentences that appear inside code samples rather than ordinary prose, for \`lat check mode\` \(see \[\[cli#check\]\]\).
 - [Expand](expand.md) — Tests for the \`lat expand\` command that resolves \`\[\[refs\]\]\` and appends context blocks.
 - [External Sources](external-tests.md) — External-source tests verify pinned remote content is resolved reproducibly and safely across every Lat interface.
+- [Fork Caller Sections](fork-caller-sections.md) — Tests in \[\[tests/knowledge/caller-sections.test.ts\]\] for \[\[src/knowledge/caller-sections.ts#findSectionsLinkedToSymbols\]\], which finds the sections linked to code symbols.
 - [Fork Codebase Memory Store](fork-codebase-memory-store.md) — Tests in \[\[tests/fork-codebase-memory-store.test.ts\]\] for \[\[src/fork/adapters/codebase-memory-store.ts\]\], the external store adapter for codebase-memory-mcp, run against a fake binary on \`PATH\`.
 - [Fork Coverage Preflight](fork-coverage-preflight.md): Tests for \[\[src/cli/fork-coverage-preflight.ts\]\], which surfaces ungrounded prompt file paths during UserPromptSubmit preflight execution.
 - [Fork Decision Model Rerank](fork-decision-model-rerank.md) — Tests in \[\[tests/fork-decision-model-rerank.test.ts\]\] for \[\[src/fork/decision-model-rerank.ts\]\], which reorders \`lat search\` results with a decision model. \`fetch\` is mocked, so no test reaches the network.

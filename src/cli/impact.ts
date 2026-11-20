@@ -345,7 +345,7 @@ async function firstLineOfSymbolBlock(
 }
 
 // The symbol's line range, widened to the comment block directly above it.
-async function symbolRange(
+export async function symbolRange(
   projectRoot: string,
   file: string,
   symbolParts: string[],
