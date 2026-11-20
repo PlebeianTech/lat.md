@@ -12,4 +12,5 @@ Recipes for tasks that recur, written for someone who already knows what they wa
 - [Merging upstream](merge-upstream.md) — Merging is cheap when the fork's own rules have been kept. Most of the procedure is moving the sync point and re-deriving the allowlist from it.
 - [Publishing documentation to GitHub Wiki](publish-github-wiki.md) — Export Diátaxis documentation from \`lat.md/\` and publish it to the repository's GitHub Wiki tab using \[\[cli#CLI#wiki\]\].
 - [Releasing the fork](release-the-fork.md) — Cutting a release and installing the result. The reasoning behind each rule is in \[\[fork-publishing#Publishing\]\].
+- [Use codebase-memory-mcp as a knowledge store](use-codebase-memory-store.md) — Register the codebase-memory-mcp code graph as an external knowledge store, with the measured cost and the timeout to set.
 <!-- lat:index:end -->
