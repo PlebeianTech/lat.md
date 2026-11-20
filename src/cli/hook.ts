@@ -436,6 +436,7 @@ export type StopStatus = {
   codeLines: number;
   latMdLines: number;
   impactedSections?: string[];
+  callerSections?: string[];
 };
 
 export async function getStopStatus(latDir: string): Promise<StopStatus> {
@@ -492,10 +493,12 @@ export async function getStopStatus(latDir: string): Promise<StopStatus> {
   }
 
   let impactedSections: string[] | undefined;
+  let callerSections: string[] | undefined;
   if (needsSync) {
     try {
       const review = await findUnreviewedSectionsForDiff(projectRoot, run);
       impactedSections = review.unreviewedSections;
+      callerSections = review.callerSections;
       if (review.linkedSectionCount > 0 && impactedSections.length === 0) {
         needsSync = false;
       }
@@ -507,6 +510,7 @@ export async function getStopStatus(latDir: string): Promise<StopStatus> {
   if (needsSync && isRepeatedSyncReminder(projectRoot)) {
     needsSync = false;
     impactedSections = undefined;
+    callerSections = undefined;
   }
 
   return {
@@ -516,6 +520,7 @@ export async function getStopStatus(latDir: string): Promise<StopStatus> {
     codeLines,
     latMdLines,
     impactedSections,
+    callerSections,
   };
 }
 
@@ -526,6 +531,7 @@ export function formatStopReason({
   codeLines,
   latMdLines,
   impactedSections,
+  callerSections,
 }: StopStatus): string | null {
   if (!checkFailed && !needsSync) return null;
 
@@ -565,11 +571,22 @@ export function formatStopReason({
     );
   }
 
-  if (needsSync && impactedSections && impactedSections.length > 0) {
+  const hasImpactedSections = !!impactedSections && impactedSections.length > 0;
+  if (needsSync && hasImpactedSections) {
     const formattedSections = impactedSections
       .map((id) => `[[${id}]]`)
       .join(', ');
     parts.push('', `Sections linked to modified code: ${formattedSections}`);
+  }
+
+  if (needsSync && callerSections && callerSections.length > 0) {
+    const formattedSections = callerSections
+      .map((id) => `[[${id}]]`)
+      .join(', ');
+    parts.push(
+      ...(hasImpactedSections ? [] : ['']),
+      `Sections linked to callers of modified code: ${formattedSections}`,
+    );
   }
 
   return parts.join('\n');

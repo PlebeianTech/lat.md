@@ -1,5 +1,6 @@
 import { execSync } from 'node:child_process';
-import { extname } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { extname, join } from 'node:path';
 import type { CheckRunContext } from '@plebeiantech/lat.md-core/cli/check-context';
 import type { MarkdownProjectAnalysis } from '@plebeiantech/lat.md-core/project-analysis';
 import type { Section } from '@plebeiantech/lat.md-core/lattice-model';
@@ -8,6 +9,9 @@ import { resolveRef } from '@plebeiantech/lat.md-core/lattice';
 import { isSourceFileExtension } from '@plebeiantech/lat.md-core/source-formats';
 import { toPosix } from '@plebeiantech/lat.md-core/path';
 import { cleanUntrustedId } from '@plebeiantech/lat.md-core/untrusted';
+import { parseSourceSymbols } from '@plebeiantech/lat.md-core/source-parser';
+import { findCallers, type CodeSymbol } from '../knowledge/callers.js';
+import { findSectionsLinkedToSymbols } from '../knowledge/caller-sections.js';
 import { stopDiffBase } from '../fork/stop-diff-base.js';
 
 export type DiffLineRange = {
@@ -176,7 +180,16 @@ export async function findImpactedSectionsForDiff(
 export type SectionReviewStatus = {
   linkedSectionCount: number;
   unreviewedSections: string[];
+  /**
+   * Unreviewed sections linked to callers of the changed symbols. They never
+   * count toward `linkedSectionCount` or `unreviewedSections`.
+   */
+  callerSections: string[];
 };
+
+function noSectionsLinked(): SectionReviewStatus {
+  return { linkedSectionCount: 0, unreviewedSections: [], callerSections: [] };
+}
 
 /**
  * Like findImpactedSectionsForDiff, but drops the linked sections whose own
@@ -189,13 +202,9 @@ export async function findUnreviewedSectionsForDiff(
 ): Promise<SectionReviewStatus> {
   try {
     const diffOutput = readWorkingTreeDiff(projectRoot);
-    if (diffOutput === null) {
-      return { linkedSectionCount: 0, unreviewedSections: [] };
-    }
+    if (diffOutput === null) return noSectionsLinked();
     const codeRanges = parseUnifiedZeroDiff(diffOutput);
-    if (codeRanges.length === 0) {
-      return { linkedSectionCount: 0, unreviewedSections: [] };
-    }
+    if (codeRanges.length === 0) return noSectionsLinked();
 
     const [project, codeRefs] = await Promise.all([
       run.project(),
@@ -207,17 +216,74 @@ export async function findUnreviewedSectionsForDiff(
       (path) => extname(path) === '.md',
     );
     const untrackedFiles = listUntrackedFiles(projectRoot);
-    const unreviewedIds = [...linkedIds].filter((id) => {
+    const isUnreviewed = (id: string): boolean => {
       const section = project.sectionById.get(id.toLowerCase());
       return !section || !isSectionEdited(section, docRanges, untrackedFiles);
-    });
+    };
+    const unreviewedIds = [...linkedIds].filter(isUnreviewed);
+
+    let callerSections: string[] = [];
+    if (unreviewedIds.length > 0 || linkedIds.size === 0) {
+      const changedSymbols = await findChangedSymbols(projectRoot, codeRanges);
+      const callerSectionIds = await findCallerSectionIds(
+        projectRoot,
+        changedSymbols,
+      );
+      callerSections = toListedSectionIds(
+        callerSectionIds.filter((id) => !linkedIds.has(id) && isUnreviewed(id)),
+        5,
+      );
+    }
     return {
       linkedSectionCount: linkedIds.size,
       unreviewedSections: toListedSectionIds(unreviewedIds),
+      callerSections,
     };
   } catch {
-    return { linkedSectionCount: 0, unreviewedSections: [] };
+    return noSectionsLinked();
   }
+}
+
+/** The symbols whose line ranges overlap a changed range of their file. */
+async function findChangedSymbols(
+  projectRoot: string,
+  ranges: DiffLineRange[],
+): Promise<CodeSymbol[]> {
+  const changedSymbols: CodeSymbol[] = [];
+  for (const file of new Set(ranges.map((range) => range.file))) {
+    try {
+      const content = await readFile(join(projectRoot, file), 'utf-8');
+      for (const symbol of await parseSourceSymbols(file, content)) {
+        const isChanged = ranges.some(
+          (range) =>
+            range.file === file &&
+            range.startLine <= symbol.endLine &&
+            range.endLine >= symbol.startLine,
+        );
+        if (isChanged) {
+          const name = symbol.parent
+            ? `${symbol.parent}#${symbol.name}`
+            : symbol.name;
+          changedSymbols.push({ file, name });
+        }
+      }
+    } catch {
+      // An unreadable or unparseable file has no changed symbols.
+    }
+  }
+  return changedSymbols;
+}
+
+/** The sections linked to the direct callers of the symbols. */
+async function findCallerSectionIds(
+  projectRoot: string,
+  symbols: CodeSymbol[],
+): Promise<string[]> {
+  if (symbols.length === 0) return [];
+  const callersBySymbol = await findCallers(projectRoot, symbols, { depth: 1 });
+  const callers = [...callersBySymbol.values()].flat();
+  if (callers.length === 0) return [];
+  return findSectionsLinkedToSymbols(projectRoot, callers);
 }
 
 function isSectionEdited(
@@ -324,9 +390,9 @@ function collectLinkedSectionIds(
   return impactedSet;
 }
 
-function toListedSectionIds(ids: Iterable<string>): string[] {
+function toListedSectionIds(ids: Iterable<string>, limit = 10): string[] {
   const sanitized = Array.from(ids).map((id) => cleanUntrustedId(id));
   const unique = Array.from(new Set(sanitized));
   unique.sort((a, b) => a.localeCompare(b));
-  return unique.slice(0, 10);
+  return unique.slice(0, limit);
 }
