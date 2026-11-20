@@ -73,7 +73,7 @@ This is the one rule in the block that no check enforces, which is exactly why i
 
 A block written by `writeForkInstructions` carries a subsection under "Read sections, not files" that tells the agent to run `lat section "TARGET"`, or the `lat_section` MCP tool, before editing code beside an `@lat:` comment.
 
-Antigravity cannot inject hook advice after a read, so this text is the only route by which its agents learn the rule. A silent edit that dropped it would break no other test.
+Antigravity's hook documentation gives PostToolUse no output field that reaches the agent, so this text is the only route by which its agents learn the rule. A silent edit that dropped it would break no other test.
 
 ## A real init lands the block and the scaffold together
 
