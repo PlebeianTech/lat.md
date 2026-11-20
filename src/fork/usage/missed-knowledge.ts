@@ -664,7 +664,7 @@ function measureSession(
   };
   for (const item of plan.itemsBySession.get(info.id) ?? []) {
     const usage = item.usage;
-    if (!usage) continue;
+    if (!usage || usage.command.startsWith('federate:')) continue;
     if (usage.section_id) addRead(usage.section_id, item.ts);
     const command = usage.command.split(' ')[0];
     if (command === 'expand')

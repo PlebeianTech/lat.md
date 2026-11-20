@@ -402,7 +402,7 @@ export function computeTotals(items: Item[], sequence: Sequence): Totals {
       continue;
     }
     const usage = item.usage;
-    if (!usage) continue;
+    if (!usage || usage.command.startsWith('federate:')) continue;
     if (usage.caller === 'hook-injected') {
       injectedEvents++;
       injectedBytes.add(usage.injected_bytes);

@@ -1,11 +1,18 @@
+import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { packageVersion } from '@plebeiantech/lat.md-core/cli';
 import { parseFrontmatter } from '@plebeiantech/lat.md-core/lattice';
 import {
   UNTRUSTED_NOTICE,
   quoteUntrusted,
   cleanUntrustedId,
 } from '@plebeiantech/lat.md-core/untrusted';
+import { detectAgent } from '../fork/usage/agent-detect.js';
+import { readGitState } from '../fork/usage/cli-tap.js';
+import { usageEnabled } from '../fork/usage/enabled.js';
+import { USAGE_SCHEMA_VERSION, type UsageEvent } from '../fork/usage/schema.js';
+import { writeUsageEvent } from '../fork/usage/writer.js';
 import { tagsToTerms, capHits } from './ranking.js';
 import type { Store, StoreName, KnowledgeHit, TaggedDoc } from './types.js';
 
@@ -107,6 +114,89 @@ async function queryStore(
   }
 }
 
+/** Records one store query; `hits` is null when the deadline abandoned it. */
+type StoreQueryRecorder = (
+  store: StoreName,
+  doc: TaggedDoc,
+  terms: string[],
+  start: number,
+  hits: KnowledgeHit[] | null,
+) => void;
+
+// @lat: [[knowledge-federation#Knowledge Federation#Usage Events]]
+function storeQueryRecorder(root: string): StoreQueryRecorder | null {
+  if (!usageEnabled(root)) return null;
+  const { agent } = detectAgent();
+  const { head, worktree } = readGitState(root);
+  const latVersion = packageVersion(import.meta.url);
+  return (store, doc, terms, start, hits) => {
+    const unknown_reasons: UsageEvent['unknown_reasons'] = {
+      session_id: 'not_captured',
+      parent_session_id: 'not_captured',
+    };
+    if (agent.value === null) unknown_reasons.agent = agent.reason;
+    if (head === null) unknown_reasons.git_head = 'not_captured';
+    if (worktree === null) unknown_reasons.worktree = 'not_captured';
+    writeUsageEvent(root, {
+      schema_version: USAGE_SCHEMA_VERSION,
+      event_id: randomUUID(),
+      ts: new Date(start).toISOString(),
+      duration_ms: Date.now() - start,
+      command: `federate:${store}`,
+      surface: 'hook',
+      caller: 'hook-injected',
+      agent: agent.value,
+      lat_version: latVersion,
+      session_id: null,
+      parent_session_id: null,
+      repo_root: root,
+      git_head: head,
+      worktree,
+      query: terms.join(' '),
+      result_ids: [],
+      result_count: hits?.length ?? 0,
+      section_id: doc.id,
+      injected_bytes: null,
+      found: (hits?.length ?? 0) > 0,
+      bytes_out: null,
+      exit_code: 0,
+      error_class: hits === null ? 'deadline' : null,
+      unknown_reasons,
+    });
+  };
+}
+
+/**
+ * Queries one store and records it once: when it settles, or when
+ * `abandon` runs first at the deadline. A failed record never reaches
+ * federation.
+ */
+function timedStoreQuery(
+  store: Store,
+  doc: TaggedDoc,
+  terms: string[],
+  projectRoot: string,
+  limit: number,
+  record: StoreQueryRecorder | null,
+): { hits: Promise<KnowledgeHit[]>; abandon: () => void } {
+  const start = Date.now();
+  let recorded = false;
+  const recordOnce = (hits: KnowledgeHit[] | null) => {
+    if (recorded || record === null) return;
+    recorded = true;
+    try {
+      record(store.name, doc, terms, start, hits);
+    } catch {
+      // Usage tracking must never change what federation returns.
+    }
+  };
+  const hits = queryStore(store, terms, projectRoot, limit).then((found) => {
+    recordOnce(found);
+    return found;
+  });
+  return { hits, abandon: () => recordOnce(null) };
+}
+
 /**
  * Resolve `promise`, or `null` if `ms` elapses first.
  *
@@ -140,6 +230,7 @@ export async function federateTags(
   const attemptedEmpty = opts.attemptedEmpty ?? new Set<string>();
   const concurrency = Math.max(1, opts.concurrency ?? 4);
   const deadlineAt = Date.now() + (opts.deadlineMs ?? 5000);
+  const recordStoreQuery = storeQueryRecorder(opts.projectRoot);
 
   // A document with a hit is buffered here by its original index rather
   // than accepted immediately: under concurrency, several documents can
@@ -212,19 +303,28 @@ export async function federateTags(
       // open with no bound at all. Racing the queries against the remaining
       // budget is what makes the deadline hard rather than advisory: an
       // overrunning store is abandoned, never awaited.
-      const results = await raceDeadline(
-        Promise.allSettled(
-          stores.map((store) =>
-            queryStore(store, terms, opts.projectRoot, perStoreLimit),
-          ),
+      const queries = stores.map((store) =>
+        timedStoreQuery(
+          store,
+          doc,
+          terms,
+          opts.projectRoot,
+          perStoreLimit,
+          recordStoreQuery,
         ),
+      );
+      const results = await raceDeadline(
+        Promise.allSettled(queries.map((query) => query.hits)),
         deadlineAt - Date.now(),
       );
 
       // Deadline expired mid-query. Return what has been gathered. The
       // document is deliberately NOT marked attemptedEmpty: it was never
       // answered, so a later call must be free to try it again.
-      if (results === null) return;
+      if (results === null) {
+        for (const query of queries) query.abandon();
+        return;
+      }
 
       const hitsByStore = new Map<StoreName, KnowledgeHit[]>();
       for (let i = 0; i < stores.length; i++) {

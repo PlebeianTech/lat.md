@@ -86,7 +86,7 @@ export function estimateSavings(items: Item[], root: string): SavingsEstimate {
   let reads = 0;
   for (const item of items) {
     const usage = item.usage;
-    if (!usage) continue;
+    if (!usage || usage.command.startsWith('federate:')) continue;
     if (usage.caller === 'hook-injected') {
       injected.add(usage.injected_bytes);
       if (usage.injected_bytes === null) {
