@@ -217,7 +217,7 @@ function buildPlan(context: AggregateContext): Plan {
       add(item.session_id, item);
       continue;
     }
-    if (!item.usage) continue;
+    if (!item.usage || item.usage.command.startsWith('federate:')) continue;
     const joined = joinByWindow(item, sessions);
     if (joined) add(joined, item);
     else if (item.usage.caller !== 'human') unjoinable.add(item.id);
@@ -664,7 +664,7 @@ function measureSession(
   };
   for (const item of plan.itemsBySession.get(info.id) ?? []) {
     const usage = item.usage;
-    if (!usage || usage.command.startsWith('federate:')) continue;
+    if (!usage) continue;
     if (usage.section_id) addRead(usage.section_id, item.ts);
     const command = usage.command.split(' ')[0];
     if (command === 'expand')

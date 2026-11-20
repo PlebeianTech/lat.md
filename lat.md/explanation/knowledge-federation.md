@@ -145,9 +145,9 @@ Writing an event never throws out of federation and never changes its
 output. With tracking off, nothing is written.
 
 Aggregation skips `federate:` events when it counts injections, savings
-and missed-knowledge reads. Otherwise each store query would count as an
-injection with uncaptured bytes, and as a read of the document, on top of
-the hook event that really injected the text.
+and missed knowledge. Otherwise each store query would count as an
+injection with uncaptured bytes, as a read of the document, and as an
+unjoinable event, on top of the hook event that really injected the text.
 
 ## Test Specs
 

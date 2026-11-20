@@ -284,7 +284,7 @@ describe('federation events in aggregation', () => {
   });
 
   // @lat: [[fork-federate-usage#Fork Federate Usage#Federation events are not reads]]
-  it('does not count a federation event in a session window as a read', async () => {
+  it('does not count a federation event as a read or as unjoinable', async () => {
     write('src/a.ts', 'export const a = 1;\n');
     write('lat.md/notes.md', '# Notes\n\n## Alpha\n\nAlpha text.\n');
     git('init', '-q');
@@ -331,6 +331,7 @@ describe('federation events in aggregation', () => {
           git_head: head,
         }),
         federateEvent('cq', { git_head: head }),
+        federateEvent('bd', { git_head: head, ts: '2026-11-08T12:00:00.000Z' }),
       ],
       sessions,
     );
@@ -341,5 +342,6 @@ describe('federation events in aggregation', () => {
       (entry) => entry.session_id === 'A' && entry.section_id === DOC.id,
     );
     expect(record?.outcome).toBe('never-consulted');
+    expect(missed.unjoinable_events).toBe(0);
   });
 });

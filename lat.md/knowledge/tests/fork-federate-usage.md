@@ -43,3 +43,5 @@ events.
 
 A `federate:` event inside a session's time window is not a read of its
 `section_id`, so missed knowledge reports the section as never consulted.
+A `federate:` event outside every session window does not count as
+unjoinable.

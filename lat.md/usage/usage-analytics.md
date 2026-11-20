@@ -34,7 +34,7 @@ These are the usage event fields. Units are in each entry. A type of `X | null` 
 - `duration_ms` (number): milliseconds from command start to command exit.
 - `command` (string): the command name, such as `search`. A hook run records `hook` and its event, such as `hook UserPromptSubmit`.
 - `surface` (`cli`, `mcp` or `hook`): where the call came from. A `hook` command gets `hook`. Every MCP tool call gets `mcp`.
-- `caller` (`agent`, `human` or `hook-injected`): who ran it. `hook-injected` is a hook run. `agent` means lat detected an agent. Otherwise it is `human`.
+- `caller` (`agent`, `human` or `hook-injected`): who ran it. `hook-injected` is a hook run, or one store query inside federation (command `federate:<store>`, see [[knowledge-federation#Knowledge Federation#Usage Events]]). `agent` means lat detected an agent. Otherwise it is `human`.
 - `agent` (string or null): the agent name, such as `claude` or `codex`. Lat reads it from the agent's environment variables. Null has a reason.
 - `lat_version` (string): the lat version that wrote the event. It is `unknown` if lat cannot read it.
 - `session_id` (string or null): the agent session that ran the command. Null has a reason. Claude Code sets the same `CLAUDE_CODE_SESSION_ID` in a subagent's commands as in its parent's, and nothing else in the environment tells them apart (`CLAUDE_CODE_CHILD_SESSION` is set on every process Claude Code spawns). So a lat command run by a Claude subagent is recorded under the parent session. Attribution makes up for this: when the parent session has no open claim, the event takes the claim of its one subagent that has an open claim at that time.
