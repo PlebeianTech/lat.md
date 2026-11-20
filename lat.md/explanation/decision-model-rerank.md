@@ -40,7 +40,7 @@ Lat sends one `POST` per candidate with `Content-Type: application/json`, one af
 
 The heading path joins the section's headings with ` > `, for example `Architecture > Authentication`. The section text is the section's own body below its heading, cut at [[src/fork/decision-model-rerank.ts#RERANK_SECTION_TEXT_MAXIMUM_CHARACTERS]].
 
-The answer reads `{"answers": {"relevant": {"noul": 0.88}}}`. The number is the probability of "yes", from 0 to 1. [[src/fork/decision-model-rerank.ts#askDecisionModel]] reads only that field.
+The answer reads `{"answers": {"relevant": {"noul": 0.88}}}`. The number is the probability of "yes", from 0 to 1. [[src/fork/decision-model-rerank.ts#requestDecision]] reads only that field.
 
 ## When the decision model fails
 
