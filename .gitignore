@@ -19,3 +19,4 @@ tests/cases/**/.cache/
 /packages/core/pnpm-lock.yaml
 /.cache/
 .superpowers
+docs/superpowers/
