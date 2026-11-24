@@ -11,14 +11,16 @@ import type { CodeSymbol } from './callers.js';
  * A section is linked when a `@lat:` comment sits inside the symbol's line
  * range or in the comment block directly above it, or when a lat.md/ wiki
  * link targets the symbol. A symbol name is written as lat writes it after
- * `#`, for example `Class#method`.
+ * `#`, for example `Class#method`. Pass `run` to reuse a project analysis
+ * the caller already holds.
  */
 export async function findSectionsLinkedToSymbols(
   projectRoot: string,
   symbols: CodeSymbol[],
+  run?: CheckRunContext,
 ): Promise<string[]> {
   try {
-    const run = new CheckRunContext(join(projectRoot, 'lat.md'), projectRoot);
+    run ??= new CheckRunContext(join(projectRoot, 'lat.md'), projectRoot);
     const [project, codeRefs] = await Promise.all([
       run.project(),
       run.codeRefs(),

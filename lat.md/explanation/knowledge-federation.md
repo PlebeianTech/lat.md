@@ -278,7 +278,8 @@ callers but no store hits is not shown. With no store that supports
 [[src/knowledge/linked-symbols.ts#linkedSymbols]] reads the document's wiki
 links and keeps those whose target is a source file path with a `#` symbol,
 such as `[[src/auth.ts#validateToken]]`. It does not parse source files. It
-takes at most 10 symbols per document, in link order.
+takes at most 10 symbols per document, in link order. A symbol linked more
+than once counts once.
 
 Federation calls [[src/knowledge/callers.ts#findCallers]] once per call, at
 depth 1, for the symbols of all emitted documents, inside the federation
@@ -286,7 +287,8 @@ deadline. A lookup that fails or outlasts the deadline gives no group and
 leaves the store groups unchanged.
 
 Each document lists at most 3 callers as `NAME (FILE:LINE)`, quoted like hit
-text. Caller lines count against `maxTotalHits`, but they spend only what the
+text. A caller of several of the document's symbols is listed once. Caller
+lines count against `maxTotalHits`, but they spend only what the
 store hits leave of it, so the cap cuts caller lines first. When store hits use
 the whole cap, the callers store is not run.
 

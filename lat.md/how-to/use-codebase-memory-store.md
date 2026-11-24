@@ -93,8 +93,15 @@ print `[]` and exit 0.
 
 ## How callers are found
 
-For one `callers` request the adapter runs `cli list_projects` once. Then,
-for each symbol, it runs three CBM calls, each with `--format json`:
+For one `callers` request the adapter runs `cli list_projects` once, then
+three CBM calls in turn for each symbol.
+
+It answers only the first four symbols of a request
+([[src/fork/adapters/codebase-memory-store.ts#MAX_SYMBOLS_PER_REQUEST]]) and
+ignores the rest. lat sends symbols in the order it finds them, such as the
+order of links in a document, so earlier symbols win. The adapter looks up
+the four at once and answers in request order. A CBM call that fails drops
+only its own symbol. The three calls, each with `--format json`, are:
 
 - `search_graph --project NAME --name-pattern ^NAME$ --file-pattern FILE`
   finds the symbol. The name is the part after the last `#` of the lat name.
@@ -168,11 +175,12 @@ about 1.5 s, so about three waves (12 documents) fit before the deadline and
 the rest are not tried. Without the daemon, almost no run finishes.
 
 A `callers` request makes one `list_projects` call, then up to three calls
-for each symbol that CBM finds and one for each that it does not. Measured
-against the same project: with `daemon start` running, one symbol took 1.8 s,
-and three symbols (two found, one unknown) took 3.5 s. With no daemon, one
-symbol and `--depth 2` took 6.3 s. Set a `timeout_ms` that fits the number of
-symbols you look up: with the daemon, about 1 s plus 1 s for each symbol.
+for each symbol that CBM finds and one for each that it does not. The four
+answered symbols run at once, so four symbols take about as long as one.
+Measured against the main lat.md checkout with `daemon start` running: one,
+three (two found, one unknown) and four symbols each took 1.8 to 1.9 s. With
+no daemon, one symbol took 7.4 s and three symbols took 8.5 s. With the
+daemon, a `callers` request fits in `timeout_ms: 3000`.
 
 ## Federation check
 
@@ -232,6 +240,7 @@ The adapter has these limits.
   type. A symbol with no callers and a symbol whose callers CBM missed look
   the same: `"callers":[]`.
 - Callers in test files are not returned.
+- A `callers` request answers only its first four symbols.
 - A method that is a caller is named `Class#method` from its qualified name.
   A language whose qualified names do not hold the class, such as Go, gets a
   wrong prefix.

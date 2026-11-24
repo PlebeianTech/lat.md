@@ -9,7 +9,7 @@ Tests in [[tests/fork-stop-impact-callers.test.ts]] for the caller sections that
 
 ## Caller section is listed after the direct list
 
-When the provider reports `foo` as a caller of the changed `bar`, [[src/cli/fork-stop-impact.ts#findUnreviewedSectionsForDiff]] returns the section linked to `foo` as `callerSections`, and [[src/cli/hook.ts#formatStopReason]] prints it in a `Sections linked to callers of modified code:` line.
+When the provider reports `foo` as a caller of the changed `bar`, the caller lookup of [[src/cli/fork-stop-impact.ts#findUnreviewedSectionsForDiff]] gives the section linked to `foo`, [[src/cli/hook.ts#getStopStatus]] reports it as `callerSections`, and [[src/cli/hook.ts#formatStopReason]] prints it in a `Sections linked to callers of modified code:` line.
 
 ## Only changed symbols are sent to the provider
 
@@ -25,7 +25,11 @@ When the provider exits with an error, `callerSections` is empty and the Stop re
 
 ## Reviewed direct sections skip the lookup and keep the reminder cleared
 
-When every direct linked section is reviewed, the provider is never run, `callerSections` is empty, and [[src/cli/hook.ts#getStopStatus]] still clears `needsSync`.
+When every direct linked section is reviewed, the provider is never run, the caller lookup gives an empty list, and [[src/cli/hook.ts#getStopStatus]] still clears `needsSync` and reports no `callerSections`.
+
+## A repeated reminder skips the lookup
+
+A second [[src/cli/hook.ts#getStopStatus]] for the same code changes is a repeated reminder: it reports `needsSync` false and no `callerSections`, and the provider is not run again.
 
 ## Caller sections never repeat an unreviewed direct section
 

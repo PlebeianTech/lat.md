@@ -515,12 +515,15 @@ describe('fork stop impact reviewed sections', () => {
     return repo;
   }
 
-  function reviewStatus(repo: string) {
+  /** The review status, with its caller sections looked up. */
+  async function reviewStatus(repo: string) {
     const latDir = join(repo, 'lat.md');
-    return findUnreviewedSectionsForDiff(
-      repo,
-      new CheckRunContext(latDir, repo),
-    );
+    const { findCallerSections, ...status } =
+      await findUnreviewedSectionsForDiff(
+        repo,
+        new CheckRunContext(latDir, repo),
+      );
+    return { ...status, callerSections: await findCallerSections() };
   }
 
   // @lat: [[fork-stop-impact#Fork Stop Impact#Untouched linked section is not reviewed]]

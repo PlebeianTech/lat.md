@@ -77,6 +77,16 @@ answer, as is one that matches only by case or only in another file. The
 other symbols still return. A symbol that is found and has no callers returns
 an empty `callers` list.
 
+## A failing symbol is omitted
+
+A symbol whose `trace_path` call fails is left out of the answer, and the
+other symbols still return. One failing CBM call costs only its own symbol.
+
+## Only the first four symbols are answered
+
+A request for five symbols answers the first four, in request order, and
+makes no CBM call for the fifth.
+
 ## A missing binary gives no callers
 
 With no `codebase-memory-mcp` on `PATH`, a `callers` request prints `[]` and
@@ -84,9 +94,12 @@ exits 0.
 
 ## Unreadable output gives no callers
 
-When `list_projects`, `search_graph` or `trace_path` prints output that is not
-the expected JSON, a `callers` request prints `[]` and exits 0. A `trace_path`
-reply for an ambiguous name, which has no `callers`, counts as unreadable.
+Unreadable `list_projects` output makes a `callers` request print `[]` and
+exit 0. Unreadable `search_graph` or `trace_path` output drops its symbol, so
+a request for that symbol alone prints `[]`.
+
+A `trace_path` reply for an ambiguous name, which has no `callers`, counts as
+unreadable.
 
 ## An unindexed project gives no callers
 

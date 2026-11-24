@@ -2,7 +2,7 @@
 // with a JSON request on stdin and reads a JSON array of hits (operation
 // 'query') or of callers (operation 'callers') from stdout. Any failure
 // prints [] and exits 0: a store is optional, and this runs on the prompt
-// path.
+// path. A callers lookup that fails for one symbol drops only that symbol.
 import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -18,13 +18,15 @@ type QueryRequest = {
   limit: number;
 };
 type CodeSymbol = { qualifiedName: string; detail: string };
+type LatSymbol = { file: string; name: string };
 type CallersRequest = {
   operation: string;
   projectRoot: string;
-  symbols: Array<{ file: string; name: string }>;
+  symbols: LatSymbol[];
   depth: number;
 };
 type Caller = { file: string; name: string; line: number };
+type CallersAnswer = { symbol: LatSymbol; callers: Caller[] };
 
 /** Runs one CBM tool and returns its parsed JSON output. */
 async function runCbm(tool: string, flags: string[]): Promise<any> {
@@ -200,23 +202,44 @@ async function locateCallers(
   });
 }
 
-async function callers(request: CallersRequest) {
-  const project = await findProjectName(request.projectRoot);
-  const answers = [];
-  for (const symbol of request.symbols) {
+/**
+ * The callers of one symbol, or undefined when CBM has no node for it or a
+ * CBM call fails, so one bad symbol does not cost the others their answers.
+ */
+async function symbolCallers(
+  project: string,
+  symbol: LatSymbol,
+  depth: number,
+): Promise<CallersAnswer | undefined> {
+  try {
     const qualifiedName = await findQualifiedName(project, symbol);
-    if (qualifiedName === undefined) continue;
-    const callerNames = await traceCallerNames(
-      project,
-      qualifiedName,
-      request.depth,
-    );
-    answers.push({
-      symbol,
-      callers: await locateCallers(project, callerNames),
-    });
+    if (qualifiedName === undefined) return undefined;
+    const callerNames = await traceCallerNames(project, qualifiedName, depth);
+    return { symbol, callers: await locateCallers(project, callerNames) };
+  } catch {
+    return undefined;
   }
-  return answers;
+}
+
+/**
+ * How many symbols one request answers. lat stops the adapter at its
+ * timeout and reads nothing, so a request answers only what one concurrent
+ * wave of lookups finishes in time.
+ */
+const MAX_SYMBOLS_PER_REQUEST = 4;
+
+/**
+ * The callers of the first MAX_SYMBOLS_PER_REQUEST symbols, looked up
+ * concurrently and returned in request order. Later symbols are ignored.
+ */
+async function callers(request: CallersRequest): Promise<CallersAnswer[]> {
+  const project = await findProjectName(request.projectRoot);
+  const answers = await Promise.all(
+    request.symbols
+      .slice(0, MAX_SYMBOLS_PER_REQUEST)
+      .map((symbol) => symbolCallers(project, symbol, request.depth)),
+  );
+  return answers.filter((answer) => answer !== undefined);
 }
 
 async function main(): Promise<void> {

@@ -11,8 +11,9 @@ export const MAX_SYMBOLS_PER_DOC = 10;
 
 /**
  * The source-code symbol links of the project-relative markdown file
- * `docId`, in link order, at most MAX_SYMBOLS_PER_DOC. Returns [] when the
- * file cannot be read.
+ * `docId`, in link order, at most MAX_SYMBOLS_PER_DOC. A symbol linked more
+ * than once counts once, at its first link. Returns [] when the file cannot
+ * be read.
  */
 export async function linkedSymbols(
   projectRoot: string,
@@ -29,14 +30,14 @@ export async function linkedSymbols(
   } catch {
     return [];
   }
-  const symbols: CodeSymbol[] = [];
+  const symbolsByTarget = new Map<string, CodeSymbol>();
   for (const { target } of refs) {
     const hash = target.indexOf('#');
-    if (hash === -1) continue;
+    if (hash === -1 || symbolsByTarget.has(target)) continue;
     const file = target.slice(0, hash);
     const name = target.slice(hash + 1);
     if (name === '' || !isSourceFilePath(file)) continue;
-    symbols.push({ file, name });
+    symbolsByTarget.set(target, { file, name });
   }
-  return symbols.slice(0, MAX_SYMBOLS_PER_DOC);
+  return [...symbolsByTarget.values()].slice(0, MAX_SYMBOLS_PER_DOC);
 }

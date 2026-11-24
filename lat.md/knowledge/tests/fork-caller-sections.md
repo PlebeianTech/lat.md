@@ -30,3 +30,7 @@ Missing files, missing symbols and a missing project give an empty list without 
 ## Sections of several symbols are deduplicated
 
 A section tied to more than one of the given symbols is listed once.
+
+## A given run context is reused
+
+Given a `CheckRunContext`, the lookup uses the code refs that context already scanned instead of scanning again, so the Stop hook does not analyse the project twice. Without one it scans the project afresh.

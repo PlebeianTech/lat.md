@@ -26,6 +26,16 @@ sent. A source link with a nested symbol such as `Klass#method` is.
 
 A document that links twelve symbols sends the first ten, in link order.
 
+## A symbol linked twice is sent once
+
+A document that links `[[src/a.ts#foo]]` twice sends `foo` once, so the
+repeat does not spend one of its ten symbol slots.
+
+## A shared caller is shown once
+
+When two symbols of a document have the same caller, the caller line appears
+once and spends one caller slot.
+
 ## A document shows at most three callers
 
 When the provider returns five callers for a symbol, three are shown.

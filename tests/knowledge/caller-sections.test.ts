@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { CheckRunContext } from '@plebeiantech/lat.md-core/cli/check-context';
 import { rmDirBestEffort } from '../util.js';
 import { findSectionsLinkedToSymbols } from '../../src/knowledge/caller-sections.js';
 
@@ -104,6 +105,27 @@ describe('findSectionsLinkedToSymbols', () => {
         { file: 'src/a.ts', name: 'foo' },
       ]),
     ).toEqual([]);
+  });
+
+  // @lat: [[tests/fork-caller-sections#A given run context is reused]]
+  it('reads code refs from the run context it is given', async () => {
+    const root = makeProject({
+      'lat.md/spec.md': SPEC,
+      'src/a.ts': '// @lat: [[spec#Alpha]]\nexport function foo() {}\n',
+    });
+    const run = new CheckRunContext(join(root, 'lat.md'), root);
+    await run.codeRefs();
+    writeFileSync(
+      join(root, 'src/a.ts'),
+      '// @lat: [[spec#Beta]]\nexport function foo() {}\n',
+    );
+    const symbols = [{ file: 'src/a.ts', name: 'foo' }];
+    expect(await findSectionsLinkedToSymbols(root, symbols, run)).toEqual([
+      'lat.md/spec#Spec#Alpha',
+    ]);
+    expect(await findSectionsLinkedToSymbols(root, symbols)).toEqual([
+      'lat.md/spec#Spec#Beta',
+    ]);
   });
 
   // @lat: [[tests/fork-caller-sections#Sections of several symbols are deduplicated]]

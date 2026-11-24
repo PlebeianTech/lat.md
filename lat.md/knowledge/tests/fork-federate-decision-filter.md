@@ -27,6 +27,12 @@ ask about what the user asked a coding agent to do.
 When the server answers HTTP 500, the output is the same as without the
 filter, and nothing is written to stdout or stderr.
 
+## Nothing is sent after the deadline
+
+When the federation deadline passes while the stores answer, the server gets
+no request, the output is the same as without the filter, and no warning is
+emitted.
+
 ## Nothing is sent without a prompt and a valid URL
 
 Without the variable, without a prompt, or with an `ftp:` URL in the

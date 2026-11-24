@@ -494,12 +494,12 @@ export async function getStopStatus(latDir: string): Promise<StopStatus> {
   }
 
   let impactedSections: string[] | undefined;
-  let callerSections: string[] | undefined;
+  let findCallerSections: (() => Promise<string[]>) | undefined;
   if (needsSync) {
     try {
       const review = await findUnreviewedSectionsForDiff(projectRoot, run);
       impactedSections = review.unreviewedSections;
-      callerSections = review.callerSections;
+      findCallerSections = review.findCallerSections;
       if (review.linkedSectionCount > 0 && impactedSections.length === 0) {
         needsSync = false;
       }
@@ -511,8 +511,8 @@ export async function getStopStatus(latDir: string): Promise<StopStatus> {
   if (needsSync && isRepeatedSyncReminder(projectRoot)) {
     needsSync = false;
     impactedSections = undefined;
-    callerSections = undefined;
   }
+  const callerSections = needsSync ? await findCallerSections?.() : undefined;
 
   return {
     checkFailed,

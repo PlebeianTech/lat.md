@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -158,11 +159,13 @@ const fooCallsBar = [
   },
 ];
 
-function reviewStatus(repo: string) {
-  return findUnreviewedSectionsForDiff(
+/** The review status, with its caller sections looked up. */
+async function reviewStatus(repo: string) {
+  const { findCallerSections, ...status } = await findUnreviewedSectionsForDiff(
     repo,
     new CheckRunContext(join(repo, 'lat.md'), repo),
   );
+  return { ...status, callerSections: await findCallerSections() };
 }
 
 async function stopReason(repo: string): Promise<string | null> {
@@ -261,7 +264,22 @@ describe('fork stop impact caller sections', () => {
     rewriteParagraph(freshRepo, 'Direct');
     const status = await getStopStatus(join(freshRepo, 'lat.md'));
     expect(status.needsSync).toBe(false);
-    expect(status.callerSections).toEqual([]);
+    expect(status.callerSections).toBeUndefined();
+  });
+
+  // @lat: [[fork-stop-impact-callers#Fork Stop Impact Callers#A repeated reminder skips the lookup]]
+  it('does not run the lookup when the reminder is a repeat', async () => {
+    const stdinFile = registerProvider(fooCallsBar);
+    const repo = makeRepo({ sectionNames: ['Callers'], fooLinks: ['Callers'] });
+
+    const first = await getStopStatus(join(repo, 'lat.md'));
+    expect(first.callerSections).toEqual(['lat.md/doc#Doc#Callers']);
+    rmSync(stdinFile);
+
+    const repeat = await getStopStatus(join(repo, 'lat.md'));
+    expect(repeat.needsSync).toBe(false);
+    expect(repeat.callerSections).toBeUndefined();
+    expect(existsSync(stdinFile)).toBe(false);
   });
 
   // @lat: [[fork-stop-impact-callers#Fork Stop Impact Callers#Caller sections never repeat an unreviewed direct section]]

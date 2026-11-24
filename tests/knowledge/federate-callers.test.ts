@@ -147,6 +147,37 @@ describe('federateTags callers group', () => {
     );
   });
 
+  // @lat: [[fork-federate-callers#A symbol linked twice is sent once]]
+  it('sends a symbol linked twice once, keeping the ten-symbol slots', async () => {
+    const names = Array.from({ length: 10 }, (_, i) => `fn${i}`);
+    const { root, docs } = projectWithDoc(
+      ['fn0', ...names].map((name) => `[[src/a.ts#${name}]]`).join(' '),
+    );
+    const { stdinFile } = registerProvider([]);
+    await federateTags(docs, { projectRoot: root, stores: [storeWithHits(1)] });
+    expect(sentSymbols(stdinFile).map((s) => s.name)).toEqual(names);
+  });
+
+  // @lat: [[fork-federate-callers#A shared caller is shown once]]
+  it('shows a caller shared by two symbols once', async () => {
+    const { root, docs } = projectWithDoc('[[src/a.ts#foo]] [[src/a.ts#bar]]');
+    registerProvider([
+      ...answer('foo', [caller('main', 5)]),
+      ...answer('bar', [caller('main', 5), caller('run', 7)]),
+    ]);
+    const output = await federateTags(docs, {
+      projectRoot: root,
+      stores: [storeWithHits(1)],
+    });
+    const callerLines = output!
+      .split('\n')
+      .filter((l) => l.startsWith('- ') && l.includes('src/app.ts'));
+    expect(callerLines).toEqual([
+      '- "main (src/app.ts:5)"',
+      '- "run (src/app.ts:7)"',
+    ]);
+  });
+
   // @lat: [[fork-federate-callers#A document shows at most three callers]]
   it('shows three callers when the provider returns five', async () => {
     const { root, docs } = projectWithDoc('[[src/a.ts#foo]]');

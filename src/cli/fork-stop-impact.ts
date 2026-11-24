@@ -181,14 +181,22 @@ export type SectionReviewStatus = {
   linkedSectionCount: number;
   unreviewedSections: string[];
   /**
-   * Unreviewed sections linked to callers of the changed symbols. They never
-   * count toward `linkedSectionCount` or `unreviewedSections`.
+   * Looks up the unreviewed sections linked to callers of the changed
+   * symbols. They never count toward `linkedSectionCount` or
+   * `unreviewedSections`. It runs the external callers lookup, so call it
+   * only for a reminder that will be shown. Never throws.
    */
-  callerSections: string[];
+  findCallerSections: () => Promise<string[]>;
 };
 
+const noCallerSections = async (): Promise<string[]> => [];
+
 function noSectionsLinked(): SectionReviewStatus {
-  return { linkedSectionCount: 0, unreviewedSections: [], callerSections: [] };
+  return {
+    linkedSectionCount: 0,
+    unreviewedSections: [],
+    findCallerSections: noCallerSections,
+  };
 }
 
 /**
@@ -222,22 +230,32 @@ export async function findUnreviewedSectionsForDiff(
     };
     const unreviewedIds = [...linkedIds].filter(isUnreviewed);
 
-    let callerSections: string[] = [];
-    if (unreviewedIds.length > 0 || linkedIds.size === 0) {
-      const changedSymbols = await findChangedSymbols(projectRoot, codeRanges);
-      const callerSectionIds = await findCallerSectionIds(
-        projectRoot,
-        changedSymbols,
-      );
-      callerSections = toListedSectionIds(
-        callerSectionIds.filter((id) => !linkedIds.has(id) && isUnreviewed(id)),
-        5,
-      );
-    }
+    const findCallerSections = async (): Promise<string[]> => {
+      if (unreviewedIds.length === 0 && linkedIds.size > 0) return [];
+      try {
+        const changedSymbols = await findChangedSymbols(
+          projectRoot,
+          codeRanges,
+        );
+        const callerSectionIds = await findCallerSectionIds(
+          projectRoot,
+          changedSymbols,
+          run,
+        );
+        return toListedSectionIds(
+          callerSectionIds.filter(
+            (id) => !linkedIds.has(id) && isUnreviewed(id),
+          ),
+          5,
+        );
+      } catch {
+        return [];
+      }
+    };
     return {
       linkedSectionCount: linkedIds.size,
       unreviewedSections: toListedSectionIds(unreviewedIds),
-      callerSections,
+      findCallerSections,
     };
   } catch {
     return noSectionsLinked();
@@ -278,12 +296,13 @@ async function findChangedSymbols(
 async function findCallerSectionIds(
   projectRoot: string,
   symbols: CodeSymbol[],
+  run: CheckRunContext,
 ): Promise<string[]> {
   if (symbols.length === 0) return [];
   const callersBySymbol = await findCallers(projectRoot, symbols, { depth: 1 });
   const callers = [...callersBySymbol.values()].flat();
   if (callers.length === 0) return [];
-  return findSectionsLinkedToSymbols(projectRoot, callers);
+  return findSectionsLinkedToSymbols(projectRoot, callers, run);
 }
 
 function isSectionEdited(

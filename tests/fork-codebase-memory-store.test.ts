@@ -459,6 +459,54 @@ describe('codebase-memory-mcp store adapter callers', () => {
     expect(JSON.parse(stdout)).toEqual([{ symbol: loginSymbol, callers: [] }]);
   });
 
+  // @lat: [[fork-codebase-memory-store#A failing symbol is omitted]]
+  it('omits a symbol whose trace_path fails and answers the rest', () => {
+    const brokenSymbol = { file: 'src/auth.ts', name: 'logout' };
+    const brokenNode = { ...loginNode, name: 'logout', lines: '11-14' };
+    const { stdout, status } = runAdapter(
+      callersRequest([brokenSymbol, loginSymbol]),
+      {
+        searches: {
+          '^logout$': searchOutput([brokenNode]),
+          '^login$': searchOutput([loginNode]),
+        },
+        traces: {
+          [loginQualifiedName]: traceOutput([
+            { qnPrefix: 'my-project.src.app', name: 'run' },
+          ]),
+        },
+        nodes: [runNode],
+      },
+    );
+    expect(status).toBe(0);
+    expect(JSON.parse(stdout)).toEqual([
+      {
+        symbol: loginSymbol,
+        callers: [{ file: 'src/app.ts', name: 'run', line: 7 }],
+      },
+    ]);
+  });
+
+  // @lat: [[fork-codebase-memory-store#Only the first four symbols are answered]]
+  it('answers only the first four symbols of a request, in order', () => {
+    const names = ['one', 'two', 'three', 'four', 'five'];
+    const searches: Record<string, string> = {};
+    const traces: Record<string, string> = {};
+    for (const name of names) {
+      searches[`^${name}$`] = searchOutput([{ ...loginNode, name }]);
+      traces[`my-project.src.auth.${name}`] = traceOutput([]);
+    }
+    const symbols = names.map((name) => ({ file: 'src/auth.ts', name }));
+    const { stdout, argvCalls } = runAdapter(callersRequest(symbols), {
+      searches,
+      traces,
+    });
+    expect(JSON.parse(stdout)).toEqual(
+      symbols.slice(0, 4).map((symbol) => ({ symbol, callers: [] })),
+    );
+    expect(argvCalls.some((argv) => argv.includes('^five$'))).toBe(false);
+  });
+
   // @lat: [[fork-codebase-memory-store#A missing binary gives no callers]]
   it('prints [] and exits 0 when the binary is not on PATH', () => {
     const { stdout, status } = runAdapter(callersRequest([loginSymbol]), {

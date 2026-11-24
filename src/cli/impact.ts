@@ -499,8 +499,9 @@ function parseDepth(raw: string | undefined): number | null {
   return /^[1-9]\d*$/.test(raw) ? Number(raw) : null;
 }
 
-// The code symbols the walk passed through: a symbol node as it is, and the
-// innermost symbol whose range holds an `@lat` comment node's line.
+// The code symbols the walk passed through: for each `@lat` comment node, the
+// innermost symbol whose range holds the comment's line. The walk only adds
+// referrers, and a symbol node is never one, so comment nodes are all it sees.
 async function collectWalkedSymbols(
   projectRoot: string,
   seen: Set<string>,
@@ -508,13 +509,8 @@ async function collectWalkedSymbols(
   const symbols = new Map<string, CodeSymbol>();
   for (const node of seen) {
     if (!node.startsWith(CODE_NODE_PREFIX)) continue;
-    const address = node.slice(CODE_NODE_PREFIX.length);
-    const comment = /^(.+):(\d+)$/.exec(address);
-    if (comment === null) {
-      const [file, ...nameParts] = address.split('#');
-      symbols.set(address, { file, name: nameParts.join('#') });
-      continue;
-    }
+    const comment = /^(.+):(\d+)$/.exec(node.slice(CODE_NODE_PREFIX.length));
+    if (comment === null) continue;
     const symbol = await enclosingSymbol(
       projectRoot,
       comment[1],

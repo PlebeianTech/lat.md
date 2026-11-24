@@ -153,6 +153,37 @@ describe('federateTags decision filter', () => {
     for (const write of writes) expect(write).not.toHaveBeenCalled();
   });
 
+  // @lat: [[fork-federate-decision-filter#Nothing is sent after the deadline]]
+  it('sends nothing and keeps every hit once the deadline has passed', async () => {
+    const titles = ['first', 'noise'];
+    const unfiltered = await federateTags([doc], {
+      projectRoot,
+      stores: [storeWithTitles({ alpha: titles })],
+    });
+    const { url, requests } = await decisionServer(dropNoise);
+    vi.stubEnv('LAT_FEDERATION_RERANK_URL', url);
+    const realNow = Date.now;
+    let skewMs = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => realNow() + skewMs);
+    const emitWarning = vi.spyOn(process, 'emitWarning');
+    const lateStore: Store = {
+      name: 'bd',
+      async query(request) {
+        const hits = await storeWithTitles({ alpha: titles }).query(request);
+        skewMs = 10_000;
+        return hits;
+      },
+    };
+    const output = await federateTags([doc], {
+      projectRoot,
+      stores: [lateStore],
+      prompt,
+    });
+    expect(requests).toHaveLength(0);
+    expect(output).toBe(unfiltered);
+    expect(emitWarning).not.toHaveBeenCalled();
+  });
+
   // @lat: [[fork-federate-decision-filter#Nothing is sent without a prompt and a valid URL]]
   it('sends nothing without the variable, a prompt, or a valid URL', async () => {
     const stores = [storeWithTitles({ alpha: ['first', 'noise'] })];

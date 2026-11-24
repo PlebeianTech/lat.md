@@ -18,7 +18,7 @@ import { readGitState } from '../fork/usage/cli-tap.js';
 import { usageEnabled } from '../fork/usage/enabled.js';
 import { USAGE_SCHEMA_VERSION, type UsageEvent } from '../fork/usage/schema.js';
 import { writeUsageEvent } from '../fork/usage/writer.js';
-import { findCallers, type CodeSymbol } from './callers.js';
+import { findCallers, type Caller, type CodeSymbol } from './callers.js';
 import { externalStores, readExternalStoreConfigs } from './external.js';
 import { linkedSymbols } from './linked-symbols.js';
 import { tagsToTerms, capHits } from './ranking.js';
@@ -142,7 +142,8 @@ function federationRerankUrl(): string | null {
  * The store hits that the decision model at `url` says help with `prompt`
  * (probability 0.5 or more), in their order. All requests run in parallel,
  * each bounded by the request timeout and the federation deadline. Any
- * failure keeps every hit. Writes nothing to stdout or stderr.
+ * failure, or a deadline that has already passed, keeps every hit. Writes
+ * nothing to stdout or stderr.
  */
 // @lat: [[knowledge-federation#Knowledge Federation#Decision Filter]]
 async function filterHitsByDecision(
@@ -152,6 +153,8 @@ async function filterHitsByDecision(
   url: string,
   deadlineAt: number,
 ): Promise<Map<StoreName, KnowledgeHit[]>> {
+  const remainingMs = deadlineAt - Date.now();
+  if (remainingMs <= 0) return hitsByStore;
   const question = prompt.slice(
     0,
     FEDERATION_RERANK_QUESTION_MAXIMUM_CHARACTERS,
@@ -159,7 +162,7 @@ async function filterHitsByDecision(
   const controller = new AbortController();
   const timer = setTimeout(
     () => controller.abort(new Error('the request timed out')),
-    Math.min(RERANK_REQUEST_TIMEOUT_MILLISECONDS, deadlineAt - Date.now()),
+    Math.min(RERANK_REQUEST_TIMEOUT_MILLISECONDS, remainingMs),
   );
   timer.unref?.();
   const entries = [...hitsByStore];
@@ -614,10 +617,19 @@ async function callerGroupsByDoc(
 
   const heading = `Callers (${cleanUntrustedId(provider.label)}):`;
   for (const doc of docs) {
-    const callers = symbolsByDoc
-      .get(doc.id)!
-      .flatMap(({ file, name }) => callersByKey.get(`${file}#${name}`) ?? [])
-      .slice(0, Math.min(MAX_CALLERS_PER_DOC, budget));
+    const callersByLocation = new Map<string, Caller>();
+    for (const { file, name } of symbolsByDoc.get(doc.id)!) {
+      for (const caller of callersByKey.get(`${file}#${name}`) ?? []) {
+        const location = `${caller.file}:${caller.line}:${caller.name}`;
+        if (!callersByLocation.has(location)) {
+          callersByLocation.set(location, caller);
+        }
+      }
+    }
+    const callers = [...callersByLocation.values()].slice(
+      0,
+      Math.min(MAX_CALLERS_PER_DOC, budget),
+    );
     if (callers.length === 0) continue;
     budget -= callers.length;
     groups.set(doc.id, [
