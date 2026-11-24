@@ -111,6 +111,36 @@ async function askDecisionModel(
   question: string,
   section: string,
 ): Promise<number> {
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new Error('the request timed out')),
+    RERANK_REQUEST_TIMEOUT_MILLISECONDS,
+  );
+  try {
+    return await requestDecision(
+      rerankUrl,
+      question,
+      section,
+      RERANK_QUESTION_INSTRUCTIONS,
+      controller.signal,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * The probability of yes that the decision model at `url` gives for
+ * `instructions` about `question` and `section`. Throws on any failure,
+ * including an abort of `signal`. Writes nothing to stdout or stderr.
+ */
+export async function requestDecision(
+  url: string,
+  question: string,
+  section: string,
+  instructions: string,
+  signal: AbortSignal,
+): Promise<number> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
@@ -121,40 +151,31 @@ async function askDecisionModel(
     );
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
 
-  const controller = new AbortController();
-  const timer = setTimeout(
-    () => controller.abort(new Error('the request timed out')),
-    RERANK_REQUEST_TIMEOUT_MILLISECONDS,
-  );
-  try {
-    const response = await fetch(rerankUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: process.env.LAT_RERANK_MODEL || RERANK_DEFAULT_MODEL,
-        state: { question, section },
-        questions: {
-          relevant: {
-            type: 'noul',
-            instructions: RERANK_QUESTION_INSTRUCTIONS,
-          },
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model: process.env.LAT_RERANK_MODEL || RERANK_DEFAULT_MODEL,
+      state: { question, section },
+      questions: {
+        relevant: {
+          type: 'noul',
+          instructions,
         },
-      }),
-      signal: controller.signal,
-      redirect: 'error',
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const body = (await response.json()) as {
-      answers?: { relevant?: { noul?: unknown } };
-    };
-    const probability = body?.answers?.relevant?.noul;
-    if (
-      typeof probability !== 'number' ||
-      !(probability >= 0 && probability <= 1)
-    )
-      throw new Error('the response has no probability from 0 to 1');
-    return probability;
-  } finally {
-    clearTimeout(timer);
-  }
+      },
+    }),
+    signal,
+    redirect: 'error',
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const body = (await response.json()) as {
+    answers?: { relevant?: { noul?: unknown } };
+  };
+  const probability = body?.answers?.relevant?.noul;
+  if (
+    typeof probability !== 'number' ||
+    !(probability >= 0 && probability <= 1)
+  )
+    throw new Error('the response has no probability from 0 to 1');
+  return probability;
 }

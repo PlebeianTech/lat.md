@@ -64,6 +64,106 @@ A file with no frontmatter block therefore has no `name` and no `description`, a
 
 The cap trims back to the last complete UTF-8 sequence rather than cutting mid-character, so a file that crosses 64 KB never ends in U+FFFD.
 
+## External stores
+
+A user can add a store without a new module in lat: they register a command
+under `knowledge_stores` in their own lat config. Implementation:
+[[src/knowledge/external.ts]]. [[src/knowledge/index.ts#DEFAULT_STORES]]
+appends one store per entry whose `operations` include `query`, after the
+built-ins and in config order.
+
+### Config format
+
+The config is the user-level `config.json` from `lat paths --config`. Each
+entry in the `knowledge_stores` array has these fields:
+
+- `name`: letters, digits and hyphens. An entry named `cq`, `bd` or
+  `claude-memory`, or named like an earlier entry, is skipped.
+- `label`: the group label in federation output, followed by a colon. It is
+  cleaned like any other untrusted id.
+- `command`: an array of strings, the executable and then its arguments.
+- `operations`: optional, default `["query"]`.
+- `timeout_ms`: optional, default 2000.
+
+```json
+{
+  "knowledge_stores": [
+    {
+      "name": "my-store",
+      "label": "My store",
+      "command": ["/usr/local/bin/my-store-adapter", "--json"],
+      "timeout_ms": 1500
+    }
+  ]
+}
+```
+
+[[src/knowledge/external.ts#readExternalStoreConfigs]] reads the file
+itself and returns an empty list on any problem. It does not call
+`readConfig`, which exits the process on a parse error: this code runs inside
+a prompt hook. A malformed entry is skipped and the others stay.
+
+### Request and response
+
+lat runs `command[0]` with the other strings as arguments, through
+`execFile` with no shell. It writes one JSON object to stdin:
+
+```json
+{"operation":"query","terms":["alpha"],"projectRoot":"/abs/path","limit":3}
+```
+
+The store prints a JSON array on stdout. Each object has a string `key`,
+`title` and `detail` and a number `score`, with the same meaning as in
+[[knowledge-federation#Store Contract#Hit shape]]. lat drops any object with
+the wrong shape and keeps at most `limit` hits.
+
+A non-zero exit, a timeout, output that is not a JSON array, or any other
+error gives no hits from that store. The other stores are not affected.
+
+lat kills the child at the smaller of `timeout_ms` and the time left before
+the federation deadline. Without that, a child that federation had abandoned
+would keep the hook process alive until its own timeout.
+
+### Only the user config can register a store
+
+lat reads stores only from the user's config, never from a file in the
+repository. A command that a repository declared would run arbitrary code.
+
+Repository content is attacker-controlled, as the cq term filter above
+explains. The terms on stdin also come from repository frontmatter, so they
+are passed as JSON data and never through a shell.
+
+The test suite points `XDG_CONFIG_HOME` at an empty temporary directory, so it
+never runs the stores that a developer registered.
+
+### Callers
+
+A store whose `operations` include `callers` answers who calls a code symbol.
+[[src/knowledge/callers.ts#findCallers]] uses the first such store in config
+order and reuses the config reader and process runner of
+[[src/knowledge/external.ts]]. lat writes one JSON object to stdin:
+
+```json
+{"operation":"callers","projectRoot":"/abs/path","symbols":[{"file":"src/auth.rb","name":"User#login"}],"depth":1}
+```
+
+`file` is project-relative with forward slashes. `name` is the symbol path
+that lat writes after the `#` in a source link, such as `App#listen` in
+`[[src/server.ts#App#listen]]`.
+
+The store prints a JSON array on stdout. Each object has the `symbol` that
+was asked about and its `callers`, each with a string `file`, a string `name`
+and a number `line`:
+
+```json
+[{"symbol":{"file":"src/auth.rb","name":"User#login"},"callers":[{"file":"src/app.rb","name":"App#run","line":7}]}]
+```
+
+The function returns a Map from `file#name` to that symbol's callers. With no
+store that supports `callers`, a non-zero exit, a timeout or output that is
+not JSON, the Map is empty. It skips a wrongly shaped entry or caller, and
+drops any caller whose file is absolute or contains `..`.
+
 ## Term Selection
 
 Turns a document's authored `tags:` into the search terms handed to each store. Implementation: [[src/knowledge/ranking.ts#tagsToTerms]]. The default budget is two terms.
@@ -98,6 +198,49 @@ Two marker sets separate "already reported" from "looked and found nothing", and
 
 A document that produced hits goes into `seen` and is never queried again. A document that produced nothing goes into `attemptedEmpty` instead — it is *not* marked seen, so a later run can still surface it once a store has something to say.
 
+## Hit Budget
+
+One prompt shows at most `maxTotalHits` hits across all documents and stores (default 9). Without it, each store added to federation could add up to nine more hits per prompt.
+
+The cap is spent in the acceptance step: documents in document order, and within a document, stores in store order (built-ins first, then external stores in config order). Each store's hits are first limited to `perStoreLimit`, then cut when the cap runs out.
+
+A document left with no hits is treated like a candidate beyond `maxEmitted`: it is not emitted and not added to `seen`, so a later prompt can still surface it. Below the cap, output is unchanged.
+
+## Decision Filter
+
+When the caller passes the user's prompt and `LAT_FEDERATION_RERANK_URL`
+holds a valid URL, a decision model drops the store hits that do not help
+with the prompt.
+
+Federation searches with a document's tags, not with what the user asked. A
+hit can match a tag and still not help with the request, and each added store
+adds such noise. The URL must be `http:` or `https:`. Without the prompt or
+the variable, no request is sent and the output is unchanged. An invalid URL
+turns the filter off; it does not fail federation.
+
+The filter uses the request format of [[decision-model-rerank#The request]],
+through [[src/fork/decision-model-rerank.ts#requestDecision]], and the same
+`LAT_RERANK_KEY` and `LAT_RERANK_MODEL` variables. The question is the prompt,
+cut at 1,200 characters. The section text is the hit's store label, title and
+detail. The instructions ask whether the stored knowledge helps with what the
+user asked a coding agent to do.
+
+Federation asks about every store hit of a document when the stores answer,
+before the document becomes a candidate and before the hit budget. It sends
+all requests at once. They end at the 10-second request timeout or at the
+federation deadline, whichever comes first. Hits with a probability below 0.5
+are dropped; the rest keep their order. Caller lines are not store hits: they
+are never sent to the model and never dropped.
+
+Any failure (network, HTTP status, redirect, malformed answer, timeout or
+deadline) keeps every hit of that document. A partial answer is not used. The
+filter writes nothing to stdout or stderr, because it runs inside a prompt
+hook.
+
+A document whose hits are all dropped is handled like a document with no
+hits: it goes into `attemptedEmpty`, not into `seen`, and it does not use a
+`maxEmitted` slot, so the next document with hits can be emitted instead.
+
 ## Session Markers
 
 `lat hook` runs as a fresh process per prompt, so the two marker sets would start empty every time without on-disk persistence. `src/knowledge/session.ts` is that persistence, keyed on the hook payload's session id.
@@ -116,12 +259,71 @@ Failing any of this must never fail the prompt and must never suppress a lookup.
 
 ## Output Format
 
-Results are grouped by document, then by store, under a single header. Store groups are labelled `cq:`, `bd memories:`, and `Claude Code memory:`.
+Results are grouped by document, then by store, under a single header. Store groups are labelled `cq:`, `bd memories:`, and `Claude Code memory:`. An external store's group uses its configured label.
 
 The [[untrusted-content#Notice]] appears exactly once, at the top of the whole result — never once per document. Everything below it is store content and is quoted accordingly.
 
 Federation returns `null` rather than an empty string when nothing matched, so the hook can distinguish "no output to add" from "an empty block to add".
 
+### Callers in output
+
+Under each emitted document, federation adds a `Callers (LABEL):` group that
+lists who calls the code symbols the document links. `LABEL` is the label of
+the callers store, cleaned like an external store label.
+
+Only documents that already have store hits are emitted, so a document with
+callers but no store hits is not shown. With no store that supports
+`callers`, the output has no such group and is the same as without it.
+
+[[src/knowledge/linked-symbols.ts#linkedSymbols]] reads the document's wiki
+links and keeps those whose target is a source file path with a `#` symbol,
+such as `[[src/auth.ts#validateToken]]`. It does not parse source files. It
+takes at most 10 symbols per document, in link order. A symbol linked more
+than once counts once.
+
+Federation calls [[src/knowledge/callers.ts#findCallers]] once per call, at
+depth 1, for the symbols of all emitted documents, inside the federation
+deadline. A lookup that fails or outlasts the deadline gives no group and
+leaves the store groups unchanged.
+
+Each document lists at most 3 callers as `NAME (FILE:LINE)`, quoted like hit
+text. A caller of several of the document's symbols is listed once. Caller
+lines count against `maxTotalHits`, but they spend only what the
+store hits leave of it, so the cap cuts caller lines first. When store hits use
+the whole cap, the callers store is not run.
+
+## Usage Events
+
+When usage tracking is on for the project root (see
+[[usage-analytics#Usage Analytics#Opt-in and the usage directory]]),
+federation writes one usage event per store query. The command is
+`federate:` plus the store name, so the cost and yield of each store can be
+measured before more stores are added.
+
+Each event has surface `hook` and caller `hook-injected`. It carries the
+query's wall time as `duration_ms`, the joined terms as `query`, the
+document id as `section_id`, and the hit count as `result_count` and
+`found`. `session_id` is null and `not_captured`: federation does not
+receive the session id. `injected_bytes` is null because the event injects
+nothing itself; the `lat hook` event records the injection.
+
+A query that the deadline abandons writes one event at the deadline, with
+`error_class` `deadline`. The query keeps running, but when it settles it
+writes nothing more, so each query has exactly one event.
+
+Writing an event never throws out of federation and never changes its
+output. With tracking off, nothing is written.
+
+Aggregation skips `federate:` events when it counts injections, savings
+and missed knowledge. Otherwise each store query would count as an
+injection with uncaptured bytes, as a read of the document, and as an
+unjoinable event, on top of the hook event that really injected the text.
+
 ## Test Specs
 
-Behaviour is specified in [[tests/knowledge-store]] and [[tests/knowledge-session]], with the federation entry point covered by the federate specs in [[tests/tests]].
+Behaviour is specified in [[tests/knowledge-store]] and [[tests/knowledge-session]], with the federation entry point covered by the federate specs in [[tests/tests]]. Usage events are specified in [[tests/fork-federate-usage]]. External stores are specified in
+[[tests/fork-external-stores]] and their callers lookup in
+[[tests/fork-external-callers]]. Callers in output are specified in
+[[tests/fork-federate-callers]].
+
+The decision filter is specified in [[tests/fork-federate-decision-filter]].

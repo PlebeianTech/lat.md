@@ -12,7 +12,13 @@ import {
   type Section,
 } from '@plebeiantech/lat.md-core/lattice-model';
 import { parseFrontmatter } from '@plebeiantech/lat.md-core/lattice';
-import { resolveSourceSymbol } from '@plebeiantech/lat.md-core/source-parser';
+import {
+  parseSourceSymbols,
+  resolveSourceSymbol,
+} from '@plebeiantech/lat.md-core/source-parser';
+import { findCallers, type CodeSymbol } from '../knowledge/callers.js';
+import { findSectionsLinkedToSymbols } from '../knowledge/caller-sections.js';
+import { readExternalStoreConfigs } from '../knowledge/external.js';
 import {
   buildGraph,
   loadWorkingTreeFiles,
@@ -33,6 +39,7 @@ export type ImpactOptions = {
   specs?: boolean;
   unreferenced?: boolean;
   all?: boolean;
+  callers?: boolean;
 };
 
 // @lat: [[cli#impact]]
@@ -202,9 +209,14 @@ function sectionOfNode(index: ImpactIndex, node: string): Section | undefined {
   );
 }
 
-export function walkReferrers(index: ImpactIndex, start: Section): Reached[] {
+export function walkReferrers(
+  index: ImpactIndex,
+  start: Section,
+  seen: Set<string> = new Set(),
+): Reached[] {
   const startNode = `${SECTION_NODE_PREFIX}${start.id}`;
-  return walkBackwards(index, new Set([startNode]), [startNode], 1);
+  seen.add(startNode);
+  return walkBackwards(index, seen, [startNode], 1);
 }
 
 function formatResult(section: Section): string {
@@ -221,7 +233,7 @@ function formatTail(distances: number[], depth: number): string {
 export function reportImpact(
   index: ImpactIndex,
   query: string,
-  opts: { depth: number; all?: boolean },
+  opts: { depth: number; all?: boolean; viaCallers?: Section[] },
 ): CmdResult {
   const resolved = resolveSection(index, query);
   if (!('section' in resolved)) {
@@ -239,16 +251,22 @@ export function reportImpact(
 
   const target = resolved.section;
   const reached = walkReferrers(index, target);
-  if (reached.length === 0) {
+  const viaCallers = opts.viaCallers ?? [];
+  if (reached.length === 0 && viaCallers.length === 0) {
     return { output: `No section depends on ${target.id}.` };
   }
+  const header =
+    reached.length === 0
+      ? `No section depends on ${target.id}.`
+      : `${reached.length} section${reached.length === 1 ? '' : 's'} affected by ${target.id}`;
 
   return {
     output: formatReached(
       reached,
-      `${reached.length} section${reached.length === 1 ? '' : 's'} affected by ${target.id}`,
+      header,
       opts.depth,
       opts.all === true,
+      viaCallers,
     ),
   };
 }
@@ -261,6 +279,7 @@ function formatReached(
   header: string,
   depth: number,
   all: boolean,
+  viaCallers: Section[] = [],
 ): string {
   const hidden = reached.filter((r) => r.distance > depth);
   const byDistance = new Map<number, Section[]>();
@@ -281,6 +300,12 @@ function formatReached(
       ]),
     );
   }
+  viaCallers.forEach((section, i) =>
+    entries.push([
+      ...(i === 0 ? ['', `via callers (${viaCallers.length}):`] : []),
+      formatResult(section),
+    ]),
+  );
   const depthTail =
     hidden.length > 0
       ? [
@@ -345,7 +370,7 @@ async function firstLineOfSymbolBlock(
 }
 
 // The symbol's line range, widened to the comment block directly above it.
-async function symbolRange(
+export async function symbolRange(
   projectRoot: string,
   file: string,
   symbolParts: string[],
@@ -474,6 +499,76 @@ function parseDepth(raw: string | undefined): number | null {
   return /^[1-9]\d*$/.test(raw) ? Number(raw) : null;
 }
 
+// The code symbols the walk passed through: for each `@lat` comment node, the
+// innermost symbol whose range holds the comment's line. The walk only adds
+// referrers, and a symbol node is never one, so comment nodes are all it sees.
+async function collectWalkedSymbols(
+  projectRoot: string,
+  seen: Set<string>,
+): Promise<CodeSymbol[]> {
+  const symbols = new Map<string, CodeSymbol>();
+  for (const node of seen) {
+    if (!node.startsWith(CODE_NODE_PREFIX)) continue;
+    const comment = /^(.+):(\d+)$/.exec(node.slice(CODE_NODE_PREFIX.length));
+    if (comment === null) continue;
+    const symbol = await enclosingSymbol(
+      projectRoot,
+      comment[1],
+      Number(comment[2]),
+    );
+    if (symbol !== undefined)
+      symbols.set(`${symbol.file}#${symbol.name}`, symbol);
+  }
+  return [...symbols.values()];
+}
+
+async function enclosingSymbol(
+  projectRoot: string,
+  file: string,
+  line: number,
+): Promise<CodeSymbol | undefined> {
+  let innermost: { symbol: CodeSymbol; size: number } | undefined;
+  try {
+    const content = await readFile(join(projectRoot, file), 'utf-8');
+    for (const { name, parent } of await parseSourceSymbols(file, content)) {
+      const nameParts = parent ? [parent, name] : [name];
+      const range = await symbolRange(projectRoot, file, nameParts);
+      if (range === undefined) continue;
+      if (line < range.startLine || line > range.endLine) continue;
+      const size = range.endLine - range.startLine;
+      if (innermost === undefined || size < innermost.size) {
+        innermost = { symbol: { file, name: nameParts.join('#') }, size };
+      }
+    }
+  } catch {
+    // An unreadable or unparseable file has no enclosing symbol.
+  }
+  return innermost?.symbol;
+}
+
+// The sections linked to callers of the code the walk passed through, minus
+// the target and the sections the walk listed.
+async function findViaCallerSections(
+  index: ImpactIndex,
+  projectRoot: string,
+  query: string,
+): Promise<Section[]> {
+  const resolved = resolveSection(index, query);
+  if (!('section' in resolved)) return [];
+  const target = resolved.section;
+  const seen = new Set<string>();
+  const reached = walkReferrers(index, target, seen);
+  const symbols = await collectWalkedSymbols(projectRoot, seen);
+  if (symbols.length === 0) return [];
+  const callersBySymbol = await findCallers(projectRoot, symbols, { depth: 1 });
+  const callers = [...callersBySymbol.values()].flat();
+  if (callers.length === 0) return [];
+  const listed = new Set([target.id, ...reached.map((r) => r.section.id)]);
+  return (await findSectionsLinkedToSymbols(projectRoot, callers))
+    .filter((id) => !listed.has(id))
+    .flatMap((id) => index.sectionsById.get(id.toLowerCase()) ?? []);
+}
+
 export async function impactCommand(
   ctx: CmdContext,
   query: string | undefined,
@@ -504,7 +599,25 @@ export async function impactCommand(
       all: opts.all === true,
     });
   }
-  return reportImpact(index, query, { depth, all: opts.all === true });
+  if (opts.callers !== true) {
+    return reportImpact(index, query, { depth, all: opts.all === true });
+  }
+  const hasCallersProvider = readExternalStoreConfigs().some((config) =>
+    config.operations.includes('callers'),
+  );
+  const viaCallers = hasCallersProvider
+    ? await findViaCallerSections(index, ctx.projectRoot, query)
+    : [];
+  const report = reportImpact(index, query, {
+    depth,
+    all: opts.all === true,
+    viaCallers,
+  });
+  if (hasCallersProvider || report.isError) return report;
+  return {
+    ...report,
+    output: `${report.output}\n\nNo callers provider is configured.`,
+  };
 }
 
 export function registerImpactCommand(program: Command): void {
@@ -528,6 +641,10 @@ export function registerImpactCommand(program: Command): void {
     .option(
       '--unreferenced',
       'list the sections nothing refers to, as ids and file:line; default output is bounded',
+    )
+    .option(
+      '--callers',
+      'also list the sections linked to callers of the code the walk reaches, under "via callers"; needs a callers provider',
     )
     .option(
       '--all',

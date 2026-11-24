@@ -217,7 +217,7 @@ function buildPlan(context: AggregateContext): Plan {
       add(item.session_id, item);
       continue;
     }
-    if (!item.usage) continue;
+    if (!item.usage || item.usage.command.startsWith('federate:')) continue;
     const joined = joinByWindow(item, sessions);
     if (joined) add(joined, item);
     else if (item.usage.caller !== 'human') unjoinable.add(item.id);

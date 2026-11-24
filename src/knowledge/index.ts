@@ -1,21 +1,42 @@
+import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { packageVersion } from '@plebeiantech/lat.md-core/cli';
 import { parseFrontmatter } from '@plebeiantech/lat.md-core/lattice';
 import {
   UNTRUSTED_NOTICE,
   quoteUntrusted,
   cleanUntrustedId,
 } from '@plebeiantech/lat.md-core/untrusted';
+import {
+  parseRerankUrl,
+  requestDecision,
+  RERANK_REQUEST_TIMEOUT_MILLISECONDS,
+} from '../fork/decision-model-rerank.js';
+import { detectAgent } from '../fork/usage/agent-detect.js';
+import { readGitState } from '../fork/usage/cli-tap.js';
+import { usageEnabled } from '../fork/usage/enabled.js';
+import { USAGE_SCHEMA_VERSION, type UsageEvent } from '../fork/usage/schema.js';
+import { writeUsageEvent } from '../fork/usage/writer.js';
+import { findCallers, type Caller, type CodeSymbol } from './callers.js';
+import { externalStores, readExternalStoreConfigs } from './external.js';
+import { linkedSymbols } from './linked-symbols.js';
 import { tagsToTerms, capHits } from './ranking.js';
-import type { Store, StoreName, KnowledgeHit, TaggedDoc } from './types.js';
+import type {
+  BuiltInStoreName,
+  Store,
+  StoreName,
+  KnowledgeHit,
+  TaggedDoc,
+} from './types.js';
 
-const STORE_GROUP_LABELS: Record<StoreName, string> = {
+const STORE_GROUP_LABELS: Record<BuiltInStoreName, string> = {
   cq: 'cq:',
   bd: 'bd memories:',
   'claude-memory': 'Claude Code memory:',
 };
 
-function storeExportName(name: StoreName): string {
+function storeExportName(name: BuiltInStoreName): string {
   switch (name) {
     case 'cq':
       return 'cqStore';
@@ -35,10 +56,13 @@ function storeExportName(name: StoreName): string {
  * Each import is wrapped individually so one missing/broken store module
  * leaves the other two available, per the "every store is optional" contract
  * in types.ts.
+ *
+ * External stores registered in the user config follow the built-ins, in
+ * config order (see external.ts).
  */
 export async function DEFAULT_STORES(): Promise<Store[]> {
   const stores: Store[] = [];
-  const specs: Array<{ path: string; name: StoreName }> = [
+  const specs: Array<{ path: string; name: BuiltInStoreName }> = [
     { path: './cq.js', name: 'cq' },
     { path: './bd.js', name: 'bd' },
     { path: './claude-memory.js', name: 'claude-memory' },
@@ -56,6 +80,7 @@ export async function DEFAULT_STORES(): Promise<Store[]> {
       // Absent module, missing binary, etc. — treated as "store not present".
     }
   }
+  stores.push(...externalStores());
   return stores;
 }
 
@@ -67,6 +92,8 @@ export type FederateOptions = {
   perStoreLimit?: number;
   /** Max terms taken from one tag list. Default 2. */
   maxTerms?: number;
+  /** Max hits shown across all documents and stores. Default 9. */
+  maxTotalHits?: number;
   /** Max documents that actually EMIT a block. Default 3. */
   maxEmitted?: number;
   /** Max documents a lookup is attempted for. Default 20. */
@@ -89,22 +116,190 @@ export type FederateOptions = {
   concurrency?: number;
   /** Overall wall-clock budget for the whole call, in ms. Default 5000. */
   deadlineMs?: number;
+  /**
+   * What the user asked the agent. With LAT_FEDERATION_RERANK_URL set, a
+   * decision model drops the store hits that do not help with it.
+   */
+  prompt?: string;
 };
+
+const FEDERATION_RERANK_QUESTION_MAXIMUM_CHARACTERS = 1_200;
+const FEDERATION_RERANK_INSTRUCTIONS =
+  'The question is what the user asked a coding agent to do. Does this stored knowledge help with that request?';
+
+/** The valid URL in LAT_FEDERATION_RERANK_URL, or null. Never throws. */
+function federationRerankUrl(): string | null {
+  const value = process.env.LAT_FEDERATION_RERANK_URL;
+  if (!value) return null;
+  try {
+    return parseRerankUrl(value);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The store hits that the decision model at `url` says help with `prompt`
+ * (probability 0.5 or more), in their order. All requests run in parallel,
+ * each bounded by the request timeout and the federation deadline. Any
+ * failure, or a deadline that has already passed, keeps every hit. Writes
+ * nothing to stdout or stderr.
+ */
+// @lat: [[knowledge-federation#Knowledge Federation#Decision Filter]]
+async function filterHitsByDecision(
+  hitsByStore: Map<StoreName, KnowledgeHit[]>,
+  stores: Store[],
+  prompt: string,
+  url: string,
+  deadlineAt: number,
+): Promise<Map<StoreName, KnowledgeHit[]>> {
+  const remainingMs = deadlineAt - Date.now();
+  if (remainingMs <= 0) return hitsByStore;
+  const question = prompt.slice(
+    0,
+    FEDERATION_RERANK_QUESTION_MAXIMUM_CHARACTERS,
+  );
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new Error('the request timed out')),
+    Math.min(RERANK_REQUEST_TIMEOUT_MILLISECONDS, remainingMs),
+  );
+  timer.unref?.();
+  const entries = [...hitsByStore];
+  try {
+    const probabilities = await Promise.all(
+      entries.map(([storeName, hits]) => {
+        const label = storeGroupLabel(
+          stores.find((s) => s.name === storeName)!,
+        );
+        return Promise.all(
+          hits.map((hit) =>
+            requestDecision(
+              url,
+              question,
+              [label, hit.title, hit.detail].join('\n'),
+              FEDERATION_RERANK_INSTRUCTIONS,
+              controller.signal,
+            ),
+          ),
+        );
+      }),
+    );
+    const kept = new Map<StoreName, KnowledgeHit[]>();
+    entries.forEach(([storeName, hits], i) => {
+      const helpful = hits.filter((_, j) => probabilities[i][j] >= 0.5);
+      if (helpful.length > 0) kept.set(storeName, helpful);
+    });
+    return kept;
+  } catch {
+    return hitsByStore;
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+  }
+}
 
 async function queryStore(
   store: Store,
   terms: string[],
   projectRoot: string,
   limit: number,
+  remainingMs: number,
 ): Promise<KnowledgeHit[]> {
   try {
-    return await store.query({ terms, projectRoot, limit });
+    return await store.query({ terms, projectRoot, limit, remainingMs });
   } catch {
     // A store must never throw per its contract, but a caller-injected fake
     // in tests might — treat a rejection the same as an empty result so one
     // misbehaving store can't take down federation for every document.
     return [];
   }
+}
+
+/** Records one store query; `hits` is null when the deadline abandoned it. */
+type StoreQueryRecorder = (
+  store: StoreName,
+  doc: TaggedDoc,
+  terms: string[],
+  start: number,
+  hits: KnowledgeHit[] | null,
+) => void;
+
+// @lat: [[knowledge-federation#Knowledge Federation#Usage Events]]
+function storeQueryRecorder(root: string): StoreQueryRecorder | null {
+  if (!usageEnabled(root)) return null;
+  const { agent } = detectAgent();
+  const { head, worktree } = readGitState(root);
+  const latVersion = packageVersion(import.meta.url);
+  return (store, doc, terms, start, hits) => {
+    const unknown_reasons: UsageEvent['unknown_reasons'] = {
+      session_id: 'not_captured',
+      parent_session_id: 'not_captured',
+    };
+    if (agent.value === null) unknown_reasons.agent = agent.reason;
+    if (head === null) unknown_reasons.git_head = 'not_captured';
+    if (worktree === null) unknown_reasons.worktree = 'not_captured';
+    writeUsageEvent(root, {
+      schema_version: USAGE_SCHEMA_VERSION,
+      event_id: randomUUID(),
+      ts: new Date(start).toISOString(),
+      duration_ms: Date.now() - start,
+      command: `federate:${store}`,
+      surface: 'hook',
+      caller: 'hook-injected',
+      agent: agent.value,
+      lat_version: latVersion,
+      session_id: null,
+      parent_session_id: null,
+      repo_root: root,
+      git_head: head,
+      worktree,
+      query: terms.join(' '),
+      result_ids: [],
+      result_count: hits?.length ?? 0,
+      section_id: doc.id,
+      injected_bytes: null,
+      found: (hits?.length ?? 0) > 0,
+      bytes_out: null,
+      exit_code: 0,
+      error_class: hits === null ? 'deadline' : null,
+      unknown_reasons,
+    });
+  };
+}
+
+/**
+ * Queries one store and records it once: when it settles, or when
+ * `abandon` runs first at the deadline. A failed record never reaches
+ * federation.
+ */
+function timedStoreQuery(
+  store: Store,
+  doc: TaggedDoc,
+  terms: string[],
+  projectRoot: string,
+  limit: number,
+  remainingMs: number,
+  record: StoreQueryRecorder | null,
+): { hits: Promise<KnowledgeHit[]>; abandon: () => void } {
+  const start = Date.now();
+  let recorded = false;
+  const recordOnce = (hits: KnowledgeHit[] | null) => {
+    if (recorded || record === null) return;
+    recorded = true;
+    try {
+      record(store.name, doc, terms, start, hits);
+    } catch {
+      // Usage tracking must never change what federation returns.
+    }
+  };
+  const hits = queryStore(store, terms, projectRoot, limit, remainingMs).then(
+    (found) => {
+      recordOnce(found);
+      return found;
+    },
+  );
+  return { hits, abandon: () => recordOnce(null) };
 }
 
 /**
@@ -134,12 +329,15 @@ export async function federateTags(
   const stores = opts.stores ?? (await DEFAULT_STORES());
   const perStoreLimit = opts.perStoreLimit ?? 3;
   const maxTerms = opts.maxTerms ?? 2;
+  const maxTotalHits = opts.maxTotalHits ?? 9;
   const maxEmitted = opts.maxEmitted ?? 3;
   const maxAttempts = opts.maxAttempts ?? 20;
   const seen = opts.seen ?? new Set<string>();
   const attemptedEmpty = opts.attemptedEmpty ?? new Set<string>();
   const concurrency = Math.max(1, opts.concurrency ?? 4);
   const deadlineAt = Date.now() + (opts.deadlineMs ?? 5000);
+  const recordStoreQuery = storeQueryRecorder(opts.projectRoot);
+  const rerankUrl = opts.prompt ? federationRerankUrl() : null;
 
   // A document with a hit is buffered here by its original index rather
   // than accepted immediately: under concurrency, several documents can
@@ -212,21 +410,32 @@ export async function federateTags(
       // open with no bound at all. Racing the queries against the remaining
       // budget is what makes the deadline hard rather than advisory: an
       // overrunning store is abandoned, never awaited.
-      const results = await raceDeadline(
-        Promise.allSettled(
-          stores.map((store) =>
-            queryStore(store, terms, opts.projectRoot, perStoreLimit),
-          ),
+      const remainingMs = deadlineAt - Date.now();
+      const queries = stores.map((store) =>
+        timedStoreQuery(
+          store,
+          doc,
+          terms,
+          opts.projectRoot,
+          perStoreLimit,
+          remainingMs,
+          recordStoreQuery,
         ),
+      );
+      const results = await raceDeadline(
+        Promise.allSettled(queries.map((query) => query.hits)),
         deadlineAt - Date.now(),
       );
 
       // Deadline expired mid-query. Return what has been gathered. The
       // document is deliberately NOT marked attemptedEmpty: it was never
       // answered, so a later call must be free to try it again.
-      if (results === null) return;
+      if (results === null) {
+        for (const query of queries) query.abandon();
+        return;
+      }
 
-      const hitsByStore = new Map<StoreName, KnowledgeHit[]>();
+      let hitsByStore = new Map<StoreName, KnowledgeHit[]>();
       for (let i = 0; i < stores.length; i++) {
         const result = results[i];
         const hits = result.status === 'fulfilled' ? result.value : [];
@@ -235,10 +444,23 @@ export async function federateTags(
         }
       }
 
+      // Filtering here, before the document becomes a candidate, lets a
+      // document whose hits are all dropped free its maxEmitted slot.
+      if (rerankUrl !== null && hitsByStore.size > 0) {
+        hitsByStore = await filterHitsByDecision(
+          hitsByStore,
+          stores,
+          opts.prompt!,
+          rerankUrl,
+          deadlineAt,
+        );
+      }
+
       if (hitsByStore.size === 0) {
-        // Nothing found: don't mark seen, don't count as emitted. A document
-        // that produced nothing stays unmarked so a later run — once the
-        // stores have something to say — can still surface it.
+        // Nothing found, or nothing the decision model kept: don't mark
+        // seen, don't count as emitted. A document that produced nothing
+        // stays unmarked so a later run — once the stores have something to
+        // say — can still surface it.
         attemptedEmpty.add(doc.id);
         continue;
       }
@@ -259,11 +481,45 @@ export async function federateTags(
   const acceptedIndices = [...candidates.keys()]
     .sort((a, b) => a - b)
     .slice(0, maxEmitted);
-  const blocks = acceptedIndices.map((index) => {
+  // The total hit cap is spent in document order, then store order within a
+  // document. A document left with no hits is dropped like a candidate beyond
+  // maxEmitted: not emitted, not marked seen.
+  let hitsLeft = maxTotalHits;
+  const accepted: Array<{
+    doc: TaggedDoc;
+    keptByStore: Map<StoreName, KnowledgeHit[]>;
+  }> = [];
+  for (const index of acceptedIndices) {
     const { doc, hitsByStore } = candidates.get(index)!;
+    const keptByStore = new Map<StoreName, KnowledgeHit[]>();
+    for (const [storeName, hits] of hitsByStore) {
+      const kept = capHits(hits, perStoreLimit).slice(0, hitsLeft);
+      if (kept.length === 0) continue;
+      keptByStore.set(storeName, kept);
+      hitsLeft -= kept.length;
+    }
+    if (keptByStore.size === 0) continue;
     seen.add(doc.id);
-    return formatDocBlock(doc, hitsByStore, perStoreLimit);
-  });
+    accepted.push({ doc, keptByStore });
+  }
+
+  // Callers spend only what the store hits left of the cap, so they never
+  // displace a store hit and never decide which documents are emitted.
+  const callerGroups = await callerGroupsByDoc(
+    accepted.map(({ doc }) => doc),
+    opts.projectRoot,
+    hitsLeft,
+    deadlineAt,
+  );
+  const blocks = accepted.map(({ doc, keptByStore }) =>
+    formatDocBlock(
+      doc,
+      keptByStore,
+      perStoreLimit,
+      stores,
+      callerGroups.get(doc.id) ?? [],
+    ),
+  );
 
   if (blocks.length === 0) return null;
 
@@ -281,6 +537,8 @@ function formatDocBlock(
   doc: TaggedDoc,
   hitsByStore: Map<StoreName, KnowledgeHit[]>,
   perStoreLimit: number,
+  stores: Store[],
+  callerLines: string[],
 ): string {
   // The heading lists the document's WHOLE authored tag list, even though
   // only the first two (maxTerms) drove the search — that keeps the heading
@@ -306,11 +564,92 @@ function formatDocBlock(
       hitLines.push(`- ${title} -> ${detail}`);
     }
     if (hitLines.length === 0) continue;
-    lines.push(STORE_GROUP_LABELS[storeName]);
+    lines.push(storeGroupLabel(stores.find((s) => s.name === storeName)!));
     lines.push(...hitLines);
   }
 
+  lines.push(...callerLines);
   return lines.join('\n');
+}
+
+const MAX_CALLERS_PER_DOC = 3;
+
+/**
+ * The lines of each document's 'Callers (LABEL):' group, by document id. One
+ * findCallers call asks about the symbols of every document, inside the
+ * federation deadline. At most `budget` caller lines are spent, in document
+ * order. A document with no callers has no entry; with no callers provider,
+ * no budget, or a lookup that fails or outlasts the deadline, the Map is
+ * empty. The caller text is untrusted, like hit text.
+ */
+async function callerGroupsByDoc(
+  docs: TaggedDoc[],
+  projectRoot: string,
+  budget: number,
+  deadlineAt: number,
+): Promise<Map<string, string[]>> {
+  const groups = new Map<string, string[]>();
+  const provider = readExternalStoreConfigs().find((config) =>
+    config.operations.includes('callers'),
+  );
+  if (provider === undefined || budget <= 0) return groups;
+
+  const symbolsByDoc = new Map<string, CodeSymbol[]>();
+  const allSymbols = new Map<string, CodeSymbol>();
+  for (const doc of docs) {
+    const symbols = await linkedSymbols(projectRoot, doc.id);
+    symbolsByDoc.set(doc.id, symbols);
+    for (const symbol of symbols) {
+      allSymbols.set(`${symbol.file}#${symbol.name}`, symbol);
+    }
+  }
+  if (allSymbols.size === 0) return groups;
+
+  const remainingMs = deadlineAt - Date.now();
+  const callersByKey = await raceDeadline(
+    findCallers(projectRoot, [...allSymbols.values()], {
+      depth: 1,
+      remainingMs,
+    }),
+    remainingMs,
+  );
+  if (callersByKey === null) return groups;
+
+  const heading = `Callers (${cleanUntrustedId(provider.label)}):`;
+  for (const doc of docs) {
+    const callersByLocation = new Map<string, Caller>();
+    for (const { file, name } of symbolsByDoc.get(doc.id)!) {
+      for (const caller of callersByKey.get(`${file}#${name}`) ?? []) {
+        const location = `${caller.file}:${caller.line}:${caller.name}`;
+        if (!callersByLocation.has(location)) {
+          callersByLocation.set(location, caller);
+        }
+      }
+    }
+    const callers = [...callersByLocation.values()].slice(
+      0,
+      Math.min(MAX_CALLERS_PER_DOC, budget),
+    );
+    if (callers.length === 0) continue;
+    budget -= callers.length;
+    groups.set(doc.id, [
+      heading,
+      ...callers.map(
+        ({ name, file, line }) =>
+          `- ${quoteUntrusted(`${name} (${file}:${line})`, 200)}`,
+      ),
+    ]);
+  }
+  return groups;
+}
+
+/**
+ * A built-in store keeps its fixed label. An external store's label comes
+ * from the user config and is cleaned like any other untrusted id.
+ */
+function storeGroupLabel(store: Store): string {
+  if (store.label !== undefined) return `${cleanUntrustedId(store.label)}:`;
+  return STORE_GROUP_LABELS[store.name as BuiltInStoreName];
 }
 
 /**

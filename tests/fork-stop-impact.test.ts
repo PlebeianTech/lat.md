@@ -515,12 +515,15 @@ describe('fork stop impact reviewed sections', () => {
     return repo;
   }
 
-  function reviewStatus(repo: string) {
+  /** The review status, with its caller sections looked up. */
+  async function reviewStatus(repo: string) {
     const latDir = join(repo, 'lat.md');
-    return findUnreviewedSectionsForDiff(
-      repo,
-      new CheckRunContext(latDir, repo),
-    );
+    const { findCallerSections, ...status } =
+      await findUnreviewedSectionsForDiff(
+        repo,
+        new CheckRunContext(latDir, repo),
+      );
+    return { ...status, callerSections: await findCallerSections() };
   }
 
   // @lat: [[fork-stop-impact#Fork Stop Impact#Untouched linked section is not reviewed]]
@@ -530,6 +533,7 @@ describe('fork stop impact reviewed sections', () => {
     expect(await reviewStatus(repo)).toEqual({
       linkedSectionCount: 1,
       unreviewedSections: ['lat.md/doc#Doc#Transport'],
+      callerSections: [],
     });
   });
 
@@ -541,6 +545,7 @@ describe('fork stop impact reviewed sections', () => {
     expect(await reviewStatus(repo)).toEqual({
       linkedSectionCount: 1,
       unreviewedSections: [],
+      callerSections: [],
     });
 
     const freshRepo = makeRepo(['Transport'], ['Transport']);
@@ -558,6 +563,7 @@ describe('fork stop impact reviewed sections', () => {
     expect(await reviewStatus(repo)).toEqual({
       linkedSectionCount: 2,
       unreviewedSections: ['lat.md/doc#Doc#Storage'],
+      callerSections: [],
     });
   });
 
@@ -575,6 +581,7 @@ describe('fork stop impact reviewed sections', () => {
     expect(await reviewStatus(repo)).toEqual({
       linkedSectionCount: 12,
       unreviewedSections: ['lat.md/doc#Doc#Item11', 'lat.md/doc#Doc#Item12'],
+      callerSections: [],
     });
   });
 
@@ -594,6 +601,7 @@ describe('fork stop impact reviewed sections', () => {
     expect(await reviewStatus(repo)).toEqual({
       linkedSectionCount: 1,
       unreviewedSections: [],
+      callerSections: [],
     });
   });
 
@@ -613,6 +621,7 @@ describe('fork stop impact reviewed sections', () => {
     expect(await reviewStatus(repo)).toEqual({
       linkedSectionCount: 1,
       unreviewedSections: [],
+      callerSections: [],
     });
   });
 
@@ -633,6 +642,7 @@ describe('fork stop impact reviewed sections', () => {
     expect(await reviewStatus(repo)).toEqual({
       linkedSectionCount: 1,
       unreviewedSections: [],
+      callerSections: [],
     });
   });
 
@@ -645,6 +655,7 @@ describe('fork stop impact reviewed sections', () => {
     expect(await reviewStatus(repo)).toEqual({
       linkedSectionCount: 1,
       unreviewedSections: [],
+      callerSections: [],
     });
   });
 
